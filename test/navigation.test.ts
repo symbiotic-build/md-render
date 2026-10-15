@@ -31,6 +31,27 @@ async function fixture() {
 }
 const settle = (browser: BrowserSession) => browser.evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
 
+it('follows an inbound map fragment to an empty target while retaining the sibling menu links', async () => {
+  const source = await mkdtemp(path.join(tmpdir(), 'md-render-map-'));
+  scratch.push(source);
+  await writeFile(path.join(source, 'index.md'), '# Book\n\n<!-- spec-docs:navigation document="book" -->\n\n## Overview\n\nPurpose.\n\n<a id="book-map"></a>\n\n## Document map\n\n- Duplicate chapter list\n\n## Entity index\n\nTerms.\n\n<!-- /spec-docs:navigation -->');
+  await writeFile(path.join(source, 'other.md'), '# Other\n\n[Map](index.md#book-map)');
+  const output = path.join(source, 'rendered');
+  await renderSite(source, output, { mermaid: false });
+  await withBrowser(async browser => {
+    await browser.navigate(pathToFileURL(path.join(output, 'other.html')).href);
+    const href = await browser.evaluate<string>(`document.querySelector('article a').href`);
+    await browser.navigate(href);
+    expect(await browser.evaluate(`location.hash`)).toBe('#book-map');
+    expect(await browser.evaluate(`document.querySelector(':target').outerHTML`)).toBe('<a id="book-map"></a>');
+    expect(await browser.evaluate(`document.querySelectorAll('[id="book-map"]').length`)).toBe(1);
+    expect(await browser.evaluate(`document.querySelector('article').textContent.includes('Duplicate chapter list')`)).toBe(false);
+    expect(await browser.evaluate(`Array.from(document.querySelectorAll('#chapter-sections-0 > ol > li > a'), a => [a.textContent, !!document.getElementById(a.hash.slice(1))])`)).toEqual([
+      ['Overview', true], ['Entity index', true],
+    ]);
+  });
+});
+
 it('flattens single-chapter documents to their document title with current sections', async () => {
   const { output } = await fixture();
   const html = await readFile(path.join(output, 'single-0.html'), 'utf8');

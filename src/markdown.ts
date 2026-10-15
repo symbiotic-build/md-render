@@ -52,9 +52,35 @@ function element(tag: string, properties: Element['properties'], children: Eleme
   return { type: 'paragraph', children: [], data: { hName: tag, hProperties: properties, hChildren: children } };
 }
 
+function navigationMapNodes(tree: Root): Set<Nodes> {
+  const omitted = new Set<Nodes>();
+  let start: number | undefined;
+  for (const [index, node] of tree.children.entries()) {
+    if (node.type !== 'html') continue;
+    if (/^<!-- spec-docs:navigation document="[^"<>]+" -->$/.test(node.value)) {
+      start = index + 1;
+    } else if (node.value === '<!-- /spec-docs:navigation -->' && start !== undefined) {
+      let hiding = false;
+      for (let i = start; i < index; i++) {
+        const child = tree.children[i]!;
+        if (child.type === 'heading' && child.depth <= 2) {
+          hiding = child.depth === 2 && toString(child) === 'Document map';
+        }
+        // An explicit anchor before the next section belongs to that section.
+        const next = tree.children[i + 1];
+        if (blockAnchor(child) && next?.type === 'heading' && next.depth <= 2) continue;
+        if (hiding) visit(child, (descendant) => { omitted.add(descendant); });
+      }
+      start = undefined;
+    }
+  }
+  return omitted;
+}
+
 /** Parses ordinary Markdown, preserving only explicit empty HTML anchors as markup. */
 export function parseDocument(markdown: string, fallbackTitle: string): ParsedDocument {
   const tree = parser.parse(markdown.replace(/\r\n?/g, '\n')) as Root;
+  const omitted = navigationMapNodes(tree);
   const anchors = new Set<string>();
   const headings: ParsedDocument['headings'] = [];
   const meanings = new Map<string, string>();
@@ -76,7 +102,7 @@ export function parseDocument(markdown: string, fallbackTitle: string): ParsedDo
     node.data = { ...node.data, hProperties: { id } };
     // Read authored anchors before the HTML transform; keep generated IDs as valid targets too.
     const explicit = index !== undefined && parent ? blockAnchor(parent.children[index - 1]) : undefined;
-    headings.push({ id: explicit ?? id, title: toString(node, { includeHtml: false }), depth: node.depth });
+    if (!omitted.has(node)) headings.push({ id: explicit ?? id, title: toString(node, { includeHtml: false }), depth: node.depth });
   });
   // Home anchor, heading, first paragraph: the format's canonical one-line meaning.
   for (let i = 0; i < tree.children.length; i++) {
@@ -89,6 +115,18 @@ export function parseDocument(markdown: string, fallbackTitle: string): ParsedDo
       meanings.set(id, toString(paragraph).replace(/\s+/g, ' ').trim());
     }
   }
+  // Assign all source IDs first so omission cannot change later slugs or break inbound links.
+  // Keep definitions too: retained sections can reference definitions inside the omitted map.
+  tree.children = tree.children.flatMap((node) => {
+    if (!omitted.has(node)) return [node];
+    const retained: RootContent[] = [];
+    visit(node, (child) => {
+      const id = child.type === 'html' ? anchor(child.value) : child.data?.hProperties?.id;
+      if (typeof id === 'string') retained.push(element('a', { id }, []));
+      if (child.type === 'definition') retained.push(child);
+    });
+    return retained;
+  });
   visit(tree, (node, index, parent) => {
     if (index === undefined || !parent) return;
     if (node.type === 'yaml') {

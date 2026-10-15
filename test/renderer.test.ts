@@ -113,6 +113,82 @@ it('includes a single level-two section and its children', () => {
     { id: 'only', title: 'Only', children: [{ id: 'child', title: 'Child', children: [] }] },
   ]);
 });
+describe('generated navigation regions', () => {
+  const start = '<!-- spec-docs:navigation document="book" -->';
+  const end = '<!-- /spec-docs:navigation -->';
+  const overview = '## Overview\n\nPurpose with **formatting**.\n\n### Audience\n\nReaders.';
+  const entities = '<a id="entities"></a>\n\n## Entity index\n\n- [Term](#term)\n\n<a id="term"></a>\n\n### Term\n\nMeaning.';
+  const map = '## Document map\n\n- Duplicate chapter list\n  - <a id="map-item"></a>Nested entry\n\n### Map detail\n\nDuplicate detail.';
+
+  it('omits only the marked level-two document map and keeps its siblings unchanged', async () => {
+    const doc = parseDocument(`# Book\n\n${start}\n\n${overview}\n\n${map}\n\n${entities}\n\n${end}\n\n## Document map\n\nAuthored map.`, 'fallback');
+    const html = await documentHtml(doc);
+    expect(html).not.toContain('Duplicate chapter list');
+    expect(html).not.toContain('Nested entry');
+    expect(html).not.toContain('Duplicate detail');
+    expect(html).not.toContain('<h3 id="map-detail">');
+    expect(html.match(/>Document map<\/h2>/g)).toHaveLength(1);
+    for (const section of [overview, entities]) {
+      expect(html).toContain(await documentHtml(parseDocument(section, 'fallback')));
+    }
+    expect(html).toContain('<h2 id="document-map-1">Document map</h2>\n<p>Authored map.</p>');
+    expect(documentOutline(doc)).toEqual([
+      { id: 'overview', title: 'Overview', children: [{ id: 'audience', title: 'Audience', children: [] }] },
+      { id: 'entities', title: 'Entity index', children: [{ id: 'term', title: 'Term', children: [] }] },
+      { id: 'document-map-1', title: 'Document map', children: [] },
+    ]);
+    for (const id of doc.anchors) expect(html).toContain(`id="${id}"`);
+  });
+
+  it.each([
+    ['', ''],
+    ['<!-- navigation document="book" -->', end],
+    ["<!-- spec-docs:navigation document='book' -->", end],
+    ['<!-- spec-docs:navigation document="book" extra="yes" -->', end],
+    [start, '<!-- /navigation -->'],
+    [start, ''],
+    ['', end],
+    [end, start],
+    [`\`\`\`md\n${start}\n\`\`\``, end],
+  ])('keeps document maps without an exact complete marker pair (%s, %s)', async (open, close) => {
+    const html = await documentHtml(parseDocument(`# Book\n\n${open}\n\n${map}\n\n${close}`, 'fallback'));
+    expect(html).toContain('<h2 id="document-map">Document map</h2>');
+    expect(html).toContain('Duplicate chapter list');
+  });
+
+  it('keeps other heading levels and text outside the marked region', async () => {
+    const html = await documentHtml(parseDocument(`${start}\n\n### Document map\n\nNested map.\n\n${end}\n\n## Document map\n\nOutside map.`, 'fallback'));
+    expect(html).toContain('<h3 id="document-map">Document map</h3>');
+    expect(html).toContain('Nested map.');
+    expect(html).toContain('Outside map.');
+  });
+
+  it('stops omission at the closing marker and retains shared reference definitions', async () => {
+    const doc = parseDocument(`${start}\n\n## Overview\n\n[Purpose][purpose]\n\n${map}\n\n[purpose]: #overview\n\n${end}\n\nAfter the region.`, 'fallback');
+    const html = await documentHtml(doc);
+    expect(html).toContain('<a href="#overview">Purpose</a>');
+    expect(html).toContain('<p>After the region.</p>');
+    expect(html).not.toContain('Duplicate chapter list');
+  });
+
+  it.each(['', '<a id="map-home"></a>\n\n'])('resolves inbound links to omitted anchors and keeps menu siblings (%s)', async (explicit) => {
+    const source = await temp();
+    const target = explicit ? 'map-home' : 'document-map';
+    await writeFile(path.join(source, 'index.md'), `# Book\n\n${start}\n\n${overview}\n\n${explicit}${map}\n\n${entities}\n\n${end}`);
+    await writeFile(path.join(source, 'other.md'), `# Other\n\n[Map](index.md#${target}) [Heading](index.md#document-map) [Item](index.md#map-item) [Detail](index.md#map-detail)`);
+    const output = await temp();
+    await renderSite(source, output, { mermaid: false });
+    const html = await readFile(path.join(output, 'index.html'), 'utf8');
+    expect(html).toContain(`<a id="${target}"></a>`);
+    expect(html).not.toContain('Duplicate chapter list');
+    const menu = html.split('<nav aria-label="Document map">')[1]!.split('</nav>')[0]!;
+    expect(menu).not.toContain('>Document map</a>');
+    expect(menu).toContain('href="#overview">Overview</a>');
+    expect(menu).toContain('href="#entities">Entity index</a>');
+    const other = await readFile(path.join(output, 'other.html'), 'utf8');
+    expect(other).toContain(`href="index.html#${target}">Map</a>`);
+  });
+});
 it('shows sections only in the menu, expanding only the current chapter', async () => {
   const source = await temp();
   await writeFile(path.join(source, 'index.md'), '# Page\n\n<a id="custom"></a>\n## [First](#custom) & **bold**\n\n### Child\n\n## Second');
