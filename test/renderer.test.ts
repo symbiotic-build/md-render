@@ -90,6 +90,58 @@ it('uses preceding explicit anchors in the outline and keeps generated heading t
   const html = await documentHtml(doc);
   for (const id of ['first-section', 'first', 'child', 'child-1', 'second']) expect(html).toContain(`id="${id}"`);
 });
+it.each([
+  [2, 'paragraph'], [3, 'paragraph'], [2, 'html'], [3, 'html'], [2, 'adjacent'], [3, 'adjacent'],
+] as const)('resolves %i stacked entity anchors in a %s block', async (count, form) => {
+  const ids = ['document-manifest', 'entity-home', 'last-home'].slice(0, count);
+  const tags = ids.map(id => `<a id="${id}">${form === 'html' ? '\n' : ''}</a>`).join(form === 'adjacent' ? '' : '\n');
+  const markdown = `# Page\n\n${tags}\n\n## Document manifest\n\nShared **meaning**.`;
+  const doc = parseDocument(markdown, 'fallback');
+  expect([...doc.anchors]).toEqual([...ids, 'page', 'document-manifest-1']);
+  expect([...doc.meanings]).toEqual(ids.map(id => [id, 'Shared meaning.']));
+  expect(documentOutline(doc)).toEqual([{ id: ids.at(-1), title: 'Document manifest', children: [] }]);
+  const source = await temp();
+  await mkdir(path.join(source, 'docs'));
+  await writeFile(path.join(source, 'index.md'), `${markdown}\n\n${ids.map(id => `[${id}](#${id})`).join(' ')}`);
+  await writeFile(path.join(source, 'docs/DOCUMENTS.json'), JSON.stringify({ version: 1, inventory: [], documents: [
+    { id: 'book', title: 'Book', sections: [{ id: 'body', path: 'index.md', anchor: ids[0] }] },
+  ] }));
+  await writeFile(path.join(source, 'docs/ENTITIES.json'), JSON.stringify({ version: 1, entities: Object.fromEntries(
+    ids.map(id => [id, { home: { section: 'book#body', anchor: id } }]),
+  ) }));
+  const output = await temp();
+  const result = await renderSite(source, output, { mermaid: false });
+  expect(result.links).toBe(count);
+  const html = await readFile(path.join(output, 'index.html'), 'utf8');
+  expect([...html.matchAll(/<a id="([^"]+)"><\/a>/g)].map(match => match[1])).toEqual(ids);
+  for (const id of ids) {
+    expect(html.match(new RegExp(`<a id="${id}"></a>`, 'g'))).toHaveLength(1);
+    expect(html).toContain(`href="#${id}" title="Shared meaning."`);
+  }
+  expect(html).toContain(`href="#${ids.at(-1)}">Document manifest</a>`);
+  expect(html).toContain('<h2 id="document-manifest-1">');
+});
+it.each(['', '\n'])('rejects duplicate ids in stacked anchors with %j before the closing tag', (gap) => {
+  expect(() => parseDocument(`<a id="same">${gap}</a>\n<a id="same">${gap}</a>\n\n## Heading`, 'fallback')).toThrow('Duplicate anchor: same');
+});
+it('keeps a mixed HTML block escaped without extracting its anchors', async () => {
+  const doc = parseDocument('<a id="first">\n</a>\n<a id="second"></a>\n<div>Other HTML</div>\n\n## Heading\n\nMeaning.', 'fallback');
+  expect([...doc.anchors]).toEqual(['heading']);
+  expect([...doc.meanings]).toEqual([]);
+  expect(documentOutline(doc)).toEqual([{ id: 'heading', title: 'Heading', children: [] }]);
+  const html = await documentHtml(doc);
+  expect(html).toContain('&#x3C;a id="first">\n&#x3C;/a>');
+  expect(html).toContain('&#x3C;a id="second">&#x3C;/a>');
+  expect(html).toContain('&#x3C;div>Other HTML&#x3C;/div>');
+  expect(html).not.toContain('<a id=');
+});
+it('keeps the first-anchor behaviour of a mixed all-HTML paragraph', async () => {
+  const doc = parseDocument('<a id="first"></a><br><a id="second"></a>\n\n## Heading\n\nMeaning.', 'fallback');
+  expect([...doc.anchors]).toEqual(['first', 'second', 'heading']);
+  expect([...doc.meanings]).toEqual([['first', 'Meaning.']]);
+  expect(documentOutline(doc)).toEqual([{ id: 'first', title: 'Heading', children: [] }]);
+  expect(await documentHtml(doc)).toContain('<p><a id="first"></a>&#x3C;br><a id="second"></a></p>');
+});
 it('extracts plain text from linked and formatted headings', () => {
   const doc = parseDocument('# Page\n\n## [Linked **bold**](#page) and `code`\n\n### *Child* & ~~old~~\n\n## [Reference][ref]\n\n[ref]: #page', 'fallback');
   expect(documentOutline(doc)).toEqual([
@@ -119,6 +171,23 @@ describe('generated navigation regions', () => {
   const overview = '## Overview\n\nPurpose with **formatting**.\n\n### Audience\n\nReaders.';
   const entities = '<a id="entities"></a>\n\n## Entity index\n\n- [Term](#term)\n\n<a id="term"></a>\n\n### Term\n\nMeaning.';
   const map = '## Document map\n\n- Duplicate chapter list\n  - <a id="map-item"></a>Nested entry\n\n### Map detail\n\nDuplicate detail.';
+
+  it.each(['', '\n'])('preserves stacked anchors in omitted maps and retained siblings (%j)', async (gap) => {
+    const hiddenMap = map.replace('### Map detail', `<a id="hidden-section">${gap}</a>\n<a id="hidden-home">${gap}</a>\n\n### Map detail`);
+    const doc = parseDocument(`${start}\n\n<a id="map-section">${gap}</a>\n<a id="map-home">${gap}</a>\n\n${hiddenMap}\n\n<a id="entity-section">${gap}</a>\n<a id="entity-home">${gap}</a>\n\n## Entity index\n\nShared meaning.\n\n${end}`, 'fallback');
+    const html = await documentHtml(doc);
+    expect(html).not.toContain('Duplicate chapter list');
+    expect(html).not.toContain('<h2 id="document-map">');
+    for (const id of doc.anchors) expect(html.match(new RegExp(`id="${id}"`, 'g'))).toHaveLength(1);
+    expect(doc.anchors.has('hidden-section')).toBe(true);
+    expect(doc.anchors.has('hidden-home')).toBe(true);
+    expect([...doc.meanings]).toEqual([
+      ['hidden-section', 'Duplicate detail.'], ['hidden-home', 'Duplicate detail.'],
+      ['entity-section', 'Shared meaning.'], ['entity-home', 'Shared meaning.'],
+    ]);
+    expect(documentOutline(doc)).toEqual([{ id: 'entity-home', title: 'Entity index', children: [] }]);
+    expect(html).toContain('<h2 id="entity-index">Entity index</h2>');
+  });
 
   it('omits only the marked level-two document map and keeps its siblings unchanged', async () => {
     const doc = parseDocument(`# Book\n\n${start}\n\n${overview}\n\n${map}\n\n${entities}\n\n${end}\n\n## Document map\n\nAuthored map.`, 'fallback');

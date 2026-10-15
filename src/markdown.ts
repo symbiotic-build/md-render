@@ -34,16 +34,29 @@ export interface ParsedDocument {
   meanings: Map<string, string>;
 }
 
-function anchor(value: string): string | undefined {
-  const match = /^<a\s+id\s*=\s*(?:"([^"<>]+)"|'([^'<>]+)')\s*>\s*(?:<\/a>)?$/i.exec(value.trim());
-  return match?.[1] ?? match?.[2];
-}
-function blockAnchor(node: Nodes | undefined): string | undefined {
-  if (node?.type === 'html') return anchor(node.value);
-  if (node?.type === 'paragraph' && node.children.every((child) => child.type === 'html')) {
-    return node.children.map((child) => child.type === 'html' ? anchor(child.value) : undefined).find(Boolean);
+function anchorIds(value: string): string[] {
+  const ids: string[] = [];
+  let end = 0;
+  for (const match of value.matchAll(/<a\s+id\s*=\s*(?:"([^"<>]+)"|'([^'<>]+)')\s*>\s*(?:<\/a>)?/gi)) {
+    if (value.slice(end, match.index).trim()) return [];
+    ids.push((match[1] ?? match[2])!);
+    end = match.index + match[0].length;
   }
-  return undefined;
+  return value.slice(end).trim() ? [] : ids;
+}
+function blockAnchors(node: Nodes | undefined): string[] {
+  if (node?.type === 'html') return anchorIds(node.value);
+  if (node?.type === 'paragraph') {
+    if (node.children.every((child) => child.type === 'html' || (child.type === 'text' && !child.value.trim()))) {
+      const ids = anchorIds(node.children.map((child) => 'value' in child ? child.value : '').join(''));
+      if (ids.length) return ids;
+    }
+    // Mixed all-HTML paragraphs retain their existing first-anchor behaviour.
+    if (node.children.every((child) => child.type === 'html')) {
+      return node.children.flatMap((child) => child.type === 'html' ? anchorIds(child.value) : []).slice(0, 1);
+    }
+  }
+  return [];
 }
 function slug(value: string): string {
   return value.toLowerCase().replace(/[^\p{L}\p{N}\p{M}_\-\s]/gu, '').replace(/\s/g, '-');
@@ -68,7 +81,7 @@ function navigationMapNodes(tree: Root): Set<Nodes> {
         }
         // An explicit anchor before the next section belongs to that section.
         const next = tree.children[i + 1];
-        if (blockAnchor(child) && next?.type === 'heading' && next.depth <= 2) continue;
+        if (blockAnchors(child).length && next?.type === 'heading' && next.depth <= 2) continue;
         if (hiding) visit(child, (descendant) => { omitted.add(descendant); });
       }
       start = undefined;
@@ -90,7 +103,7 @@ export function parseDocument(markdown: string, fallbackTitle: string): ParsedDo
     anchors.add(id);
   }
   // Reserve explicit anchors before generating heading IDs, including anchors in table cells.
-  visit(tree, 'html', (node) => { const id = anchor(node.value); if (id) addAnchor(id); });
+  visit(tree, 'html', (node) => { for (const id of anchorIds(node.value)) addAnchor(id); });
   visit(tree, 'heading', (node, index, parent) => {
     const text = toString(node);
     if (!title) title = toString(node, { includeHtml: false });
@@ -101,18 +114,19 @@ export function parseDocument(markdown: string, fallbackTitle: string): ParsedDo
     addAnchor(id);
     node.data = { ...node.data, hProperties: { id } };
     // Read authored anchors before the HTML transform; keep generated IDs as valid targets too.
-    const explicit = index !== undefined && parent ? blockAnchor(parent.children[index - 1]) : undefined;
+    const explicit = index !== undefined && parent ? blockAnchors(parent.children[index - 1]).at(-1) : undefined;
     if (!omitted.has(node)) headings.push({ id: explicit ?? id, title: toString(node, { includeHtml: false }), depth: node.depth });
   });
   // Home anchor, heading, first paragraph: the format's canonical one-line meaning.
   for (let i = 0; i < tree.children.length; i++) {
     const node = tree.children[i]!;
-    const id = blockAnchor(node);
-    if (!id) continue;
+    const ids = blockAnchors(node);
+    if (!ids.length) continue;
     const heading = tree.children[i + 1];
     const paragraph = tree.children[i + 2];
     if (heading?.type === 'heading' && paragraph?.type === 'paragraph') {
-      meanings.set(id, toString(paragraph).replace(/\s+/g, ' ').trim());
+      const meaning = toString(paragraph).replace(/\s+/g, ' ').trim();
+      for (const id of ids) meanings.set(id, meaning);
     }
   }
   // Assign all source IDs first so omission cannot change later slugs or break inbound links.
@@ -121,8 +135,12 @@ export function parseDocument(markdown: string, fallbackTitle: string): ParsedDo
     if (!omitted.has(node)) return [node];
     const retained: RootContent[] = [];
     visit(node, (child) => {
-      const id = child.type === 'html' ? anchor(child.value) : child.data?.hProperties?.id;
-      if (typeof id === 'string') retained.push(element('a', { id }, []));
+      if (child.type === 'html') {
+        for (const id of anchorIds(child.value)) retained.push(element('a', { id }, []));
+      } else {
+        const id = child.data?.hProperties?.id;
+        if (typeof id === 'string') retained.push(element('a', { id }, []));
+      }
       if (child.type === 'definition') retained.push(child);
     });
     return retained;
@@ -139,12 +157,12 @@ export function parseDocument(markdown: string, fallbackTitle: string): ParsedDo
       return index;
     }
     if (node.type === 'html') {
-      const id = anchor(node.value);
-      const replacement = id ? element('a', { id }, []) :
+      const ids = anchorIds(node.value);
+      const replacements = ids.length ? ids.map(id => element('a', { id }, [])) : [
         /^\s*(?:<\/a>|<!--[\s\S]*-->)\s*$/i.test(node.value) ? { type: 'text' as const, value: '' } :
-        { type: 'text' as const, value: node.value };
-      parent.children[index] = replacement as never;
-      return;
+        { type: 'text' as const, value: node.value }];
+      parent.children.splice(index, 1, ...replacements as never[]);
+      return index + replacements.length;
     }
     if (node.type === 'code' && node.lang === 'mermaid') {
       parent.children[index] = element('figure', { className: ['mermaid-diagram'] }, [
