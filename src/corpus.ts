@@ -5,6 +5,8 @@ import path from 'node:path';
 export interface SourceFile { path: string; markdown: string }
 /** Manifest navigation retains section order, including multiple sections in one file. */
 export interface MapEntry { path: string; anchor?: string; label: string; summary?: string }
+/** A document and its chapters in manifest order; paths are deduplicated within each document. */
+export interface DocumentGroup { title: string; paths: string[] }
 /** A resolved entity home; its meaning is read from Markdown during rendering. */
 export interface EntityHome { path: string; anchor: string }
 /** In-memory source snapshot. No registry or index is persisted. */
@@ -12,6 +14,7 @@ export interface Corpus {
   root: string;
   files: SourceFile[];
   map: MapEntry[];
+  documents: DocumentGroup[];
   entities: EntityHome[];
   /** Inventory classifications; unrendered entries remain references to original inputs. */
   inventory: Map<string, string>;
@@ -96,6 +99,7 @@ export async function loadCorpus(input: string): Promise<Corpus> {
   if (manifest !== undefined || entityIndex !== undefined) root = metadataRoot;
   const selectedRelative = portable(path.relative(root, selected));
   const map: MapEntry[] = [];
+  const documents: DocumentGroup[] = [];
   const sections = new Map<string, string>();
   const inventory = new Map<string, string>();
   if (manifest !== undefined) {
@@ -113,6 +117,8 @@ export async function loadCorpus(input: string): Promise<Corpus> {
     for (const value of array(data.documents, 'documents')) {
       const document = object(value, 'document');
       const id = string(document.id, 'document.id');
+      const group: DocumentGroup = { title: document.title === undefined ? 'Documentation' : string(document.title, 'document.title'), paths: [] };
+      documents.push(group);
       for (const value of array(document.sections, 'sections')) {
         const section = object(value, 'section');
         const file = portable(string(section.path, 'section.path'));
@@ -122,6 +128,7 @@ export async function loadCorpus(input: string): Promise<Corpus> {
         sections.set(key, file);
         if ((!single || file === selectedRelative) && !file.endsWith('/') &&
             inventory.get(file) !== 'other' && inventory.get(file) !== 'generated') {
+          if (!group.paths.includes(file)) group.paths.push(file);
           map.push({ path: file, anchor: string(section.anchor, 'section.anchor'),
             label: String(section.title ?? section.id),
             summary: section.summary === undefined ? undefined : string(section.summary, 'section.summary') });
@@ -132,6 +139,7 @@ export async function loadCorpus(input: string): Promise<Corpus> {
         const file = portable(string(navigation.path, 'navigation.path'));
         // Navigation may be a declared generated file or a region in an authored file.
         within(root, file);
+        if (!group.paths.includes(file)) group.paths.push(file);
         if (!map.some((entry) => entry.path === file)) {
           map.push({ path: file, label: `${String(document.title ?? id)} — overview` });
         }
@@ -148,6 +156,7 @@ export async function loadCorpus(input: string): Promise<Corpus> {
     ordered.push(file);
     map.push({ path: file, label: path.basename(file, path.extname(file)) });
   }
+  if (remaining.length) documents.push({ title: 'Documentation', paths: remaining });
   if (!ordered.length) throw new Error('No Markdown files found');
   const files: SourceFile[] = [];
   for (const file of ordered) {
@@ -165,5 +174,5 @@ export async function loadCorpus(input: string): Promise<Corpus> {
       if (files.some((source) => source.path === file)) entities.push({ path: file, anchor: string(home.anchor, `${id}.home.anchor`) });
     }
   }
-  return { root, files, map, entities, inventory };
+  return { root, files, map, documents, entities, inventory };
 }

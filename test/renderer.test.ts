@@ -118,9 +118,9 @@ it('shows the same nested contents beside the body and under only the current do
   const output = await temp();
   await renderSite(source, output, { mermaid: false });
   const html = await readFile(path.join(output, 'index.html'), 'utf8');
-  const contents = '<ol><li><a href="#custom">First &amp; bold</a><ol><li><a href="#child">Child</a></li></ol></li><li><a href="#second">Second</a></li></ol>';
+  const contents = '<ol><li><a href="#custom">First &amp; bold</a><ol><li class="subsection"><a href="#child">Child</a></li></ol></li><li><a href="#second">Second</a></li></ol>';
   expect(html).toContain(`aria-current="page">Page</a>${contents}</li>`);
-  expect(html).toContain(`<p class="eyebrow">On this page</p>${contents}`);
+  expect(html).toContain(`<summary>On this page</summary>${contents}`);
   expect(html.indexOf('<aside class="contents">')).toBeLessThan(html.indexOf('<main'));
   const other = await readFile(path.join(output, 'other.html'), 'utf8');
   expect(other).toContain('aria-current="page">Other</a></li>');
@@ -141,7 +141,7 @@ it('shows one chapter and one nested outline for repeated manifest entries of th
   await renderSite(source, output, { mermaid: false });
   const html = await readFile(path.join(output, 'chapter.html'), 'utf8');
   expect(html.match(/aria-current="page"/g)).toHaveLength(1);
-  expect(html).toContain('href="chapter.html#first" aria-current="page">Chapter start</a><ol>');
+  expect(html).toContain('href="chapter.html" aria-current="page">Chapter</a><ol>');
   expect(html.match(/href="#child"/g)).toHaveLength(2);
   expect(html).not.toContain('href="chapter.html#second"');
 });
@@ -175,11 +175,11 @@ it('loads pinned offline Mermaid without remote script URLs', async () => {
   expect(html).toContain('src="../_md-render/mermaid.min.js"');
   expect(html).not.toMatch(/src="https?:/);
 });
-it('keeps brand assets in the optional Symbiotic theme', async () => {
+it('defaults to Symbiotic and keeps the neutral theme explicit', async () => {
   const neutral = await temp();
   const branded = await temp();
-  await renderSite(fixture, neutral, { mermaid: false });
-  await renderSite(fixture, branded, { mermaid: false, theme: 'symbiotic' });
+  await renderSite(fixture, neutral, { mermaid: false, theme: 'default' });
+  await renderSite(fixture, branded, { mermaid: false });
   expect(await readFile(path.join(neutral, 'index.html'), 'utf8')).not.toContain('logo.svg');
   expect(await readFile(path.join(branded, 'index.html'), 'utf8')).toContain('_md-render/logo.svg');
 });
@@ -261,4 +261,55 @@ it('refuses output collisions between attachments and rendered pages', async () 
   await writeFile(path.join(source, 'one.md'), '# One\n\n[Attachment](one.html)');
   await writeFile(path.join(source, 'one.html'), 'Original attachment');
   await expect(renderSite(source, await temp(), { mermaid: false })).rejects.toThrow('collides with rendered page');
+});
+
+it('groups chapters by document title, uses first headings over manifest labels and follows manifest order', async () => {
+  const source = await temp();
+  await mkdir(path.join(source, 'docs'));
+  await writeFile(path.join(source, 'z.md'), '## First **chapter**\n\n<a id="z"></a>');
+  await writeFile(path.join(source, 'a.md'), '# Second chapter\n\n<a id="a"></a>');
+  await writeFile(path.join(source, 'b.md'), '# Third chapter\n\n<a id="b"></a>');
+  await writeFile(path.join(source, 'docs/DOCUMENTS.json'), JSON.stringify({
+    version: 1, inventory: [], documents: [
+      { id: 'book-id', title: 'First book', sections: [
+        { id: 'slug-z', title: 'Wrong label', path: 'z.md', anchor: 'z' },
+        { id: 'slug-a', path: 'a.md', anchor: 'a' },
+      ] },
+      { id: 'other-id', title: 'Second book', sections: [{ id: 'slug-b', path: 'b.md', anchor: 'b' }] },
+    ],
+  }));
+  const output = await temp();
+  await renderSite(source, output, { mermaid: false });
+  const html = await readFile(path.join(output, 'a.html'), 'utf8');
+  expect(html).toContain('<h2>First book</h2><ol><li><a href="z.html">First chapter</a>');
+  expect(html).toContain('<h2>Second book</h2><ol><li><a href="b.html">Third chapter</a>');
+  expect(html).not.toMatch(/>Wrong label<|>slug-a<|>book-id</);
+  expect(html).toContain('href="z.html"><small>Previous</small>First chapter</a>');
+  expect(html).toContain('href="b.html"><small>Next</small>Third chapter</a>');
+});
+it('renders a controlled menu and collapsed phone contents in both themes', async () => {
+  for (const theme of ['default', 'symbiotic']) {
+    const source = await temp();
+    await writeFile(path.join(source, 'index.md'), '# Page\n\n## One\n\n## Two');
+    const output = await temp();
+    await renderSite(source, output, { theme, mermaid: false });
+    const html = await readFile(path.join(output, 'index.html'), 'utf8');
+    expect(html).toContain('id="menu-button"');
+    expect(html).toContain('aria-expanded="true" aria-controls="document-menu"');
+    expect(html).toContain('id="document-menu"');
+    expect(html).toContain('id="menu-close"');
+    expect(html).toContain('<details><summary>On this page</summary>');
+    expect(html).toContain('src="_md-render/navigation.js"');
+    await expect(access(path.join(output, '_md-render/navigation.js'))).resolves.toBeUndefined();
+  }
+});
+
+it('never uses a filename slug as a chapter title when no heading is authored', async () => {
+  const source = await temp();
+  await writeFile(path.join(source, 'opaque-slug.md'), 'A chapter without a heading.');
+  const output = await temp();
+  await renderSite(source, output, { mermaid: false });
+  const html = await readFile(path.join(output, 'opaque-slug.html'), 'utf8');
+  expect(html).toContain('aria-current="page">Untitled chapter</a>');
+  expect(html).not.toContain('>opaque-slug</a>');
 });

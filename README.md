@@ -2,7 +2,7 @@
 
 Render Markdown documentation as a readable, offline website. Each Markdown file gets a
 page, a document map, section navigation, and previous/next links. The default theme is
-neutral. Tables scroll within the page; code, explicit HTML anchors, and file fragments
+Symbiotic. Tables scroll within the page; code, explicit HTML anchors, and file fragments
 survive rendering.
 
 Requires Node.js 22 or later and pnpm 10.20.0. Install from the local pnpm store only:
@@ -19,7 +19,7 @@ The package installs a `md-render` command:
 md-render /path/to/spec
 md-render /path/to/chapter.md
 md-render /path/to/repository --out ./rendered-docs
-md-render /path/to/spec --theme symbiotic
+md-render /path/to/spec --theme default
 ```
 
 Temporary mode prints a free `127.0.0.1` URL. Keep the process running while reading.
@@ -61,7 +61,7 @@ error. The renderer never downloads Mermaid.
 
 ## Themes
 
-`--theme default` selects the neutral theme. `--theme symbiotic` uses the portal's
+`--theme default` selects the neutral theme. `--theme symbiotic` (the default) uses the portal's
 palette, document typography, and optional brand mark, with a system font.
 `--theme ./custom.css` accepts a small CSS file. Copy [default.css](themes/default.css)
 to start with the color and font tokens. A neighboring `custom.logo.svg`,

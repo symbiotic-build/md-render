@@ -66,7 +66,7 @@ export function parseDocument(markdown: string, fallbackTitle: string): ParsedDo
   visit(tree, 'html', (node) => { const id = anchor(node.value); if (id) addAnchor(id); });
   visit(tree, 'heading', (node, index, parent) => {
     const text = toString(node);
-    if (node.depth === 1 && !title) title = text;
+    if (!title) title = toString(node, { includeHtml: false });
     const base = slug(text);
     let id = base;
     let n = 0;

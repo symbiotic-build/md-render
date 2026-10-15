@@ -88,14 +88,12 @@ function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, b
   const doc = docs.get(file)!;
   const href = (target: string): string => escapeHtml(relativeUrl(file, target));
   const outlineHtml = (entries: OutlineEntry[]): string => entries.length ? `<ol>${entries.map((entry) =>
-    `<li><a href="#${encodeURIComponent(entry.id)}">${escapeHtml(entry.title)}</a>${outlineHtml(entry.children)}</li>`).join('')}</ol>` : '';
+    `<li${doc.headings.find((heading) => heading.id === entry.id)?.depth === 3 ? ' class="subsection"' : ''}><a href="#${encodeURIComponent(entry.id)}">${escapeHtml(entry.title)}</a>${outlineHtml(entry.children)}</li>`).join('')}</ol>` : '';
   const contents = outlineHtml(documentOutline(doc));
-  const sidebar = corpus.files.map((source) => {
-    const entry = corpus.map.find((entry) => entry.path === source.path)!;
-    const target = relativeUrl(file, pagePath(entry.path)) + (entry.anchor ? `#${encodeURIComponent(entry.anchor)}` : '');
-    const label = entry.anchor ? entry.label : docs.get(entry.path)!.title;
-    return `<li><a href="${escapeHtml(target)}"${entry.path === file ? ' aria-current="page"' : ''}${entry.summary ? ` title="${escapeHtml(entry.summary)}"` : ''}>${escapeHtml(label)}</a>${entry.path === file ? contents : ''}</li>`;
-  }).join('');
+  const sidebar = corpus.documents.filter((group) => group.paths.length).map((group) => `<section class="document-group"><h2>${escapeHtml(group.title)}</h2><ol>${group.paths.map((chapter) => {
+    const target = relativeUrl(file, pagePath(chapter));
+    return `<li><a href="${escapeHtml(target)}"${chapter === file ? ' aria-current="page"' : ''}>${escapeHtml(docs.get(chapter)!.title)}</a>${chapter === file ? contents : ''}</li>`;
+  }).join('')}</ol></section>`).join('');
   const index = corpus.files.findIndex((source) => source.path === file);
   const adjacent = (offset: number, label: string): string => {
     const source = corpus.files[index + offset];
@@ -106,9 +104,11 @@ function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, b
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <title>${escapeHtml(doc.title)}</title><link rel="stylesheet" href="${href(`${assets}/base.css`)}"><link rel="stylesheet" href="${href(`${assets}/theme.css`)}"></head>
 <body${contents ? ' class="has-contents"' : ''}><a class="skip-link" href="#md-render-content">Skip to document</a>
-<aside class="sidebar"><a class="site-title" href="${href(pagePath(corpus.files[0]!.path))}">${logo ? `<img src="${href(`${assets}/${logo}`)}" alt="Theme logo">` : ''}<span>Documentation</span></a><nav aria-label="Document map"><p class="eyebrow">Document map · ${corpus.files.length} files</p><ol>${sidebar}</ol></nav></aside>
-${contents ? `<aside class="contents"><nav aria-label="On this page"><p class="eyebrow">On this page</p>${contents}</nav></aside>` : ''}
+<header class="menu-bar"><button id="menu-button" type="button" aria-expanded="true" aria-controls="document-menu">Menu</button><a class="site-title" href="${href(pagePath(corpus.files[0]!.path))}">${logo ? `<img src="${href(`${assets}/${logo}`)}" alt="Theme logo">` : ''}<span>Documentation</span></a></header>
+<aside class="sidebar" id="document-menu" aria-label="Documentation menu"><button id="menu-close" type="button">Close menu</button><nav aria-label="Document map">${sidebar}</nav></aside>
+${contents ? `<aside class="contents"><nav aria-label="On this page"><details><summary>On this page</summary>${contents}</details></nav></aside>` : ''}
 <main id="md-render-content"><header class="page-meta"><span>${escapeHtml(file)}</span><span>${index + 1} / ${corpus.files.length}</span></header><article class="sd-doc">${body}</article><nav class="adjacent" aria-label="Reading order">${adjacent(-1, 'Previous')}${adjacent(1, 'Next')}</nav></main>
+<script src="${href(`${assets}/navigation.js`)}" defer></script>
 ${mermaid ? `<script src="${href(`${assets}/mermaid.min.js`)}"></script><script type="module" src="${href(`${assets}/diagrams.js`)}"></script>` : ''}</body></html>`;
 }
 
@@ -120,9 +120,10 @@ export async function renderSite(input: string, output: string, options: RenderO
   if ((await readdir(directory)).length) throw new Error(`Output directory must be empty: ${directory}`);
   await mkdir(path.join(directory, assets));
   await cp(fileURLToPath(new URL('../themes/base.css', import.meta.url)), path.join(directory, assets, 'base.css'));
-  const logo = await themeAssets(directory, options.theme ?? 'default');
+  await cp(fileURLToPath(new URL('../themes/navigation.js', import.meta.url)), path.join(directory, assets, 'navigation.js'));
+  const logo = await themeAssets(directory, options.theme ?? 'symbiotic');
   const mermaid = await mermaidAsset(directory, options.mermaid !== false);
-  const docs = new Map(corpus.files.map((file) => [file.path, parseDocument(file.markdown, path.basename(file.path, '.md'))]));
+  const docs = new Map(corpus.files.map((file) => [file.path, parseDocument(file.markdown, 'Untitled chapter')]));
   const meanings = new Map<string, string>();
   for (const home of corpus.entities) {
     const meaning = docs.get(home.path)?.meanings.get(home.anchor);
