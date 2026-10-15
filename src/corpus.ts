@@ -6,7 +6,7 @@ export interface SourceFile { path: string; markdown: string }
 /** Manifest navigation retains section order, including multiple sections in one file. */
 export interface MapEntry { path: string; anchor?: string; label: string; summary?: string }
 /** A document and its chapters in manifest order; paths are deduplicated within each document. */
-export interface DocumentGroup { title: string; paths: string[] }
+export interface DocumentGroup { title?: string; paths: string[] }
 /** A resolved entity home; its meaning is read from Markdown during rendering. */
 export interface EntityHome { path: string; anchor: string }
 /** In-memory source snapshot. No registry or index is persisted. */
@@ -132,7 +132,7 @@ export async function loadCorpus(input: string): Promise<Corpus> {
     for (const value of array(data.documents, 'documents')) {
       const document = object(value, 'document');
       const id = string(document.id, 'document.id');
-      const group: DocumentGroup = { title: document.title === undefined ? 'Documentation' : string(document.title, 'document.title'), paths: [] };
+      const group: DocumentGroup = { title: document.title === undefined ? undefined : string(document.title, 'document.title'), paths: [] };
       documents.push(group);
       for (const value of array(document.sections, 'sections')) {
         const section = object(value, 'section');
@@ -171,7 +171,7 @@ export async function loadCorpus(input: string): Promise<Corpus> {
     ordered.push(file);
     map.push({ path: file, label: path.basename(file, path.extname(file)) });
   }
-  if (remaining.length) documents.push({ title: 'Documentation', paths: remaining });
+  if (remaining.length) documents.push({ paths: remaining });
   if (!ordered.length) throw new Error('No Markdown files found');
   const files: SourceFile[] = [];
   for (const file of ordered) {

@@ -19,7 +19,8 @@ it('checks rendered menu, theme controls, storage failure and diagram contrast i
         const url = pathToFileURL(path.join(output, 'index.html')).href;
         await browser.navigate(url);
         expect(await browser.evaluate(`document.querySelector('#document-menu').hidden`)).toBe(false);
-        expect(await browser.evaluate(`getComputedStyle(document.querySelector('#document-menu')).position`)).toBe('sticky');
+        expect(await browser.evaluate(`getComputedStyle(document.querySelector('#document-menu')).position`)).toBe('fixed');
+        expect(await browser.evaluate(`(() => { const list=document.querySelector('#document-menu nav'); return list.scrollHeight === list.clientHeight; })()`)).toBe(true);
         expect(await browser.evaluate(`getComputedStyle(document.querySelector('.sd-doc h2'), '::before').content`)).toBe('none');
         expect(await browser.evaluate(`Math.max(...[...document.querySelectorAll('.theme-switch label')].map(label => label.getBoundingClientRect().height))`)).toBeLessThanOrEqual(24);
         // Native radio keyboard navigation also fires change and persists the choice.

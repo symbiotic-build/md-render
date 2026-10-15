@@ -49,17 +49,25 @@ function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, b
   const outlineHtml = (entries: OutlineEntry[], chapter: string): string => entries.length ? `<ol>${entries.map((entry) =>
     `<li><a href="${chapter === file ? '' : escapeHtml(relativeUrl(file, pagePath(chapter)))}#${encodeURIComponent(entry.id)}">${escapeHtml(entry.title)}</a>${outlineHtml(entry.children, chapter)}</li>`).join('')}</ol>` : '';
   let chapterId = 0;
-  const chapters = (paths: string[]): string => paths.map((chapter) => {
+  const chapters = (paths: string[], groupTitle?: string, referenced = false): string => paths.map((chapter, index) => {
     const target = relativeUrl(file, pagePath(chapter));
-    const title = escapeHtml(docs.get(chapter)!.title);
-    const outline = outlineHtml(documentOutline(docs.get(chapter)!), chapter);
+    const chapterDoc = docs.get(chapter)!;
+    let label = paths.length === 1 && groupTitle ? groupTitle : chapterDoc.title;
+    if (paths.length > 1 && index === 0 && label === groupTitle) {
+      label = chapterDoc.headings.find((heading) => heading.depth === 2)?.title ?? 'Introduction';
+    }
+    const title = escapeHtml(label);
+    const entries = documentOutline(chapterDoc);
+    // A heading used as the chapter label already has a link; retain its children.
+    if (entries[0]?.title === label) entries.splice(0, 1, ...entries[0].children);
+    const outline = outlineHtml(entries, chapter);
     const id = `chapter-sections-${chapterId++}`;
     const current = chapter === file;
-    return `<li><div class="chapter-row">${outline ? `<button class="chapter-toggle" type="button" aria-label="Toggle ${title}" aria-expanded="${current}" aria-controls="${id}"><span aria-hidden="true">›</span></button>` : ''}<a href="${escapeHtml(target)}"${current ? ' aria-current="page"' : ''}>${title}</a></div>${outline ? `<div id="${id}"${current ? '' : ' hidden'}>${outline}</div>` : ''}</li>`;
+    return `<li><div class="chapter-row">${outline ? `<button class="chapter-toggle" type="button" aria-label="Toggle ${title}" aria-expanded="${current}" aria-controls="${id}"><span aria-hidden="true">›</span></button>` : ''}<a href="${escapeHtml(target)}"${current ? ' aria-current="page"' : ''}>${title}${referenced ? `<small class="reference-path">${escapeHtml(chapter)}</small>` : ''}</a></div>${outline ? `<div id="${id}"${current ? '' : ' hidden'}>${outline}</div>` : ''}</li>`;
   }).join('');
   const references = [...docs.keys()].filter((chapter) => !corpus.files.some((source) => source.path === chapter));
-  const sidebar = corpus.documents.filter((group) => group.paths.length).map((group) => `<section class="document-group"><h2>${escapeHtml(group.title)}</h2><ol>${chapters(group.paths)}</ol></section>`).join('') +
-    (references.length ? `<details class="document-group referenced"><summary>Referenced files</summary><ol>${chapters(references)}</ol></details>` : '');
+  const sidebar = corpus.documents.filter((group) => group.paths.length).map((group) => `<section class="document-group">${group.paths.length > 1 ? `<h2>${escapeHtml(group.title ?? 'Documentation')}</h2>` : ''}<ol>${chapters(group.paths, group.title)}</ol></section>`).join('') +
+    (references.length ? `<details class="document-group referenced"${references.includes(file) ? ' open' : ''}><summary>Referenced files</summary><ol>${chapters(references, undefined, true)}</ol></details>` : '');
   const index = corpus.files.findIndex((source) => source.path === file);
   const adjacent = (offset: number, label: string): string => {
     const source = index < 0 ? undefined : corpus.files[index + offset];

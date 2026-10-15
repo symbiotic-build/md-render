@@ -34,6 +34,9 @@ export async function renderDiagrams(pages: string[], enabled: boolean): Promise
           const drawing = document.createElement('div');
           drawing.innerHTML = svg;
           const image = drawing.querySelector('svg');
+          // Keep labels readable on small screens; the figure owns horizontal scrolling.
+          image.style.width = image.viewBox.baseVal.width + 'px';
+          image.style.maxWidth = 'none';
           // Authored colours are often inline !important. Remove only colour
           // declarations, then let one scoped stylesheet own all theme colours.
           for (const element of image.querySelectorAll('[style]')) {

@@ -25,7 +25,8 @@ async function startChild(args: string[]): Promise<{ child: ChildProcess; output
   children.push(child);
   let output = '';
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => { child.kill('SIGTERM'); reject(new Error(`Child startup exceeded 3s: ${output}`)); }, 3000);
+    // Runaway guard only: startup renders diagrams in a browser and slows under a parallel suite.
+    const timeout = setTimeout(() => { child.kill('SIGTERM'); reject(new Error(`Child startup exceeded 60s: ${output}`)); }, 60_000);
     child.stdout!.on('data', (chunk: Buffer) => {
       output += chunk.toString();
       if (output.includes('Temporary output:')) { clearTimeout(timeout); resolve({ child, output }); }
@@ -60,7 +61,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     const [code] = await exited;
     expect(code).toBe(signal === 'SIGINT' ? 130 : 143);
     await expect(access(directory)).rejects.toMatchObject({ code: 'ENOENT' });
-  });
+  }, 90_000);
 }
 it('removes output on normal process exit', async () => {
   const server = new URL('../dist/server.js', import.meta.url).href;
@@ -90,4 +91,4 @@ it('opens the first manifest page even when index.md appears later', async () =>
   expect(new URL(url).pathname).toBe('/chapters/nested/home.html');
   expect(await (await fetch(url)).text()).toContain('<title>Home</title>');
   const exited = once(child, 'exit'); child.kill('SIGTERM'); await exited;
-});
+}, 90_000);

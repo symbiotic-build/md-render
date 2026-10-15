@@ -291,7 +291,7 @@ it('groups chapters by document title, uses first headings over manifest labels 
   const html = await readFile(path.join(output, 'a.html'), 'utf8');
   expect(html).toContain('<h2>First book</h2><ol>');
   expect(html).toContain('href="z.html">First chapter</a>');
-  expect(html).toContain('<h2>Second book</h2><ol><li><div class="chapter-row"><a href="b.html">Third chapter</a>');
+  expect(html).toContain('<section class="document-group"><ol><li><div class="chapter-row"><a href="b.html">Second book</a>');
   expect(html).not.toMatch(/>Wrong label<|>slug-a<|>book-id</);
   expect(html).toContain('href="z.html"><small>Previous</small>First chapter</a>');
   expect(html).toContain('href="b.html"><small>Next</small>Third chapter</a>');
@@ -381,7 +381,7 @@ it('renders sibling repository Markdown from a selected nested file without esca
   expect(result.warnings).toHaveLength(1);
   const html = await readFile(path.join(output, 'nested/one.html'), 'utf8');
   expect(html).toContain('href="../two.html"');
-  expect(html).toContain('>Real sibling title</a>');
+  expect(html).toContain('>Real sibling title<small class="reference-path">two.md</small></a>');
 });
 it('uses the first authored heading instead of conflicting frontmatter for menu labels', () => {
   expect(parseDocument('---\ntitle: Slug\n---\n\n# Real heading', 'fallback').title).toBe('Real heading');
