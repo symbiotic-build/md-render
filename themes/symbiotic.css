@@ -67,3 +67,8 @@
 .sd-doc thead th{font-size:12.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sd-soft);white-space:nowrap}
 .sd-doc tbody tr:last-child>*{border-bottom:2px solid var(--sd-ink)}
 .sd-doc td strong{color:var(--sd-ink)}
+
+@media(prefers-color-scheme:dark){
+  :root{color-scheme:dark;--paper:#141d2d;--panel:#1c2940;--text:#e7edf8;--muted:#afbdd6;--accent:#a7c4ff;--line:rgba(167,196,255,.3);--tint:rgba(167,196,255,.1)}
+  .sd-doc{color-scheme:dark;--sd-paper:var(--paper);--sd-card:var(--panel);--sd-ink:var(--accent);--sd-soft:#afbdd6;--sd-text:var(--text);--sd-muted:var(--muted);--sd-line:var(--line);--sd-line-soft:rgba(167,196,255,.18);--sd-tint:var(--tint)}
+}

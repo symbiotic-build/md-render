@@ -1,5 +1,5 @@
 // Adapted from @symbiotic/docs: unified/remark -> explicit AST transforms -> sanitized HTML.
-import type { Root, RootContent } from 'mdast';
+import type { Nodes, Root, RootContent } from 'mdast';
 import type { Root as HtmlRoot, Element } from 'hast';
 import { toString } from 'mdast-util-to-string';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
@@ -37,6 +37,13 @@ function anchor(value: string): string | undefined {
   const match = /^<a\s+id\s*=\s*(?:"([^"<>]+)"|'([^'<>]+)')\s*>\s*(?:<\/a>)?$/i.exec(value.trim());
   return match?.[1] ?? match?.[2];
 }
+function blockAnchor(node: Nodes | undefined): string | undefined {
+  if (node?.type === 'html') return anchor(node.value);
+  if (node?.type === 'paragraph' && node.children.every((child) => child.type === 'html')) {
+    return node.children.map((child) => child.type === 'html' ? anchor(child.value) : undefined).find(Boolean);
+  }
+  return undefined;
+}
 function slug(value: string): string {
   return value.toLowerCase().replace(/[^\p{L}\p{N}\p{M}_\-\s]/gu, '').replace(/\s/g, '-');
 }
@@ -57,7 +64,7 @@ export function parseDocument(markdown: string, fallbackTitle: string): ParsedDo
   }
   // Reserve explicit anchors before generating heading IDs, including anchors in table cells.
   visit(tree, 'html', (node) => { const id = anchor(node.value); if (id) addAnchor(id); });
-  visit(tree, 'heading', (node) => {
+  visit(tree, 'heading', (node, index, parent) => {
     const text = toString(node);
     if (node.depth === 1 && !title) title = text;
     const base = slug(text);
@@ -66,16 +73,14 @@ export function parseDocument(markdown: string, fallbackTitle: string): ParsedDo
     while (anchors.has(id)) id = `${base}-${++n}`;
     addAnchor(id);
     node.data = { ...node.data, hProperties: { id } };
-    headings.push({ id, title: text, depth: node.depth });
+    // Read authored anchors before the HTML transform; keep generated IDs as valid targets too.
+    const explicit = index !== undefined && parent ? blockAnchor(parent.children[index - 1]) : undefined;
+    headings.push({ id: explicit ?? id, title: toString(node, { includeHtml: false }), depth: node.depth });
   });
   // Home anchor, heading, first paragraph: the format's canonical one-line meaning.
   for (let i = 0; i < tree.children.length; i++) {
     const node = tree.children[i]!;
-    let id: string | undefined;
-    if (node.type === 'html') id = anchor(node.value);
-    if (node.type === 'paragraph' && node.children.every((child) => child.type === 'html')) {
-      id = node.children.map((child) => child.type === 'html' ? anchor(child.value) : undefined).find(Boolean);
-    }
+    const id = blockAnchor(node);
     if (!id) continue;
     const heading = tree.children[i + 1];
     const paragraph = tree.children[i + 2];
@@ -118,6 +123,27 @@ export function parseDocument(markdown: string, fallbackTitle: string): ParsedDo
     }
   });
   return { title: title || fallbackTitle, tree, anchors, headings, meanings };
+}
+
+/** A plain-text heading link with its nested subsection links. */
+export interface OutlineEntry { id: string; title: string; children: OutlineEntry[] }
+
+/** Derives contents in source order; level-three headings nest under the preceding level two. */
+export function documentOutline(doc: ParsedDocument): OutlineEntry[] {
+  if (doc.headings.filter((heading) => heading.depth === 2).length < 2) return [];
+  const outline: OutlineEntry[] = [];
+  let section: OutlineEntry | undefined;
+  for (const heading of doc.headings) {
+    if (heading.depth !== 2 && heading.depth !== 3) continue;
+    const entry: OutlineEntry = { id: heading.id, title: heading.title, children: [] };
+    if (heading.depth === 2) {
+      outline.push(entry);
+      section = entry;
+    } else {
+      (section?.children ?? outline).push(entry);
+    }
+  }
+  return outline;
 }
 
 /** Visits native Markdown links, definitions, and images before HTML sanitization. */

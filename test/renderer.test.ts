@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadCorpus } from '../src/corpus.js';
-import { documentHtml, parseDocument, transformUrls } from '../src/markdown.js';
+import { documentHtml, documentOutline, parseDocument, transformUrls } from '../src/markdown.js';
 import { renderSite } from '../src/site.js';
 
 const fixture = fileURLToPath(new URL('./fixtures/corpus', import.meta.url));
@@ -79,6 +79,71 @@ it('preserves inline fact anchors, table rows and literal code', async () => {
 it('preserves Unicode heading fragments and disambiguates repeated headings', () => {
   const doc = parseDocument('# Café\n\n## A.b\n\n## A.b', 'fallback');
   expect([...doc.anchors]).toEqual(['café', 'ab', 'ab-1']);
+});
+it('uses preceding explicit anchors in the outline and keeps generated heading targets', async () => {
+  const doc = parseDocument('# Page\n\n<a id="first-section"></a>\n## First\n\n<a id="child"></a>\n\n### Child\n\n## Second', 'fallback');
+  expect(documentOutline(doc)).toEqual([
+    { id: 'first-section', title: 'First', children: [{ id: 'child', title: 'Child', children: [] }] },
+    { id: 'second', title: 'Second', children: [] },
+  ]);
+  const html = await documentHtml(doc);
+  for (const id of ['first-section', 'first', 'child', 'child-1', 'second']) expect(html).toContain(`id="${id}"`);
+});
+it('extracts plain text from linked and formatted headings', () => {
+  const doc = parseDocument('# Page\n\n## [Linked **bold**](#page) and `code`\n\n### *Child* & ~~old~~\n\n## [Reference][ref]\n\n[ref]: #page', 'fallback');
+  expect(documentOutline(doc)).toEqual([
+    { id: 'linked-bold-and-code', title: 'Linked bold and code', children: [{ id: 'child--old', title: 'Child & old', children: [] }] },
+    { id: 'reference', title: 'Reference', children: [] },
+  ]);
+});
+it('nests level-three headings under the preceding level-two heading in source order', () => {
+  const doc = parseDocument('# Page\n\n### Intro\n\n## First\n\n### One\n\n#### Omitted\n\n### Two\n\n## Second\n\n### Three', 'fallback');
+  expect(documentOutline(doc)).toEqual([
+    { id: 'intro', title: 'Intro', children: [] },
+    { id: 'first', title: 'First', children: [
+      { id: 'one', title: 'One', children: [] }, { id: 'two', title: 'Two', children: [] },
+    ] },
+    { id: 'second', title: 'Second', children: [{ id: 'three', title: 'Three', children: [] }] },
+  ]);
+});
+it('omits the outline with fewer than two level-two headings', () => {
+  for (const markdown of ['# Page', '# Page\n\n### Child', '# Page\n\n## Only\n\n### One\n\n### Two']) {
+    expect(documentOutline(parseDocument(markdown, 'fallback'))).toEqual([]);
+  }
+});
+it('shows the same nested contents beside the body and under only the current document', async () => {
+  const source = await temp();
+  await writeFile(path.join(source, 'index.md'), '# Page\n\n<a id="custom"></a>\n## [First](#custom) & **bold**\n\n### Child\n\n## Second');
+  await writeFile(path.join(source, 'other.md'), '# Other\n\n## Only');
+  const output = await temp();
+  await renderSite(source, output, { mermaid: false });
+  const html = await readFile(path.join(output, 'index.html'), 'utf8');
+  const contents = '<ol><li><a href="#custom">First &amp; bold</a><ol><li><a href="#child">Child</a></li></ol></li><li><a href="#second">Second</a></li></ol>';
+  expect(html).toContain(`aria-current="page">Page</a>${contents}</li>`);
+  expect(html).toContain(`<p class="eyebrow">On this page</p>${contents}`);
+  expect(html.indexOf('<aside class="contents">')).toBeLessThan(html.indexOf('<main'));
+  const other = await readFile(path.join(output, 'other.html'), 'utf8');
+  expect(other).toContain('aria-current="page">Other</a></li>');
+  expect(other).not.toContain('class="contents"');
+  expect(other).not.toContain('href="#custom"');
+});
+it('shows one chapter and one nested outline for repeated manifest entries of the current file', async () => {
+  const source = await temp();
+  await mkdir(path.join(source, 'docs'));
+  await writeFile(path.join(source, 'chapter.md'), '# Chapter\n\n## First\n\n### Child\n\n## Second');
+  await writeFile(path.join(source, 'docs/DOCUMENTS.json'), JSON.stringify({
+    version: 1, inventory: [], documents: [{ id: 'book', sections: [
+      { id: 'first', path: 'chapter.md', anchor: 'first', title: 'Chapter start' },
+      { id: 'second', path: 'chapter.md', anchor: 'second', title: 'Chapter end' },
+    ] }],
+  }));
+  const output = await temp();
+  await renderSite(source, output, { mermaid: false });
+  const html = await readFile(path.join(output, 'chapter.html'), 'utf8');
+  expect(html.match(/aria-current="page"/g)).toHaveLength(1);
+  expect(html).toContain('href="chapter.html#first" aria-current="page">Chapter start</a><ol>');
+  expect(html.match(/href="#child"/g)).toHaveLength(2);
+  expect(html).not.toContain('href="chapter.html#second"');
 });
 it('renders unsupported raw HTML as text and blocks executable markup', async () => {
   const html = await documentHtml(parseDocument('# Safe\n\n<script>alert(1)</script>\n\n<a id="safe" onclick="bad()"></a>', 'fallback'));

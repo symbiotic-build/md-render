@@ -3,7 +3,7 @@ import { cp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadCorpus, readSource, within, type Corpus } from './corpus.js';
-import { documentHtml, parseDocument, transformUrls, type ParsedDocument } from './markdown.js';
+import { documentHtml, documentOutline, parseDocument, transformUrls, type OutlineEntry, type ParsedDocument } from './markdown.js';
 
 const assets = '_md-render';
 /** Static rendering options. Mermaid can be disabled to exercise the offline fallback. */
@@ -87,13 +87,15 @@ try {
 function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, body: string, logo: string | undefined, mermaid: boolean): string {
   const doc = docs.get(file)!;
   const href = (target: string): string => escapeHtml(relativeUrl(file, target));
-  const sidebar = corpus.map.map((entry) => {
+  const outlineHtml = (entries: OutlineEntry[]): string => entries.length ? `<ol>${entries.map((entry) =>
+    `<li><a href="#${encodeURIComponent(entry.id)}">${escapeHtml(entry.title)}</a>${outlineHtml(entry.children)}</li>`).join('')}</ol>` : '';
+  const contents = outlineHtml(documentOutline(doc));
+  const sidebar = corpus.files.map((source) => {
+    const entry = corpus.map.find((entry) => entry.path === source.path)!;
     const target = relativeUrl(file, pagePath(entry.path)) + (entry.anchor ? `#${encodeURIComponent(entry.anchor)}` : '');
     const label = entry.anchor ? entry.label : docs.get(entry.path)!.title;
-    return `<li><a href="${escapeHtml(target)}"${entry.path === file ? ' aria-current="page"' : ''}${entry.summary ? ` title="${escapeHtml(entry.summary)}"` : ''}>${escapeHtml(label)}</a></li>`;
+    return `<li><a href="${escapeHtml(target)}"${entry.path === file ? ' aria-current="page"' : ''}${entry.summary ? ` title="${escapeHtml(entry.summary)}"` : ''}>${escapeHtml(label)}</a>${entry.path === file ? contents : ''}</li>`;
   }).join('');
-  const contents = doc.headings.filter((heading) => heading.depth <= 3).map((heading) =>
-    `<li class="level-${heading.depth}"><a href="#${encodeURIComponent(heading.id)}">${escapeHtml(heading.title)}</a></li>`).join('');
   const index = corpus.files.findIndex((source) => source.path === file);
   const adjacent = (offset: number, label: string): string => {
     const source = corpus.files[index + offset];
@@ -103,10 +105,10 @@ function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, b
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <title>${escapeHtml(doc.title)}</title><link rel="stylesheet" href="${href(`${assets}/base.css`)}"><link rel="stylesheet" href="${href(`${assets}/theme.css`)}"></head>
-<body><a class="skip-link" href="#md-render-content">Skip to document</a>
+<body${contents ? ' class="has-contents"' : ''}><a class="skip-link" href="#md-render-content">Skip to document</a>
 <aside class="sidebar"><a class="site-title" href="${href(pagePath(corpus.files[0]!.path))}">${logo ? `<img src="${href(`${assets}/${logo}`)}" alt="Theme logo">` : ''}<span>Documentation</span></a><nav aria-label="Document map"><p class="eyebrow">Document map · ${corpus.files.length} files</p><ol>${sidebar}</ol></nav></aside>
+${contents ? `<aside class="contents"><nav aria-label="On this page"><p class="eyebrow">On this page</p>${contents}</nav></aside>` : ''}
 <main id="md-render-content"><header class="page-meta"><span>${escapeHtml(file)}</span><span>${index + 1} / ${corpus.files.length}</span></header><article class="sd-doc">${body}</article><nav class="adjacent" aria-label="Reading order">${adjacent(-1, 'Previous')}${adjacent(1, 'Next')}</nav></main>
-<aside class="contents"><nav aria-label="On this page"><p class="eyebrow">On this page</p><ol>${contents}</ol></nav></aside>
 ${mermaid ? `<script src="${href(`${assets}/mermaid.min.js`)}"></script><script type="module" src="${href(`${assets}/diagrams.js`)}"></script>` : ''}</body></html>`;
 }
 
