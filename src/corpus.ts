@@ -166,7 +166,8 @@ export async function loadCorpus(input: string): Promise<Corpus> {
   // Only folders without a manifest use recursive discovery. Single-file selection stays explicit.
   const available = single ? [selectedRelative] : manifest === undefined ? await markdownFiles(root, selectedRelative) : [];
   const remaining = available.filter((file) => !ordered.includes(file));
-  remaining.sort((a, b) => Number(b.toLowerCase() === 'index.md') - Number(a.toLowerCase() === 'index.md'));
+  const selectedIndex = path.posix.join(selectedRelative, 'index.md').toLowerCase();
+  remaining.sort((a, b) => Number(b.toLowerCase() === selectedIndex) - Number(a.toLowerCase() === selectedIndex));
   for (const file of remaining) {
     ordered.push(file);
     map.push({ path: file, label: path.basename(file, path.extname(file)) });

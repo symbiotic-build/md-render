@@ -356,13 +356,15 @@ Partial-write recovery remains a source-inspected limitation described at [Stati
 This inspection exposes the gap between the settled folder order and the current root-relative comparison.
 No automated test covers a selected plain folder nested inside a repository.
 
-**Method:** inspection.
+**Method:** test.
 
 **Requirements:** [Select sources in declared order](requirements.md#req-source-order).
 
 **Inputs:** A repository without metadata, containing `nested/a.md` and `nested/index.md`; select `nested`.
 
 **Expected:** The selected folder's index opens before `a.md`, even though repository discovery retains repository-relative paths.
+
+**Implementation:** [test/renderer.test.ts::opens%5C%20the%5C%20selected%5C%20nested%5C%20folder%5C%20index%5C%20before%5C%20its%5C%20remaining%5C%20lexical%5C%20paths%24](../../../test/renderer.test.ts)
 
 Evidence: inspect `loadCorpus` in [src/corpus.ts](../../../src/corpus.ts).
 Its comparison with the exact root-relative `index.md` leaves `nested/a.md` first, so this inspection currently fails.
@@ -374,13 +376,15 @@ The [settled folder decision](decisions-and-questions.md#question-nested-index) 
 This inspection checks consecutive equal titles outside the tested group/chapter suppression.
 No automated test covers equal titles in consecutive unrelated chapters.
 
-**Method:** inspection.
+**Method:** test.
 
 **Requirements:** [Provide one chapter and section menu](requirements.md#req-menu-navigation).
 
 **Inputs:** Two consecutive chapters titled Guide in one manifest document, with no section links separating their menu entries.
 
 **Expected:** Guide is not listed twice in a row; equal titles separated by other entries remain allowed.
+
+**Implementation:** [test/renderer.test.ts::qualifies%5C%20adjacent%5C%20equal%5C%20chapter%5C%20labels%5C%20with%5C%20source%5C%20relative%5C%20paths%5C%20while%5C%20retaining%5C%20both%5C%20links%24](../../../test/renderer.test.ts)
 
 Evidence: inspect the `chapters` helper in [src/site.ts](../../../src/site.ts).
 It compares a chapter only with its group and first outline heading, so unrelated consecutive Guide entries remain duplicated.

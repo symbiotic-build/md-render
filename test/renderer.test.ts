@@ -62,6 +62,57 @@ it('puts index.md first without a manifest and includes nested chapters', async 
   await writeFile(path.join(source, 'nested/b.md'), '# B');
   expect((await loadCorpus(source)).files.map((file) => file.path)).toEqual(['index.md', 'a.md', 'nested/b.md']);
 });
+it('opens the selected nested folder index before its remaining lexical paths', async () => {
+  const source = await temp();
+  await mkdir(path.join(source, '.git'));
+  await mkdir(path.join(source, 'nested/deeper'), { recursive: true });
+  for (const file of ['index.md', 'nested/z.md', 'nested/index.md', 'nested/a.md', 'nested/deeper/index.md']) {
+    await writeFile(path.join(source, file), `# ${file}`);
+  }
+  const selected = path.join(source, 'nested');
+  const corpus = await loadCorpus(selected);
+  const ordered = ['nested/index.md', 'nested/a.md', 'nested/deeper/index.md', 'nested/z.md'];
+  expect(corpus.files.map(file => file.path)).toEqual(ordered);
+  expect(corpus.map.map(entry => entry.path)).toEqual(ordered);
+  expect(corpus.documents).toEqual([{ paths: ordered }]);
+  const output = await temp();
+  expect((await renderSite(selected, output, { mermaid: false })).pages).toEqual(ordered.map(file => file.replace('.md', '.html')));
+  expect(await readFile(path.join(output, 'index.html'), 'utf8')).toContain('content="0;url=nested/index.html"');
+});
+it('qualifies adjacent equal chapter labels with source relative paths while retaining both links', async () => {
+  const cases = [
+    { markdown: ['# **Guide**', '# Guide'], labels: ['Guide', 'Guide — chapters/b.md'] },
+    { markdown: ['# Guide', '# Guide', '# Guide'], labels: ['Guide', 'Guide — chapters/b.md', 'Guide'] },
+    { markdown: ['# Guide', '# Other', '# Guide'], labels: ['Guide', 'Other', 'Guide'] },
+    { markdown: ['# Guide\n\n## Section', '# Guide'], labels: ['Guide', 'Guide'] },
+    { markdown: ['# Other\n\n## Section\n\n### Guide', '# Guide'], labels: ['Other', 'Guide — chapters/b.md'] },
+    { markdown: ['# Guide', '# guide'], labels: ['Guide', 'guide'] },
+    { markdown: ['# Book\n\n## Overview', '# Overview\n\n## Overview\n\n### Child'], labels: ['Overview', 'Overview — chapters/b.md'] },
+  ];
+  for (const { markdown, labels } of cases) {
+    const source = await temp();
+    await mkdir(path.join(source, 'docs'));
+    await mkdir(path.join(source, 'chapters'));
+    const paths = markdown.map((_, index) => `chapters/${String.fromCharCode(97 + index)}.md`);
+    for (const [index, file] of paths.entries()) await writeFile(path.join(source, file), `${markdown[index]}\n\n<a id="body"></a>`);
+    await writeFile(path.join(source, 'docs/DOCUMENTS.json'), JSON.stringify({ version: 1, inventory: [], documents: [
+      { id: 'book', title: 'Book', sections: paths.map((file, index) => ({ id: `chapter-${index}`, path: file, anchor: 'body' })) },
+    ] }));
+    const output = await temp();
+    await renderSite(source, output, { mermaid: false });
+    for (const [index, file] of paths.entries()) {
+      const html = await readFile(path.join(output, file.replace('.md', '.html')), 'utf8');
+      const menu = html.split('<nav aria-label="Document map">')[1]!.split('</nav>')[0]!;
+      expect([...menu.matchAll(/class="chapter-row">(?:<button[^]*?<\/button>)?<a href="([^"]+)"[^>]*>([^<]*)<\/a>/g)].map(match => [match[1], match[2]]), markdown.join(' / '))
+        .toEqual(paths.map((target, chapter) => [path.posix.basename(target).replace('.md', '.html'), labels[chapter]]));
+      expect(html).toContain(`<title>${markdown[index]!.split('\n')[0]!.replace(/^#+ /, '').replace(/\*\*/g, '')}</title>`);
+      if (markdown[index]!.includes('### Child')) {
+        expect(menu).not.toContain('>Overview</a></li>');
+        expect(menu).toContain('href="#child">Child</a>');
+      }
+    }
+  }
+});
 it('loads a selected Markdown file as one page', async () => {
   const source = await temp();
   await writeFile(path.join(source, 'one.md'), '# One\n\nA single document.');

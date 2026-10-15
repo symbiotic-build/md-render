@@ -46,8 +46,12 @@ async function themeAssets(directory: string, theme: string): Promise<string | u
 function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, body: string, logo: string | undefined, themeInit: string): string {
   const doc = docs.get(file)!;
   const href = (target: string): string => escapeHtml(relativeUrl(file, target));
-  const outlineHtml = (entries: OutlineEntry[], chapter: string): string => entries.length ? `<ol>${entries.map((entry) =>
-    `<li><a href="${chapter === file ? '' : escapeHtml(relativeUrl(file, pagePath(chapter)))}#${encodeURIComponent(entry.id)}">${escapeHtml(entry.title)}</a>${outlineHtml(entry.children, chapter)}</li>`).join('')}</ol>` : '';
+  // Compare titles in menu order, including section links and group headings.
+  let previousTitle: string | undefined;
+  const outlineHtml = (entries: OutlineEntry[], chapter: string): string => entries.length ? `<ol>${entries.map((entry) => {
+    previousTitle = entry.title;
+    return `<li><a href="${chapter === file ? '' : escapeHtml(relativeUrl(file, pagePath(chapter)))}#${encodeURIComponent(entry.id)}">${escapeHtml(entry.title)}</a>${outlineHtml(entry.children, chapter)}</li>`;
+  }).join('')}</ol>` : '';
   let chapterId = 0;
   const chapters = (paths: string[], groupTitle?: string, referenced = false): string => paths.map((chapter, index) => {
     const target = relativeUrl(file, pagePath(chapter));
@@ -56,18 +60,27 @@ function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, b
     if (paths.length > 1 && index === 0 && label === groupTitle) {
       label = chapterDoc.headings.find((heading) => heading.depth === 2)?.title ?? 'Introduction';
     }
-    const title = escapeHtml(label);
     const entries = documentOutline(chapterDoc);
     // A heading used as the chapter label already has a link; retain its children.
     if (entries[0]?.title === label) entries.splice(0, 1, ...entries[0].children);
+    if ((referenced ? label + chapter : label) === previousTitle) label += ` — ${chapter}`;
+    previousTitle = referenced ? label + chapter : label;
+    const title = escapeHtml(label);
     const outline = outlineHtml(entries, chapter);
     const id = `chapter-sections-${chapterId++}`;
     const current = chapter === file;
     return `<li><div class="chapter-row">${outline ? `<button class="chapter-toggle" type="button" aria-label="Toggle ${title}" aria-expanded="${current}" aria-controls="${id}"><span aria-hidden="true">›</span></button>` : ''}<a href="${escapeHtml(target)}"${current ? ' aria-current="page"' : ''}>${title}${referenced ? `<small class="reference-path">${escapeHtml(chapter)}</small>` : ''}</a></div>${outline ? `<div id="${id}"${current ? '' : ' hidden'}>${outline}</div>` : ''}</li>`;
   }).join('');
   const references = [...docs.keys()].filter((chapter) => !corpus.files.some((source) => source.path === chapter));
-  const sidebar = corpus.documents.filter((group) => group.paths.length).map((group) => `<section class="document-group">${group.paths.length > 1 ? `<h2>${escapeHtml(group.title ?? 'Documentation')}</h2>` : ''}<ol>${chapters(group.paths, group.title)}</ol></section>`).join('') +
-    (references.length ? `<details class="document-group referenced"${references.includes(file) ? ' open' : ''}><summary>Referenced files</summary><ol>${chapters(references, undefined, true)}</ol></details>` : '');
+  let sidebar = corpus.documents.filter((group) => group.paths.length).map((group) => {
+    const heading = group.paths.length > 1 ? group.title ?? 'Documentation' : undefined;
+    if (heading !== undefined) previousTitle = heading;
+    return `<section class="document-group">${heading !== undefined ? `<h2>${escapeHtml(heading)}</h2>` : ''}<ol>${chapters(group.paths, group.title)}</ol></section>`;
+  }).join('');
+  if (references.length) {
+    previousTitle = 'Referenced files';
+    sidebar += `<details class="document-group referenced"${references.includes(file) ? ' open' : ''}><summary>Referenced files</summary><ol>${chapters(references, undefined, true)}</ol></details>`;
+  }
   const index = corpus.files.findIndex((source) => source.path === file);
   const adjacent = (offset: number, label: string): string => {
     const source = index < 0 ? undefined : corpus.files[index + offset];
