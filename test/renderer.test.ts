@@ -26,16 +26,17 @@ it('uses the manifest for a selected docs folder without adding unrelated invent
   expect(corpus.files.map((file) => file.path)).toEqual(['chapters/nested/home.md', 'chapters/start.md', 'index.md']);
   expect(corpus.entities).toEqual([{ path: 'chapters/nested/home.md', anchor: 'writer' }]);
 });
-it('leaves non-document and directory references visible as external local links', async () => {
+it('renders linked inventory Markdown and preserves original directory links', async () => {
   const output = await temp();
   const result = await renderSite(fixture, output, { mermaid: false });
-  expect(result.pages).toEqual(['chapters/nested/home.html', 'chapters/start.html', 'index.html']);
-  expect(result.warnings).toHaveLength(3);
+  expect(result.pages).toEqual(['chapters/nested/home.html', 'chapters/start.html', 'index.html', 'ignored.html', 'docs/generated/unused.html']);
+  expect(result.warnings).toHaveLength(1);
   const index = await readFile(path.join(output, 'index.html'), 'utf8');
-  expect(index).toContain('ignored.md');
+  expect(index).toContain('ignored.html');
   expect(index).toContain('templates/');
-  expect(index.match(/\(external local file\)/g)).toHaveLength(3);
-  expect(index).not.toContain('ignored.html');
+  expect(index).not.toContain('(external local file)');
+  expect(index).toContain('class="local-file"');
+  expect(index).toContain('>Referenced files</summary>');
   await expect(access(path.join(output, 'ignored.md'))).rejects.toMatchObject({ code: 'ENOENT' });
 });
 it('rejects an unknown real-format manifest version before selecting files', async () => {
@@ -106,26 +107,27 @@ it('nests level-three headings under the preceding level-two heading in source o
     { id: 'second', title: 'Second', children: [{ id: 'three', title: 'Three', children: [] }] },
   ]);
 });
-it('omits the outline with fewer than two level-two headings', () => {
-  for (const markdown of ['# Page', '# Page\n\n### Child', '# Page\n\n## Only\n\n### One\n\n### Two']) {
-    expect(documentOutline(parseDocument(markdown, 'fallback'))).toEqual([]);
-  }
+it('includes a single level-two section and its children', () => {
+  expect(documentOutline(parseDocument('# Page', 'fallback'))).toEqual([]);
+  expect(documentOutline(parseDocument('# Page\n\n## Only\n\n### Child', 'fallback'))).toEqual([
+    { id: 'only', title: 'Only', children: [{ id: 'child', title: 'Child', children: [] }] },
+  ]);
 });
-it('shows the same nested contents beside the body and under only the current document', async () => {
+it('shows sections only in the menu, expanding only the current chapter', async () => {
   const source = await temp();
   await writeFile(path.join(source, 'index.md'), '# Page\n\n<a id="custom"></a>\n## [First](#custom) & **bold**\n\n### Child\n\n## Second');
   await writeFile(path.join(source, 'other.md'), '# Other\n\n## Only');
   const output = await temp();
   await renderSite(source, output, { mermaid: false });
   const html = await readFile(path.join(output, 'index.html'), 'utf8');
-  const contents = '<ol><li><a href="#custom">First &amp; bold</a><ol><li class="subsection"><a href="#child">Child</a></li></ol></li><li><a href="#second">Second</a></li></ol>';
-  expect(html).toContain(`aria-current="page">Page</a>${contents}</li>`);
-  expect(html).toContain(`<summary>On this page</summary>${contents}`);
-  expect(html.indexOf('<aside class="contents">')).toBeLessThan(html.indexOf('<main'));
+  const contents = '<ol><li><a href="#custom">First &amp; bold</a><ol><li><a href="#child">Child</a></li></ol></li><li><a href="#second">Second</a></li></ol>';
+  expect(html).toContain(`aria-current="page">Page</a></div><div id="chapter-sections-0">${contents}</div></li>`);
+  expect(html).not.toContain('On this page');
+  expect(html).not.toContain('class="contents"');
   const other = await readFile(path.join(output, 'other.html'), 'utf8');
-  expect(other).toContain('aria-current="page">Other</a></li>');
+  expect(other).toContain('aria-current="page">Other</a></div><div id="chapter-sections-1">');
   expect(other).not.toContain('class="contents"');
-  expect(other).not.toContain('href="#custom"');
+  expect(other).toContain('href="index.html#custom"');
 });
 it('shows one chapter and one nested outline for repeated manifest entries of the current file', async () => {
   const source = await temp();
@@ -141,8 +143,8 @@ it('shows one chapter and one nested outline for repeated manifest entries of th
   await renderSite(source, output, { mermaid: false });
   const html = await readFile(path.join(output, 'chapter.html'), 'utf8');
   expect(html.match(/aria-current="page"/g)).toHaveLength(1);
-  expect(html).toContain('href="chapter.html" aria-current="page">Chapter</a><ol>');
-  expect(html.match(/href="#child"/g)).toHaveLength(2);
+  expect(html).toContain('href="chapter.html" aria-current="page">Chapter</a></div><div id="chapter-sections-0"><ol>');
+  expect(html.match(/href="#child"/g)).toHaveLength(1);
   expect(html).not.toContain('href="chapter.html#second"');
 });
 it('renders unsupported raw HTML as text and blocks executable markup', async () => {
@@ -158,21 +160,24 @@ it('rewrites cross-file, fragment, query and reference links and adds entity hov
   const home = await readFile(path.join(output, 'chapters/nested/home.html'), 'utf8');
   expect(start).toContain('href="nested/home.html#writer" title="The writer checks prepared requests before accepting them."');
   expect(start).toContain('href="nested/home.html?mode=read#default"');
-  expect(start.match(/href="nested\/home.html#writer"/g)).toHaveLength(2);
+  expect(start.split('<article')[1]!.match(/href="nested\/home.html#writer"/g)).toHaveLength(2);
   expect(home).toContain('href="../start.html#tour"');
   expect(home).toContain('href="#writer-1"');
-  expect(result.pages).toHaveLength(3);
-  expect(result.links).toBe(8);
+  expect(result.pages).toHaveLength(5);
+  expect(result.links).toBe(10);
   expect(start).toContain('offline renderer unavailable');
   expect(start).not.toContain('mermaid.min.js');
 });
-it('loads pinned offline Mermaid without remote script URLs', async () => {
+it('builds pinned offline Mermaid SVG without viewer scripts', async () => {
   const output = await temp();
   const result = await renderSite(fixture, output);
   expect(result.mermaid).toBe(true);
-  await expect(access(path.join(output, '_md-render/mermaid.min.js'))).resolves.toBeUndefined();
+  await expect(access(path.join(output, '_md-render/mermaid.min.js'))).rejects.toMatchObject({ code: 'ENOENT' });
   const html = await readFile(path.join(output, 'chapters/start.html'), 'utf8');
-  expect(html).toContain('src="../_md-render/mermaid.min.js"');
+  expect(html).toContain('<svg');
+  expect(html).toContain('class="node');
+  expect(html).not.toContain('diagrams.js');
+  for (const token of ['fill', 'ink', 'line', 'cluster', 'label']) expect(html).toContain(`var(--diagram-${token})`);
   expect(html).not.toMatch(/src="https?:/);
 });
 it('defaults to Symbiotic and keeps the neutral theme explicit', async () => {
@@ -213,7 +218,10 @@ describe('visible input failures', () => {
     const output = await temp();
     const result = await renderSite(source, output, { mermaid: false });
     expect(result.warnings).toHaveLength(1);
-    expect(await readFile(path.join(output, 'one.html'), 'utf8')).toContain('(external local file)');
+    const html = await readFile(path.join(output, 'one.html'), 'utf8');
+    expect(html).not.toContain('(external local file)');
+    expect(html).toContain('class="local-file"');
+    expect(html).toContain('title="../not-present/source.cc"');
   });
   it('rejects image escapes and executable links', async () => {
     const source = await temp();
@@ -281,13 +289,14 @@ it('groups chapters by document title, uses first headings over manifest labels 
   const output = await temp();
   await renderSite(source, output, { mermaid: false });
   const html = await readFile(path.join(output, 'a.html'), 'utf8');
-  expect(html).toContain('<h2>First book</h2><ol><li><a href="z.html">First chapter</a>');
-  expect(html).toContain('<h2>Second book</h2><ol><li><a href="b.html">Third chapter</a>');
+  expect(html).toContain('<h2>First book</h2><ol>');
+  expect(html).toContain('href="z.html">First chapter</a>');
+  expect(html).toContain('<h2>Second book</h2><ol><li><div class="chapter-row"><a href="b.html">Third chapter</a>');
   expect(html).not.toMatch(/>Wrong label<|>slug-a<|>book-id</);
   expect(html).toContain('href="z.html"><small>Previous</small>First chapter</a>');
   expect(html).toContain('href="b.html"><small>Next</small>Third chapter</a>');
 });
-it('renders a controlled menu and collapsed phone contents in both themes', async () => {
+it('renders a controlled menu without a separate contents block in both themes', async () => {
   for (const theme of ['default', 'symbiotic']) {
     const source = await temp();
     await writeFile(path.join(source, 'index.md'), '# Page\n\n## One\n\n## Two');
@@ -298,7 +307,7 @@ it('renders a controlled menu and collapsed phone contents in both themes', asyn
     expect(html).toContain('aria-expanded="true" aria-controls="document-menu"');
     expect(html).toContain('id="document-menu"');
     expect(html).toContain('id="menu-close"');
-    expect(html).toContain('<details><summary>On this page</summary>');
+    expect(html).not.toContain('On this page');
     expect(html).toContain('src="_md-render/navigation.js"');
     await expect(access(path.join(output, '_md-render/navigation.js'))).resolves.toBeUndefined();
   }
@@ -312,4 +321,77 @@ it('never uses a filename slug as a chapter title when no heading is authored', 
   const html = await readFile(path.join(output, 'opaque-slug.html'), 'utf8');
   expect(html).toContain('aria-current="page">Untitled chapter</a>');
   expect(html).not.toContain('>opaque-slug</a>');
+});
+
+
+it('uses a single chapter menu with independent disclosures and a theme radio group', async () => {
+  const source = await temp();
+  await writeFile(path.join(source, 'index.md'), '# Current title\n\n## Only section\n\n### Nested section');
+  await writeFile(path.join(source, 'other.md'), '# Other title\n\n## Other section');
+  await writeFile(path.join(source, 'empty.md'), '# No sections');
+  const output = await temp();
+  await renderSite(source, output, { mermaid: false });
+  const html = await readFile(path.join(output, 'index.html'), 'utf8');
+  expect(html).not.toContain('On this page');
+  expect(html).not.toContain('class="contents"');
+  expect(html).toContain('aria-label="Toggle Current title" aria-expanded="true"');
+  expect(html).toContain('aria-label="Toggle Other title" aria-expanded="false"');
+  expect(html).not.toContain('Toggle No sections');
+  expect(html).toContain('>Only section</a>');
+  expect(html).toContain('>Nested section</a>');
+  expect(html).toContain('role="radiogroup" aria-labelledby="theme-label"');
+  expect(html).toContain('<span id="theme-label">Colour theme</span>');
+  for (const value of ['system', 'light', 'dark']) expect(html).toContain(`value="${value}"`);
+  const css = await readFile(path.join(output, '_md-render/theme.css'), 'utf8');
+  expect(css).not.toContain('counter(sd-section');
+  expect(css).toContain(':root:not([data-theme="light"])');
+  expect(css).toContain(':root[data-theme="dark"]');
+});
+it('renders linked repository Markdown recursively in a collapsed referenced group', async () => {
+  const source = await temp();
+  await mkdir(path.join(source, 'docs'));
+  await writeFile(path.join(source, 'docs/DOCUMENTS.json'), JSON.stringify({ version: 1, inventory: [], documents: [
+    { id: 'book', title: 'Book', sections: [{ id: 'one', path: 'one.md', anchor: 'one' }] },
+  ] }));
+  await writeFile(path.join(source, 'one.md'), '# One\n\n[Two](two.md#two) [Native](source.ts)');
+  await writeFile(path.join(source, 'two.md'), '# Two\n\n[Three][ref]\n\n[ref]: three.md');
+  await writeFile(path.join(source, 'three.md'), '# Three\n\n[Cycle](two.md)');
+  await writeFile(path.join(source, 'source.ts'), 'export {};');
+  const output = await temp();
+  const result = await renderSite(source, output, { mermaid: false });
+  expect(result.pages).toEqual(['one.html', 'two.html', 'three.html']);
+  const html = await readFile(path.join(output, 'one.html'), 'utf8');
+  expect(html).toContain('<details class="document-group referenced"><summary>Referenced files</summary>');
+  expect(html).toContain('href="two.html#two"');
+  expect(html).toContain('class="local-file"');
+  expect(html).toContain('title="source.ts"');
+  expect(html).not.toContain('(external local file)');
+});
+
+
+it('renders sibling repository Markdown from a selected nested file without escaping the repository', async () => {
+  const source = await temp();
+  await mkdir(path.join(source, '.git'));
+  await mkdir(path.join(source, 'nested'));
+  await writeFile(path.join(source, 'nested/one.md'), '# One\n\n[Two](../two.md) [Outside](../../outside.md)');
+  await writeFile(path.join(source, 'two.md'), '# Real sibling title');
+  const output = await temp();
+  const result = await renderSite(path.join(source, 'nested/one.md'), output, { mermaid: false });
+  expect(result.pages).toEqual(['nested/one.html', 'two.html']);
+  expect(result.warnings).toHaveLength(1);
+  const html = await readFile(path.join(output, 'nested/one.html'), 'utf8');
+  expect(html).toContain('href="../two.html"');
+  expect(html).toContain('>Real sibling title</a>');
+});
+it('uses the first authored heading instead of conflicting frontmatter for menu labels', () => {
+  expect(parseDocument('---\ntitle: Slug\n---\n\n# Real heading', 'fallback').title).toBe('Real heading');
+});
+it('keeps reference-style non-Markdown labels with a file icon and repository path', async () => {
+  const source = await temp();
+  await writeFile(path.join(source, 'index.md'), '# Page\n\n[Native][source]\n\n[source]: source.ts');
+  const output = await temp();
+  await renderSite(source, output, { mermaid: false });
+  const html = await readFile(path.join(output, 'index.html'), 'utf8');
+  expect(html).toMatch(/title="source.ts" class="local-file">Native<\/a>/);
+  expect(html).not.toContain('(external local file)');
 });

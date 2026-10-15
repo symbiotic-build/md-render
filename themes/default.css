@@ -1,6 +1,8 @@
 /* Neutral light theme; override these tokens in a custom CSS file. */
 :root{color-scheme:light;--paper:#fff;--panel:#f7f8fa;--text:#242b36;--muted:#626e7c;--accent:#285d8b;--line:#e1e5ea;--tint:#eaf0f6;--font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
 
-@media(prefers-color-scheme:dark){
-  :root{color-scheme:dark;--paper:#151a22;--panel:#1d2430;--text:#e5eaf2;--muted:#aab6c6;--accent:#8dbdf2;--line:#384454;--tint:#293a50}
+@media(prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){color-scheme:dark;--paper:#151a22;--panel:#1d2430;--text:#e5eaf2;--muted:#aab6c6;--accent:#8dbdf2;--line:#384454;--tint:#293a50}
 }
+
+:root[data-theme="dark"]{color-scheme:dark;--paper:#151a22;--panel:#1d2430;--text:#e5eaf2;--muted:#aab6c6;--accent:#8dbdf2;--line:#384454;--tint:#293a50}

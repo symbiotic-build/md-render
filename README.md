@@ -35,8 +35,9 @@ When `docs/DOCUMENTS.json` exists, its `documents[].sections[]` order controls n
 Files appear once, at their first section. Declared navigation files are included too.
 Inventory entries classified as `other` or `generated`, directories, and unlisted Markdown
 are not added as document pages. A generated file is included when declared as navigation.
-References to unrendered inventory entries become labelled links to the original inputs
-and produce warnings. Unknown manifest versions fail with a diagnostic.
+Linked repository Markdown files render as additional pages under the collapsed
+“Referenced files” menu group. Other local file links keep their authored labels, show a
+file icon and original path on hover, and produce warnings. Unknown manifest versions fail with a diagnostic.
 Without a manifest, `index.md` comes first, followed by all
 Markdown files recursively in lexical path order. Git internals and `node_modules` are
 excluded. A selected `docs` folder uses repository-relative metadata paths.
@@ -49,15 +50,15 @@ raw HTML appears as escaped text. HTML comments and YAML metadata do not appear 
 text. Unsupported executable link schemes fail.
 
 Links between rendered Markdown files become `.html` links with their fragments intact.
-Relative images and attachments inside the selected source root are copied. References
-outside that root become labelled `file:` links and produce warnings; their original
+Relative images inside the source root are copied. Local non-Markdown links open the
+original file. References outside the source repository become `file:` links and produce warnings; their original
 files are not copied or validated. Browsers may block opening those links from localhost.
-Use the displayed original location to open them directly.
+Their hover title gives the original path.
 
-Mermaid 12.2.0 is an optional, pinned dependency. When present, its local browser bundle
-renders diagrams and retains source in a disclosure. If absent, the page explicitly
-shows readable diagram source. A rendering failure also keeps source and displays the
-error. The renderer never downloads Mermaid.
+Mermaid 12.2.0 is an optional, pinned dependency. When present, an installed Chromium browser renders SVG diagrams at build time and
+retains source in a disclosure. Set `MD_RENDER_BROWSER` to a Chromium executable if it
+is outside the standard locations. No browser is needed to view the generated diagrams. If absent, the page explicitly
+shows readable diagram source. A rendering failure stops the build with a diagnostic. The renderer never downloads Mermaid.
 
 ## Themes
 

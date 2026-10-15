@@ -93,9 +93,24 @@ export async function loadCorpus(input: string): Promise<Corpus> {
   let root = await realpath(single ? path.dirname(selected) : selected);
   // A selected docs folder uses the same repository-relative manifest paths as a repository root.
   const inDocs = path.basename(root) === 'docs';
-  const metadataRoot = inDocs ? path.dirname(root) : root;
-  const manifest = await optionalJson(metadataRoot, 'docs/DOCUMENTS.json');
-  const entityIndex = await optionalJson(metadataRoot, 'docs/ENTITIES.json');
+  let metadataRoot = inDocs ? path.dirname(root) : root;
+  let manifest = await optionalJson(metadataRoot, 'docs/DOCUMENTS.json');
+  let entityIndex = await optionalJson(metadataRoot, 'docs/ENTITIES.json');
+  // A selected corpus's metadata wins. Otherwise repository links may leave the
+  // selected folder, but never the source repository.
+  if (manifest === undefined && entityIndex === undefined) {
+    for (let candidate = root; ; candidate = path.dirname(candidate)) {
+      try {
+        await lstat(path.join(candidate, '.git'));
+        metadataRoot = candidate;
+        root = candidate;
+        manifest = await optionalJson(metadataRoot, 'docs/DOCUMENTS.json');
+        entityIndex = await optionalJson(metadataRoot, 'docs/ENTITIES.json');
+        break;
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+      if (path.dirname(candidate) === candidate) break;
+    }
+  }
   if (manifest !== undefined || entityIndex !== undefined) root = metadataRoot;
   const selectedRelative = portable(path.relative(root, selected));
   const map: MapEntry[] = [];

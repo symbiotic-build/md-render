@@ -1,0 +1,8 @@
+/* Mermaid's generated ID rules and authored inline colours must share page tokens. */
+:root{--diagram-fill:var(--panel);--diagram-ink:var(--text);--diagram-line:var(--accent);--diagram-cluster:var(--paper);--diagram-label:var(--panel)}
+:root .node :is(rect,circle,ellipse,polygon,path),:root :is(.actor,.activation0,.activation1,.activation2,.labelBox){fill:var(--diagram-fill)!important;stroke:var(--diagram-line)!important}
+:root .cluster rect{fill:var(--diagram-cluster)!important;stroke:var(--diagram-line)!important}
+:root :is(text,tspan,.nodeLabel,.edgeLabel,.cluster-label,.label,.messageText,.loopText,.noteText),:root foreignObject *,:root :is(.node,.edgeLabel,.cluster-label) :is(text,tspan,foreignObject *){fill:var(--diagram-ink)!important;color:var(--diagram-ink)!important}
+:root :is(.edgePath path,.flowchart-link,.relationshipLine,.messageLine0,.messageLine1,.actor-line,.loopLine){stroke:var(--diagram-line)!important}
+:root marker *{fill:var(--diagram-line)!important;stroke:var(--diagram-line)!important}
+:root :is(.edgeLabel,.edgeLabel p,.labelBkg,.edgeLabel rect){background:var(--diagram-label)!important;fill:var(--diagram-label)!important}

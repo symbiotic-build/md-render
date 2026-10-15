@@ -43,7 +43,7 @@ it('serves pages on a free loopback port and removes output on close', async () 
   const response = await fetch(`${origin(viewer)}chapters/start.html`);
   expect(response.status).toBe(200);
   expect(response.headers.get('content-type')).toContain('text/html');
-  expect(await response.text()).toContain('A synthetic tour');
+  expect(await response.text()).toContain('<h1 id="tour-1">Tour</h1>');
   expect((await fetch(`${origin(viewer)}missing.html`)).status).toBe(404);
   expect((await fetch(`${origin(viewer)}%ZZ`)).status).toBe(400);
   expect((await fetch(viewer.url, { method: 'POST' })).status).toBe(405);
@@ -76,7 +76,7 @@ it('keeps static output after the CLI exits', async () => {
   const child = spawn(process.execPath, [cli, fixture, '--out', output], { stdio: 'ignore' });
   children.push(child);
   expect((await once(child, 'exit'))[0]).toBe(0);
-  expect(await readFile(path.join(output, 'chapters/start.html'), 'utf8')).toContain('A synthetic tour');
+  expect(await readFile(path.join(output, 'chapters/start.html'), 'utf8')).toContain('<h1 id="tour-1">Tour</h1>');
 });
 it('returns a visible error for invalid input and cleans startup resources', async () => {
   const before = process.listenerCount('exit');

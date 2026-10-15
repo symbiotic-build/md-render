@@ -20,6 +20,7 @@ const writer = unified().use(remarkRehype).use(rehypeSanitize, {
   clobberPrefix: '',
   protocols: { ...defaultSchema.protocols, href: ['http', 'https', 'mailto', 'tel', 'file'] },
   attributes: { ...defaultSchema.attributes, figure: ['className'], figcaption: [],
+    a: [...(defaultSchema.attributes?.a ?? []).filter((attribute) => !Array.isArray(attribute) || attribute[0] !== 'className'), ['className', 'local-file']],
     code: [['className', /^language-./]], div: ['className', 'role', 'ariaLabel', 'tabIndex'] },
   tagNames: [...(defaultSchema.tagNames ?? []), 'figure', 'figcaption'],
 }).use(rehypeStringify);
@@ -95,7 +96,7 @@ export function parseDocument(markdown: string, fallbackTitle: string): ParsedDo
       if (meta !== null && (typeof meta !== 'object' || Array.isArray(meta))) throw new Error('Frontmatter must be an object');
       const value = (meta as Record<string, unknown> | null)?.title;
       if (value !== undefined && typeof value !== 'string') throw new Error('Frontmatter title must be text');
-      if (typeof value === 'string' && value.trim()) title = value;
+      if (!title && typeof value === 'string' && value.trim()) title = value;
       parent.children.splice(index, 1);
       return index;
     }
@@ -130,7 +131,6 @@ export interface OutlineEntry { id: string; title: string; children: OutlineEntr
 
 /** Derives contents in source order; level-three headings nest under the preceding level two. */
 export function documentOutline(doc: ParsedDocument): OutlineEntry[] {
-  if (doc.headings.filter((heading) => heading.depth === 2).length < 2) return [];
   const outline: OutlineEntry[] = [];
   let section: OutlineEntry | undefined;
   for (const heading of doc.headings) {
@@ -150,12 +150,17 @@ export function documentOutline(doc: ParsedDocument): OutlineEntry[] {
 export function transformUrls(doc: ParsedDocument, transform: (url: string, image: boolean) => { url: string; title?: string }): void {
   const imageReferences = new Set<string>();
   visit(doc.tree, 'imageReference', (node) => { imageReferences.add(node.identifier); });
+  const localDefinitions = new Set<string>();
   visit(doc.tree, (node) => {
     if (node.type !== 'link' && node.type !== 'definition' && node.type !== 'image') return;
     const result = transform(node.url, node.type === 'image' || (node.type === 'definition' && imageReferences.has(node.identifier)));
     node.url = result.url;
     if (result.title) node.title = result.title;
-    if (result.url.startsWith('file:') && node.type === 'link') node.children.push({ type: 'text', value: ' (external local file)' });
+    if (node.type === 'definition' && result.url.startsWith('file:')) localDefinitions.add(node.identifier);
+    if (result.url.startsWith('file:') && node.type !== 'image') node.data = { ...node.data, hProperties: { className: ['local-file'] } };
+  });
+  visit(doc.tree, 'linkReference', (node) => {
+    if (localDefinitions.has(node.identifier)) node.data = { ...node.data, hProperties: { className: ['local-file'] } };
   });
 }
 

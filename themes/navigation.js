@@ -1,9 +1,8 @@
 const button = document.querySelector('#menu-button');
 const menu = document.querySelector('#document-menu');
 const close = document.querySelector('#menu-close');
-const contents = document.querySelector('.contents');
-const phone = matchMedia('(max-width: 720px)');
-const background = [...document.querySelectorAll('main, .contents, .menu-bar, .skip-link')];
+const compact = matchMedia('(max-width: 1023px)');
+const background = [...document.querySelectorAll('main, .menu-bar, .skip-link')];
 let expanded = true;
 let openedByReader = false;
 let mobileOpen = false;
@@ -13,42 +12,26 @@ try {
 } catch (error) { console.warn('Menu preference could not be read; using the default.', error); }
 
 function fitNavigation() {
-  const available = Math.max(1, innerHeight - 72);
-  // A tall first-visit menu participates in document scrolling. Only an explicit
-  // open action opts into a viewport-limited sidebar with its own scrolling.
-  menu.classList.toggle('fits-viewport', menu.scrollHeight <= available);
-  if (!contents) return;
-  contents.classList.remove('sections-only');
-  const list = contents.querySelector('details > ol');
-  list.style.zoom = '';
-  if (phone.matches) return;
-  if (contents.scrollHeight > available) contents.classList.add('sections-only');
-  if (contents.scrollHeight > available) {
-    const listHeight = list.getBoundingClientRect().height;
-    const surroundingHeight = contents.getBoundingClientRect().height - listHeight;
-    list.style.zoom = Math.max(1, available - surroundingHeight) / listHeight;
-  }
+  if (compact.matches) return;
+  // A tall first-visit menu shares document scrolling. An explicit open action
+  // opts into a viewport-limited menu; only its chapter list then scrolls.
+  menu.classList.toggle('fits-viewport', menu.scrollHeight <= innerHeight - 56);
 }
-
 function updateMenu() {
-  const open = phone.matches ? mobileOpen : expanded;
+  const open = compact.matches ? mobileOpen : expanded;
   menu.hidden = !open;
   document.body.classList.toggle('menu-hidden', !open);
-  document.body.classList.toggle('menu-modal', phone.matches && open);
-  menu.classList.toggle('reader-opened', openedByReader && !phone.matches);
+  document.body.classList.toggle('menu-modal', compact.matches && open);
+  menu.classList.toggle('reader-opened', openedByReader && !compact.matches);
   button.setAttribute('aria-expanded', String(open));
-  if (phone.matches && open) {
+  if (compact.matches && open) {
     menu.setAttribute('role', 'dialog');
     menu.setAttribute('aria-modal', 'true');
   } else {
     menu.removeAttribute('role');
     menu.removeAttribute('aria-modal');
   }
-  for (const element of background) element.inert = phone.matches && open;
-  if (contents) {
-    contents.querySelector('details').open = !phone.matches;
-    contents.querySelector('summary').tabIndex = phone.matches ? 0 : -1;
-  }
+  for (const element of background) element.inert = compact.matches && open;
   fitNavigation();
 }
 function closeMenu() {
@@ -57,7 +40,7 @@ function closeMenu() {
   button.focus({ preventScroll: true });
 }
 button.addEventListener('click', () => {
-  if (phone.matches) {
+  if (compact.matches) {
     mobileOpen = true;
     updateMenu();
     close.focus();
@@ -71,37 +54,52 @@ button.addEventListener('click', () => {
 });
 close.addEventListener('click', closeMenu);
 menu.addEventListener('click', (event) => {
+  const toggle = event.target.closest('.chapter-toggle');
+  if (toggle) {
+    const open = toggle.getAttribute('aria-expanded') !== 'true';
+    toggle.setAttribute('aria-expanded', String(open));
+    document.getElementById(toggle.getAttribute('aria-controls')).hidden = !open;
+    fitNavigation();
+  }
   const link = event.target.closest('a');
-  if (!phone.matches || !link) return;
+  if (!compact.matches || !link) return;
   closeMenu();
   if (link.getAttribute('href').startsWith('#')) {
-    // Native fragment navigation moves focus after the click handler. Perform
-    // the jump first, then restore the close action's focus without scrolling.
     event.preventDefault();
     location.hash = link.hash;
     button.focus({ preventScroll: true });
   }
 });
 document.addEventListener('keydown', (event) => {
-  if (!phone.matches || !mobileOpen) return;
+  if (!compact.matches || !mobileOpen) return;
   if (event.key === 'Escape') { event.preventDefault(); closeMenu(); }
   if (event.key === 'Tab') {
-    const links = [...menu.querySelectorAll('button, a[href]')];
-    const first = links[0];
-    const last = links.at(-1);
+    const focusable = [...menu.querySelectorAll('button, a[href], input')].filter((element) =>
+      element.getClientRects().length && (element.type !== 'radio' || element.checked));
+    const first = focusable[0];
+    const last = focusable.at(-1);
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
 });
-phone.addEventListener('change', () => {
+compact.addEventListener('change', () => {
   const wasOpen = mobileOpen;
   mobileOpen = false;
   updateMenu();
   if (wasOpen || menu.contains(document.activeElement) && menu.hidden) button.focus();
 });
-contents?.querySelector('summary').addEventListener('click', (event) => {
-  if (!phone.matches) event.preventDefault();
-});
+for (const radio of menu.querySelectorAll('input[name="theme"]')) {
+  radio.checked = radio.value === (document.documentElement.dataset.theme || 'system');
+  radio.addEventListener('change', () => {
+    if (!radio.checked) return;
+    if (radio.value === 'system') delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = radio.value;
+    try {
+      if (radio.value === 'system') localStorage.removeItem('md-render-theme');
+      else localStorage.setItem('md-render-theme', radio.value);
+    } catch (error) { console.warn('Theme preference could not be saved; using it for this page.', error); }
+  });
+}
 addEventListener('resize', fitNavigation);
 new ResizeObserver(fitNavigation).observe(menu.querySelector('nav'));
 updateMenu();

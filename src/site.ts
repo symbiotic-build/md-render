@@ -1,8 +1,9 @@
-import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import { cp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadCorpus, readSource, within, type Corpus } from './corpus.js';
+import { renderDiagrams } from './diagrams.js';
 import { documentHtml, documentOutline, parseDocument, transformUrls, type OutlineEntry, type ParsedDocument } from './markdown.js';
 
 const assets = '_md-render';
@@ -42,74 +43,38 @@ async function themeAssets(directory: string, theme: string): Promise<string | u
   return logo;
 }
 
-async function mermaidAsset(directory: string, enabled: boolean): Promise<boolean> {
-  if (!enabled) return false;
-  const require = createRequire(import.meta.url);
-  let packageFile: string;
-  try { packageFile = require.resolve('mermaid/package.json'); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'MODULE_NOT_FOUND') return false;
-    throw error;
-  }
-  const pkg = JSON.parse(await readFile(packageFile, 'utf8')) as { version: string };
-  if (pkg.version !== '12.2.0') throw new Error(`Expected offline Mermaid 12.2.0, found ${pkg.version}`);
-  await cp(path.join(path.dirname(packageFile), 'dist', 'mermaid.min.js'), path.join(directory, assets, 'mermaid.min.js'));
-  await cp(path.join(path.dirname(packageFile), 'LICENSE'), path.join(directory, assets, 'MERMAID-LICENSE'));
-  await writeFile(path.join(directory, assets, 'diagrams.js'), `
-const figures = document.querySelectorAll('.mermaid-diagram');
-try {
-  if (!globalThis.mermaid) throw new Error('Offline Mermaid failed to load');
-  globalThis.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true });
-  let index = 0;
-  for (const figure of figures) {
-    const source = figure.querySelector('code').textContent;
-    const caption = figure.querySelector('figcaption');
-    try {
-      const { svg } = await globalThis.mermaid.render('md-render-diagram-' + index++, source);
-      const drawing = document.createElement('div');
-      drawing.innerHTML = svg;
-      figure.insertBefore(drawing, caption);
-      caption.textContent = 'Diagram source';
-      const details = document.createElement('details');
-      const summary = document.createElement('summary');
-      summary.textContent = 'View Mermaid source';
-      details.append(summary, figure.querySelector('pre'));
-      figure.append(details);
-    } catch (error) { caption.textContent = 'Mermaid rendering failed — source retained: ' + error.message; }
-  }
-} catch (error) {
-  for (const figure of figures) figure.querySelector('figcaption').textContent = 'Mermaid unavailable — source retained: ' + error.message;
-}
-`);
-  return true;
-}
-
-function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, body: string, logo: string | undefined, mermaid: boolean): string {
+function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, body: string, logo: string | undefined, themeInit: string): string {
   const doc = docs.get(file)!;
   const href = (target: string): string => escapeHtml(relativeUrl(file, target));
-  const outlineHtml = (entries: OutlineEntry[]): string => entries.length ? `<ol>${entries.map((entry) =>
-    `<li${doc.headings.find((heading) => heading.id === entry.id)?.depth === 3 ? ' class="subsection"' : ''}><a href="#${encodeURIComponent(entry.id)}">${escapeHtml(entry.title)}</a>${outlineHtml(entry.children)}</li>`).join('')}</ol>` : '';
-  const contents = outlineHtml(documentOutline(doc));
-  const sidebar = corpus.documents.filter((group) => group.paths.length).map((group) => `<section class="document-group"><h2>${escapeHtml(group.title)}</h2><ol>${group.paths.map((chapter) => {
+  const outlineHtml = (entries: OutlineEntry[], chapter: string): string => entries.length ? `<ol>${entries.map((entry) =>
+    `<li><a href="${chapter === file ? '' : escapeHtml(relativeUrl(file, pagePath(chapter)))}#${encodeURIComponent(entry.id)}">${escapeHtml(entry.title)}</a>${outlineHtml(entry.children, chapter)}</li>`).join('')}</ol>` : '';
+  let chapterId = 0;
+  const chapters = (paths: string[]): string => paths.map((chapter) => {
     const target = relativeUrl(file, pagePath(chapter));
-    return `<li><a href="${escapeHtml(target)}"${chapter === file ? ' aria-current="page"' : ''}>${escapeHtml(docs.get(chapter)!.title)}</a>${chapter === file ? contents : ''}</li>`;
-  }).join('')}</ol></section>`).join('');
+    const title = escapeHtml(docs.get(chapter)!.title);
+    const outline = outlineHtml(documentOutline(docs.get(chapter)!), chapter);
+    const id = `chapter-sections-${chapterId++}`;
+    const current = chapter === file;
+    return `<li><div class="chapter-row">${outline ? `<button class="chapter-toggle" type="button" aria-label="Toggle ${title}" aria-expanded="${current}" aria-controls="${id}"><span aria-hidden="true">›</span></button>` : ''}<a href="${escapeHtml(target)}"${current ? ' aria-current="page"' : ''}>${title}</a></div>${outline ? `<div id="${id}"${current ? '' : ' hidden'}>${outline}</div>` : ''}</li>`;
+  }).join('');
+  const references = [...docs.keys()].filter((chapter) => !corpus.files.some((source) => source.path === chapter));
+  const sidebar = corpus.documents.filter((group) => group.paths.length).map((group) => `<section class="document-group"><h2>${escapeHtml(group.title)}</h2><ol>${chapters(group.paths)}</ol></section>`).join('') +
+    (references.length ? `<details class="document-group referenced"><summary>Referenced files</summary><ol>${chapters(references)}</ol></details>` : '');
   const index = corpus.files.findIndex((source) => source.path === file);
   const adjacent = (offset: number, label: string): string => {
-    const source = corpus.files[index + offset];
+    const source = index < 0 ? undefined : corpus.files[index + offset];
     return source ? `<a href="${href(pagePath(source.path))}"><small>${label}</small>${escapeHtml(docs.get(source.path)!.title)}</a>` : '<span></span>';
   };
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
-<title>${escapeHtml(doc.title)}</title><link rel="stylesheet" href="${href(`${assets}/base.css`)}"><link rel="stylesheet" href="${href(`${assets}/theme.css`)}"></head>
-<body${contents ? ' class="has-contents"' : ''}><a class="skip-link" href="#md-render-content">Skip to document</a>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'sha256-${createHash('sha256').update(themeInit).digest('base64')}'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<script>${themeInit}</script><title>${escapeHtml(doc.title)}</title><link rel="stylesheet" href="${href(`${assets}/base.css`)}"><link rel="stylesheet" href="${href(`${assets}/theme.css`)}"></head>
+<body><a class="skip-link" href="#md-render-content">Skip to document</a>
 <header class="menu-bar"><button id="menu-button" type="button" aria-expanded="true" aria-controls="document-menu">Menu</button><a class="site-title" href="${href(pagePath(corpus.files[0]!.path))}">${logo ? `<img src="${href(`${assets}/${logo}`)}" alt="Theme logo">` : ''}<span>Documentation</span></a></header>
-<aside class="sidebar" id="document-menu" aria-label="Documentation menu"><button id="menu-close" type="button">Close menu</button><nav aria-label="Document map">${sidebar}</nav></aside>
-${contents ? `<aside class="contents"><nav aria-label="On this page"><details><summary>On this page</summary>${contents}</details></nav></aside>` : ''}
-<main id="md-render-content"><header class="page-meta"><span>${escapeHtml(file)}</span><span>${index + 1} / ${corpus.files.length}</span></header><article class="sd-doc">${body}</article><nav class="adjacent" aria-label="Reading order">${adjacent(-1, 'Previous')}${adjacent(1, 'Next')}</nav></main>
+<aside class="sidebar" id="document-menu" aria-label="Documentation menu"><button id="menu-close" type="button">Close menu</button><nav aria-label="Document map">${sidebar}</nav><div class="theme-switch" role="radiogroup" aria-labelledby="theme-label"><span id="theme-label">Colour theme</span>${['system', 'light', 'dark'].map((value) => `<label><input type="radio" name="theme" value="${value}"${value === 'system' ? ' checked' : ''}>${value[0]!.toUpperCase() + value.slice(1)}</label>`).join('')}</div></aside>
+<main id="md-render-content"><header class="page-meta"><span>${escapeHtml(file)}</span><span>${index < 0 ? 'Referenced file' : `${index + 1} / ${corpus.files.length}`}</span></header><article class="sd-doc">${body}</article><nav class="adjacent" aria-label="Reading order">${adjacent(-1, 'Previous')}${adjacent(1, 'Next')}</nav></main>
 <script src="${href(`${assets}/navigation.js`)}" defer></script>
-${mermaid ? `<script src="${href(`${assets}/mermaid.min.js`)}"></script><script type="module" src="${href(`${assets}/diagrams.js`)}"></script>` : ''}</body></html>`;
+</body></html>`;
 }
 
 /** Renders every source before writing pages. Links resolve against the same parsed snapshot. */
@@ -122,8 +87,32 @@ export async function renderSite(input: string, output: string, options: RenderO
   await cp(fileURLToPath(new URL('../themes/base.css', import.meta.url)), path.join(directory, assets, 'base.css'));
   await cp(fileURLToPath(new URL('../themes/navigation.js', import.meta.url)), path.join(directory, assets, 'navigation.js'));
   const logo = await themeAssets(directory, options.theme ?? 'symbiotic');
-  const mermaid = await mermaidAsset(directory, options.mermaid !== false);
+  const themeInit = await readFile(fileURLToPath(new URL('../themes/theme-init.js', import.meta.url)), 'utf8');
   const docs = new Map(corpus.files.map((file) => [file.path, parseDocument(file.markdown, 'Untitled chapter')]));
+  // Discover the transitive Markdown closure before rewriting URLs or validating anchors.
+  // Map iteration visits newly discovered pages once, including cycles and reference links.
+  for (const [file, doc] of docs) {
+    const targets = new Set<string>();
+    transformUrls(doc, (url, image) => {
+      if (!image && !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(url)) {
+        const pathname = decodeURIComponent(url.split(/[?#]/)[0]!);
+        if (/\.md$/i.test(pathname)) {
+          const target = path.posix.normalize(pathname.startsWith('/') ? pathname.slice(1) : path.posix.join(path.posix.dirname(file), pathname));
+          if (!docs.has(target) && !target.startsWith('../')) targets.add(target);
+        }
+      }
+      return { url };
+    });
+    for (const target of targets) {
+      let bytes: Buffer;
+      try { bytes = await readSource(corpus.root, target); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`Markdown link is outside rendered corpus: ${file} -> ${target}`, { cause: error });
+        throw error;
+      }
+      docs.set(target, parseDocument(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'Untitled chapter'));
+    }
+  }
   const meanings = new Map<string, string>();
   for (const home of corpus.entities) {
     const meaning = docs.get(home.path)?.meanings.get(home.anchor);
@@ -150,13 +139,13 @@ export async function renderSite(input: string, output: string, options: RenderO
       const target = pathname ? path.posix.normalize(pathname.startsWith('/') ? pathname.slice(1) : path.posix.join(path.posix.dirname(file), pathname)) : file;
       const absolute = path.resolve(corpus.root, target);
       const outside = path.relative(corpus.root, absolute).startsWith(`..${path.sep}`) || path.relative(corpus.root, absolute) === '..';
-      const unrendered = !docs.has(target) && (corpus.inventory.has(target) ||
-        [...corpus.inventory.keys()].some((entry) => entry.endsWith('/') &&
-          (target === entry.slice(0, -1) || target.startsWith(entry))));
-      if ((outside || unrendered) && !image) {
+      if (target === 'index.html' || [...docs.keys()].some((source) => pagePath(source) === target)) {
+        throw new Error(`Attachment collides with rendered page: ${target}`);
+      }
+      if (!image && (outside || pathname && !docs.has(target) && !/\.md$/i.test(target))) {
         const message = `${file}: external local reference ${url}; ${outside ? 'outside selected input' : 'not a rendered document'}, open the original file`;
         warnings.push(message);
-        return { url: pathToFileURL(absolute).href + query + fragment, title: message };
+        return { url: pathToFileURL(absolute).href + query + fragment, title: target };
       }
       within(corpus.root, target);
       if (!image && (docs.has(target) || /\.md$/i.test(target) || !pathname)) {
@@ -169,9 +158,6 @@ export async function renderSite(input: string, output: string, options: RenderO
           title: meanings.get(`${target}#${id}`) };
       }
       if (target === assets || target.startsWith(`${assets}/`)) throw new Error(`Input asset uses reserved directory: ${target}`);
-      if (target === 'index.html' || corpus.files.some((source) => pagePath(source.path) === target)) {
-        throw new Error(`Attachment collides with rendered page: ${target}`);
-      }
       copiedAssets.add(target);
       return { url: relativeUrl(file, target) + query + fragment };
     });
@@ -182,14 +168,15 @@ export async function renderSite(input: string, output: string, options: RenderO
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, bytes);
   }
+  const bodies = await Promise.all([...docs.values()].map(documentHtml));
+  const diagrams = await renderDiagrams(bodies, options.mermaid !== false);
+  const mermaid = diagrams.available;
   const pages: string[] = [];
-  for (const [file, doc] of docs) {
+  for (const [index, file] of [...docs.keys()].entries()) {
     if (file.startsWith(`${assets}/`)) throw new Error(`Input uses reserved directory: ${file}`);
     const target = within(directory, pagePath(file));
     await mkdir(path.dirname(target), { recursive: true });
-    let body = await documentHtml(doc);
-    if (mermaid) body = body.replaceAll('Mermaid diagram — source (offline renderer unavailable)', 'Mermaid diagram — source (loading offline renderer)');
-    await writeFile(target, page(corpus, docs, file, body, logo, mermaid));
+    await writeFile(target, page(corpus, docs, file, diagrams.pages[index]!, logo, themeInit));
     pages.push(pagePath(file));
   }
   if (!pages.includes('index.html')) {
