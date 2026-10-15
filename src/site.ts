@@ -147,8 +147,11 @@ export async function renderSite(input: string, output: string, options: RenderO
       const target = pathname ? path.posix.normalize(pathname.startsWith('/') ? pathname.slice(1) : path.posix.join(path.posix.dirname(file), pathname)) : file;
       const absolute = path.resolve(corpus.root, target);
       const outside = path.relative(corpus.root, absolute).startsWith(`..${path.sep}`) || path.relative(corpus.root, absolute) === '..';
-      if (outside && !image) {
-        const message = `${file}: external local reference ${url}; outside selected input, open the original file`;
+      const unrendered = !docs.has(target) && (corpus.inventory.has(target) ||
+        [...corpus.inventory.keys()].some((entry) => entry.endsWith('/') &&
+          (target === entry.slice(0, -1) || target.startsWith(entry))));
+      if ((outside || unrendered) && !image) {
+        const message = `${file}: external local reference ${url}; ${outside ? 'outside selected input' : 'not a rendered document'}, open the original file`;
         warnings.push(message);
         return { url: pathToFileURL(absolute).href + query + fragment, title: message };
       }

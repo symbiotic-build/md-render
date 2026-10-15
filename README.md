@@ -32,8 +32,12 @@ existing export cannot be overwritten accidentally. Open the printed entry page 
 with any static server. An authored `index.md` keeps its own `index.html` page. No remote scripts, fonts, or diagram services are requested.
 
 When `docs/DOCUMENTS.json` exists, its `documents[].sections[]` order controls navigation.
-Files appear once, at their first section. Generated overview files and unlisted Markdown
-files are included too. Without a manifest, `index.md` comes first, followed by all
+Files appear once, at their first section. Declared navigation files are included too.
+Inventory entries classified as `other` or `generated`, directories, and unlisted Markdown
+are not added as document pages. A generated file is included when declared as navigation.
+References to unrendered inventory entries become labelled links to the original inputs
+and produce warnings. Unknown manifest versions fail with a diagnostic.
+Without a manifest, `index.md` comes first, followed by all
 Markdown files recursively in lexical path order. Git internals and `node_modules` are
 excluded. A selected `docs` folder uses repository-relative metadata paths.
 

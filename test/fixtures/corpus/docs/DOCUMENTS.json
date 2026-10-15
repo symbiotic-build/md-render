@@ -1,12 +1,23 @@
 {
   "version": 1,
-  "inventory": [{"path":"chapters/start.md","kind":"specification"},{"path":"chapters/nested/home.md","kind":"specification"}],
+  "inventory": [
+    {"path":"chapters/start.md","kind":"design"},
+    {"path":"chapters/nested/home.md","kind":"specification"},
+    {"path":"index.md","kind":"generated"},
+    {"path":"ignored.md","kind":"other","reason":"Synthetic authoring guide, not a specification."},
+    {"path":"templates/","kind":"other","reason":"Synthetic templates, not instantiated documents."},
+    {"path":"templates/example.md","kind":"other","reason":"Synthetic template, not an instantiated document."},
+    {"path":"docs/generated/unused.md","kind":"generated"}
+  ],
   "documents": [{
-    "id": "demo", "title": "Synthetic guide",
+    "id": "demo", "title": "Synthetic guide", "status": "draft",
+    "purpose": "Explain the synthetic renderer fixture.", "audience": "Renderer tests.",
+    "scope": "Reading order and entity homes.", "non_goals": "Production documentation.",
     "navigation": {"path":"index.md"},
     "sections": [
-      {"id":"home","path":"chapters/nested/home.md","anchor":"home-section","summary":"The home appears first."},
-      {"id":"tour","path":"chapters/start.md","anchor":"tour","summary":"The tour uses the home."}
-    ]
+      {"id":"home","path":"chapters/nested/home.md","anchor":"home-section","roles":["reference"],"summary":"The home appears first.","prerequisites":[],"explanatory_dependencies":[]},
+      {"id":"tour","path":"chapters/start.md","anchor":"tour","roles":["reference"],"summary":"The tour uses the home.","prerequisites":[],"explanatory_dependencies":[]}
+    ],
+    "scenarios": []
   }]
 }

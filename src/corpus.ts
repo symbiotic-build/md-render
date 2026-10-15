@@ -13,6 +13,8 @@ export interface Corpus {
   files: SourceFile[];
   map: MapEntry[];
   entities: EntityHome[];
+  /** Inventory classifications; unrendered entries remain references to original inputs. */
+  inventory: Map<string, string>;
 }
 
 /** Resolves a local input without allowing paths outside the selected source root. */
@@ -93,12 +95,21 @@ export async function loadCorpus(input: string): Promise<Corpus> {
   const entityIndex = await optionalJson(metadataRoot, 'docs/ENTITIES.json');
   if (manifest !== undefined || entityIndex !== undefined) root = metadataRoot;
   const selectedRelative = portable(path.relative(root, selected));
-  const available = single ? [selectedRelative] : await markdownFiles(root, portable(path.relative(root, await realpath(selected))));
-  const availableSet = new Set(available);
   const map: MapEntry[] = [];
   const sections = new Map<string, string>();
+  const inventory = new Map<string, string>();
   if (manifest !== undefined) {
     const data = version(manifest, 'DOCUMENTS.json');
+    for (const value of array(data.inventory, 'inventory')) {
+      const entry = object(value, 'inventory entry');
+      const file = portable(string(entry.path, 'inventory.path'));
+      within(root, file);
+      const kind = string(entry.kind, 'inventory.kind');
+      if (!['specification', 'design', 'other', 'generated'].includes(kind)) {
+        throw new Error(`DOCUMENTS.json: unsupported inventory kind ${kind}`);
+      }
+      inventory.set(file, kind);
+    }
     for (const value of array(data.documents, 'documents')) {
       const document = object(value, 'document');
       const id = string(document.id, 'document.id');
@@ -109,7 +120,8 @@ export async function loadCorpus(input: string): Promise<Corpus> {
         const key = `${id}#${string(section.id, 'section.id')}`;
         if (sections.has(key)) throw new Error(`Duplicate section: ${key}`);
         sections.set(key, file);
-        if (!single || file === selectedRelative) {
+        if ((!single || file === selectedRelative) && !file.endsWith('/') &&
+            inventory.get(file) !== 'other' && inventory.get(file) !== 'generated') {
           map.push({ path: file, anchor: string(section.anchor, 'section.anchor'),
             label: String(section.title ?? section.id),
             summary: section.summary === undefined ? undefined : string(section.summary, 'section.summary') });
@@ -118,14 +130,18 @@ export async function loadCorpus(input: string): Promise<Corpus> {
       if (!single && document.navigation !== undefined) {
         const navigation = object(document.navigation, 'navigation');
         const file = portable(string(navigation.path, 'navigation.path'));
-        if (availableSet.has(file) && !map.some((entry) => entry.path === file)) {
+        // Navigation may be a declared generated file or a region in an authored file.
+        within(root, file);
+        if (!map.some((entry) => entry.path === file)) {
           map.push({ path: file, label: `${String(document.title ?? id)} — overview` });
         }
       }
     }
   }
   const ordered = [...new Set(map.map((entry) => entry.path))];
-  // Metadata controls listed files; all other Markdown remains visible, in lexical order.
+  // A manifest is authoritative: first section occurrence wins, then its navigation file.
+  // Only folders without a manifest use recursive discovery. Single-file selection stays explicit.
+  const available = single ? [selectedRelative] : manifest === undefined ? await markdownFiles(root, selectedRelative) : [];
   const remaining = available.filter((file) => !ordered.includes(file));
   remaining.sort((a, b) => Number(b.toLowerCase() === 'index.md') - Number(a.toLowerCase() === 'index.md'));
   for (const file of remaining) {
@@ -149,5 +165,5 @@ export async function loadCorpus(input: string): Promise<Corpus> {
       if (files.some((source) => source.path === file)) entities.push({ path: file, anchor: string(home.anchor, `${id}.home.anchor`) });
     }
   }
-  return { root, files, map, entities };
+  return { root, files, map, entities, inventory };
 }

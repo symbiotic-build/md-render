@@ -21,6 +21,38 @@ it('follows manifest section order and deduplicates files', async () => {
   expect(corpus.files.map((file) => file.path)).toEqual(['chapters/nested/home.md', 'chapters/start.md', 'index.md']);
   expect(corpus.map.map((entry) => entry.anchor)).toEqual(['home-section', 'tour', undefined]);
 });
+it('uses the manifest for a selected docs folder without adding unrelated inventory', async () => {
+  const corpus = await loadCorpus(path.join(fixture, 'docs'));
+  expect(corpus.files.map((file) => file.path)).toEqual(['chapters/nested/home.md', 'chapters/start.md', 'index.md']);
+  expect(corpus.entities).toEqual([{ path: 'chapters/nested/home.md', anchor: 'writer' }]);
+});
+it('leaves non-document and directory references visible as external local links', async () => {
+  const output = await temp();
+  const result = await renderSite(fixture, output, { mermaid: false });
+  expect(result.pages).toEqual(['chapters/nested/home.html', 'chapters/start.html', 'index.html']);
+  expect(result.warnings).toHaveLength(3);
+  const index = await readFile(path.join(output, 'index.html'), 'utf8');
+  expect(index).toContain('ignored.md');
+  expect(index).toContain('templates/');
+  expect(index.match(/\(external local file\)/g)).toHaveLength(3);
+  expect(index).not.toContain('ignored.html');
+  await expect(access(path.join(output, 'ignored.md'))).rejects.toMatchObject({ code: 'ENOENT' });
+});
+it('rejects an unknown real-format manifest version before selecting files', async () => {
+  const source = fileURLToPath(new URL('./fixtures/unknown-version', import.meta.url));
+  await expect(loadCorpus(source)).rejects.toThrow('DOCUMENTS.json: unsupported version 99');
+});
+it('still refuses symlinked manifest sections and symlinked parent directories', async () => {
+  const source = await temp();
+  await cp(fixture, source, { recursive: true });
+  const home = path.join(source, 'chapters/nested/home.md');
+  await rm(home);
+  await symlink(path.join(fixture, 'chapters/nested/home.md'), home);
+  await expect(loadCorpus(source)).rejects.toThrow(/symlink|Symbolic link/);
+  await rm(path.dirname(home), { recursive: true });
+  await symlink(path.join(fixture, 'chapters/nested'), path.dirname(home));
+  await expect(loadCorpus(source)).rejects.toThrow(/symlink|Symbolic link/);
+});
 it('puts index.md first without a manifest and includes nested chapters', async () => {
   const source = await temp();
   await mkdir(path.join(source, 'nested'));
