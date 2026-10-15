@@ -1,0 +1,221 @@
+{
+  "version": 1,
+  "inventory": [
+    {
+      "path": "README.md",
+      "kind": "other",
+      "reason": "Preserved user guide."
+    },
+    {
+      "path": "test/fixtures/corpus/chapters/nested/home.md",
+      "kind": "other",
+      "reason": "Synthetic renderer input; not a contract for md-render."
+    },
+    {
+      "path": "test/fixtures/corpus/chapters/start.md",
+      "kind": "other",
+      "reason": "Synthetic renderer input; not a contract for md-render."
+    },
+    {
+      "path": "test/fixtures/corpus/docs/generated/unused.md",
+      "kind": "other",
+      "reason": "Synthetic renderer input; not a contract for md-render."
+    },
+    {
+      "path": "test/fixtures/corpus/ignored.md",
+      "kind": "other",
+      "reason": "Synthetic renderer input; not a contract for md-render."
+    },
+    {
+      "path": "test/fixtures/corpus/index.md",
+      "kind": "other",
+      "reason": "Synthetic renderer input; not a contract for md-render."
+    },
+    {
+      "path": "test/fixtures/corpus/templates/example.md",
+      "kind": "other",
+      "reason": "Synthetic renderer input; not a contract for md-render."
+    },
+    {
+      "path": "docs/specs/md-render/md-render.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/md-render/render-and-read.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/md-render/selecting-sources.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/md-render/resolving-content.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/md-render/reading-pages.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/md-render/serving-and-export.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/md-render/requirements.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/md-render/decisions-and-questions.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/md-render/reference.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/md-render/acceptance.md",
+      "kind": "specification"
+    }
+  ],
+  "documents": [
+    {
+      "id": "md-render",
+      "title": "md-render",
+      "status": "draft",
+      "purpose": "md-render turns local Markdown documentation into an offline site for reading.",
+      "audience": "Documentation authors, readers and maintainers of the renderer.",
+      "scope": "Local input selection, static rendering, reading controls and temporary serving.",
+      "non_goals": "Editing Markdown, checking the full House Rules specification contract, remote hosting and live reload.",
+      "navigation": {
+        "path": "docs/specs/md-render/md-render.md",
+        "region": "md-render"
+      },
+      "sections": [
+        {
+          "id": "start",
+          "path": "docs/specs/md-render/md-render.md",
+          "anchor": "md-render",
+          "roles": [],
+          "summary": "Choose the reading path from input selection to cleanup.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "tour",
+          "path": "docs/specs/md-render/render-and-read.md",
+          "anchor": "render-and-read",
+          "roles": [
+            "tour"
+          ],
+          "summary": "Render the fixture and follow a link through the viewer.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "sources",
+          "path": "docs/specs/md-render/selecting-sources.md",
+          "anchor": "selecting-sources",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Determine which files enter the site and in what order.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "content",
+          "path": "docs/specs/md-render/resolving-content.md",
+          "anchor": "resolving-content",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Follow links and anchors through parsing and diagram rendering.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "display",
+          "path": "docs/specs/md-render/reading-pages.md",
+          "anchor": "reading-pages",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Use the menu, follow sections and change colour mode.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "lifecycle",
+          "path": "docs/specs/md-render/serving-and-export.md",
+          "anchor": "serving-and-export",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Choose temporary viewing or a retained static copy and recover from failure.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "requirements",
+          "path": "docs/specs/md-render/requirements.md",
+          "anchor": "requirements",
+          "roles": [
+            "requirements"
+          ],
+          "summary": "Find observable obligations and their acceptance cases.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "choices",
+          "path": "docs/specs/md-render/decisions-and-questions.md",
+          "anchor": "decisions-and-questions",
+          "roles": [
+            "decisions",
+            "questions"
+          ],
+          "summary": "Review settled scope decisions and remaining implementation gaps.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "reference",
+          "path": "docs/specs/md-render/reference.md",
+          "anchor": "reference",
+          "roles": [
+            "reference"
+          ],
+          "summary": "Look up command arguments, metadata fields and implementation entry points.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "acceptance",
+          "path": "docs/specs/md-render/acceptance.md",
+          "anchor": "acceptance",
+          "roles": [
+            "acceptance"
+          ],
+          "summary": "Run linked tests and inspect behavior without automated coverage.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        }
+      ],
+      "scenarios": [
+        "md-render#scenario-fixture-session"
+      ],
+      "unresolved_contracts": []
+    }
+  ],
+  "test_runners": [
+    {
+      "pattern": "test/*.test.ts",
+      "command": [
+        "node",
+        "scripts/vitest-selector.mjs",
+        "{file}",
+        "{selector}"
+      ]
+    }
+  ]
+}

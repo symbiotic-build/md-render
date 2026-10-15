@@ -1,7 +1,7 @@
 # md-render
 
 Render Markdown documentation as a readable, offline website. Each Markdown file gets a
-page, a document map, section navigation, and previous/next links. The default theme is
+page, a chapter-and-section menu, and previous/next links. The default theme is
 Symbiotic. Tables scroll within the page; code, explicit HTML anchors, and file fragments
 survive rendering.
 

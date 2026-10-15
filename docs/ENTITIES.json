@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "entities": {
+    "md-render.source-corpus": {
+      "kind": "data",
+      "home": {
+        "section": "md-render#sources",
+        "anchor": "source-corpus"
+      },
+      "scope": [
+        "md-render"
+      ],
+      "forms": [
+        "source corpus"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "md-render.document-manifest": {
+      "kind": "data",
+      "home": {
+        "section": "md-render#sources",
+        "anchor": "document-manifest"
+      },
+      "scope": [
+        "md-render"
+      ],
+      "forms": [
+        "document manifest"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "md-render.entity-index": {
+      "kind": "data",
+      "home": {
+        "section": "md-render#sources",
+        "anchor": "entity-index"
+      },
+      "scope": [
+        "md-render"
+      ],
+      "forms": [
+        "entity index"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "md-render.diagram-rendering": {
+      "kind": "mechanism",
+      "home": {
+        "section": "md-render#content",
+        "anchor": "diagram-rendering"
+      },
+      "scope": [
+        "md-render"
+      ],
+      "forms": [
+        "diagram rendering"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "md-render.reading-menu": {
+      "kind": "component",
+      "home": {
+        "section": "md-render#display",
+        "anchor": "reading-menu"
+      },
+      "scope": [
+        "md-render"
+      ],
+      "forms": [
+        "reading menu"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "md-render.temporary-viewer": {
+      "kind": "component",
+      "home": {
+        "section": "md-render#lifecycle",
+        "anchor": "temporary-viewer"
+      },
+      "scope": [
+        "md-render"
+      ],
+      "forms": [
+        "temporary viewer"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    }
+  },
+  "naming_rules": []
+}

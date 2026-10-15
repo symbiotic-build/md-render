@@ -1,0 +1,109 @@
+<a id="serving-and-export"></a>
+# Serving and export
+
+The command provides disposable local viewing by default and a retained export when an output directory is supplied.
+Both modes render before announcing success; errors reach the API caller or the command's diagnostic output.
+
+<a id="temporary-viewer"></a>
+## Temporary viewer
+
+A temporary viewer is a loopback HTTP server whose rendered directory is removed when the viewing process ends normally.
+It provides a local reading session without retaining a generated site in the source repository.
+
+Startup creates a unique directory beneath the operating system's temporary directory.
+Exit and signal cleanup handlers are installed before rendering starts.
+After rendering succeeds, the server binds a free port on `127.0.0.1` only.
+The printed URL names the first selected page, including when an authored index appears later.
+Closing a browser tab does not stop the server.
+
+The server accepts GET and HEAD, maps the root URL to the output index and confines reads to its output directory.
+It returns content types with `nosniff`; unsupported methods and malformed or missing paths return visible HTTP errors.
+No server endpoint edits the sources or rebuilds pages.
+The API's idempotent `close()` releases connections, removes output and unregisters cleanup handlers.
+
+Normal process exit removes the directory.
+SIGINT removes it and exits with code 130; SIGTERM removes it and exits with code 143.
+Startup failure also removes temporary output and handlers.
+SIGKILL and machine failure cannot run cleanup; a remaining temporary directory must be removed manually after confirming the process stopped.
+
+<a id="static-export"></a>
+## Static export
+
+Static export writes a site to a caller-selected absent or empty directory and exits without starting a server.
+The command reports the output directory and first page.
+Unlike temporary viewing, these files remain after process exit.
+
+The [source corpus](selecting-sources.md#source-corpus) is not modified.
+HTML pages, copied images, theme assets and any root redirect are derived output.
+The renderer has no transactional export staging layer.
+A failure can leave a partially populated static destination; rerunning into that nonempty destination is refused.
+Recover by choosing a new empty directory or removing only the failed output after inspecting it.
+
+<a id="failure-source-input"></a>
+## Failure state: source input refused
+
+This refusal identifies unsupported or unsafe input before a valid site can be announced.
+
+**Trigger:** An unknown metadata version, invalid required metadata, unreadable or malformed UTF-8 input, disallowed symlink, escaping input path or empty Markdown selection.
+
+**Outcome:** The API rejects; the CLI prints `md-render:` followed by the diagnostic and exits with code 1. No viewer URL is announced.
+
+**Retained state:** Original input files remain unchanged. Temporary output is removed; static output may be partial.
+
+**Recovery:** Correct the metadata or path, restore readable regular files, or copy symlinked content into regular inputs. Rerun with a clean destination.
+
+**Authority:** The documentation author needs permission to repair the source and choose or clean the destination.
+
+**Verification:** [Input refusals](acceptance.md#test-input-refusals).
+
+<a id="failure-definition"></a>
+## Failure state: unresolved definition
+
+This stop prevents broken selected entity hovers and unresolved local destinations from appearing as successful output.
+
+**Trigger:** A missing Markdown target, broken local anchor, missing manifest anchor, duplicate explicit anchor, unknown home section or selected entity home without an anchor, heading and first paragraph.
+
+**Outcome:** Rendering rejects with the offending link, anchor or home in its diagnostic; the command exits with code 1.
+
+**Retained state:** Sources retain their authored links and metadata. No server starts; temporary output is removed and static output may be partial.
+
+**Recovery:** Repair the link or identifier, restore the target, or complete the home paragraph. Rerun the build into an empty destination.
+
+**Authority:** The author who owns the affected source or metadata can make the repair.
+
+**Verification:** [Entity meanings](acceptance.md#test-entity-meanings), [Links and anchors](acceptance.md#test-local-links), [Input refusals](acceptance.md#test-input-refusals).
+
+<a id="failure-content-build"></a>
+## Failure state: content build refused
+
+This failure tells the author which content or installed renderer needs repair.
+An absent Mermaid package instead produces the explicit source-only figure described in [Diagram rendering](resolving-content.md#diagram-rendering).
+
+**Trigger:** An executable link scheme, remote or escaping image, asset/page collision, reserved asset path, unreadable theme, multiple theme logos, wrong Mermaid version or browser/rendering failure.
+
+**Outcome:** The API rejects and the command reports the cause with exit code 1 rather than publishing a successful viewer URL.
+
+**Retained state:** Sources remain intact. Temporary output and the build browser profile are cleaned on the handled paths; static output may be partial.
+
+**Recovery:** Correct the content or theme. For diagrams, provide the pinned installed Mermaid and a working Chromium executable through `MD_RENDER_BROWSER` when needed. Rerun into an empty destination.
+
+**Authority:** The content author can fix sources; the local installation owner can repair installed dependencies and browser configuration.
+
+**Verification:** [Safe content](acceptance.md#test-safe-content), [Diagram build](acceptance.md#test-diagram-build), [Static export](acceptance.md#test-static-export).
+
+<a id="failure-output-startup"></a>
+## Failure state: output or server startup refused
+
+This refusal protects an existing export and reports a viewer that could not start.
+
+**Trigger:** A nonempty output directory, filesystem write failure or loopback listen failure.
+
+**Outcome:** The API rejects; the command prints the cause and exits with code 1 without announcing a working viewer.
+
+**Retained state:** Existing destination contents are retained when the empty-directory check refuses. Later static-write failures can leave partial output; temporary startup output is removed.
+
+**Recovery:** Choose an absent or empty writable destination, or repair the local filesystem or loopback environment, then rerun.
+
+**Authority:** The caller needs filesystem access to the destination and permission to bind loopback for viewing.
+
+**Verification:** [Static export](acceptance.md#test-static-export), [Viewer lifecycle](acceptance.md#test-temporary-lifecycle).
