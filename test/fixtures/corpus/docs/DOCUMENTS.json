@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "inventory": [{"path":"chapters/start.md","kind":"specification"},{"path":"chapters/nested/home.md","kind":"specification"}],
+  "documents": [{
+    "id": "demo", "title": "Synthetic guide",
+    "navigation": {"path":"index.md"},
+    "sections": [
+      {"id":"home","path":"chapters/nested/home.md","anchor":"home-section","summary":"The home appears first."},
+      {"id":"tour","path":"chapters/start.md","anchor":"tour","summary":"The tour uses the home."}
+    ]
+  }]
+}

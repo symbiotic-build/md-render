@@ -1,0 +1,92 @@
+# md-render
+
+Render Markdown documentation as a readable, offline website. Each Markdown file gets a
+page, a document map, section navigation, and previous/next links. The default theme is
+neutral. Tables scroll within the page; code, explicit HTML anchors, and file fragments
+survive rendering.
+
+Requires Node.js 22 or later and pnpm 10.20.0. Install from the local pnpm store only:
+
+```sh
+pnpm install --offline
+pnpm build
+node dist/cli.js /path/to/spec
+```
+
+The package installs a `md-render` command:
+
+```sh
+md-render /path/to/spec
+md-render /path/to/chapter.md
+md-render /path/to/repository --out ./rendered-docs
+md-render /path/to/spec --theme symbiotic
+```
+
+Temporary mode prints a free `127.0.0.1` URL. Keep the process running while reading.
+Press Ctrl+C to close the viewer. Its temporary directory is removed on SIGINT,
+SIGTERM, normal process exit, or startup failure. Closing a browser tab alone does not
+stop the process. SIGKILL and machine failure cannot run cleanup handlers.
+
+`--out` writes a static copy and exits. The destination must be absent or empty, so an
+existing export cannot be overwritten accidentally. Open the printed entry page or serve the directory
+with any static server. An authored `index.md` keeps its own `index.html` page. No remote scripts, fonts, or diagram services are requested.
+
+When `docs/DOCUMENTS.json` exists, its `documents[].sections[]` order controls navigation.
+Files appear once, at their first section. Generated overview files and unlisted Markdown
+files are included too. Without a manifest, `index.md` comes first, followed by all
+Markdown files recursively in lexical path order. Git internals and `node_modules` are
+excluded. A selected `docs` folder uses repository-relative metadata paths.
+
+`docs/ENTITIES.json` homes resolve through the manifest's section identities. Hover text
+comes from the first paragraph after each home heading. No separate meanings registry
+is stored. Missing targets, duplicate anchors, invalid metadata, and unreadable inputs
+fail with a diagnostic. Explicit empty `<a id="…"></a>` anchors render as HTML; other
+raw HTML appears as escaped text. HTML comments and YAML metadata do not appear as body
+text. Unsupported executable link schemes fail.
+
+Links between rendered Markdown files become `.html` links with their fragments intact.
+Relative images and attachments inside the selected source root are copied. References
+outside that root become labelled `file:` links and produce warnings; their original
+files are not copied or validated. Browsers may block opening those links from localhost.
+Use the displayed original location to open them directly.
+
+Mermaid 12.2.0 is an optional, pinned dependency. When present, its local browser bundle
+renders diagrams and retains source in a disclosure. If absent, the page explicitly
+shows readable diagram source. A rendering failure also keeps source and displays the
+error. The renderer never downloads Mermaid.
+
+## Themes
+
+`--theme default` selects the neutral theme. `--theme symbiotic` uses the portal's
+palette, document typography, and optional brand mark, with a system font.
+`--theme ./custom.css` accepts a small CSS file. Copy [default.css](themes/default.css)
+to start with the color and font tokens. A neighboring `custom.logo.svg`,
+`custom.logo.png`, or `custom.logo.webp` supplies an optional logo; choose one.
+Theme CSS is copied as supplied; keep additional resources inline so static output stays
+offline. Base layout and print styles remain available to every theme.
+
+## Package API and checks
+
+```ts
+import { renderSite, startViewer } from 'md-render';
+
+await renderSite('./spec', './output', { theme: 'default' });
+const viewer = await startViewer('./spec');
+console.log(viewer.url);
+await viewer.close();
+```
+
+The pipeline is adapted from `@symbiotic/docs`: unified, remark parsing, GitHub tables,
+frontmatter, remark-to-HTML, sanitization, and serialization, at the portal's exact pins.
+Each source is parsed once. Navigation, hover meanings, and link validation use that same
+in-memory tree. Rendered output is derived from the Markdown, metadata, and theme.
+
+```sh
+pnpm typecheck
+pnpm build
+pnpm test test/renderer.test.ts test/server.test.ts
+```
+
+Tests use a synthetic fixture corpus. Server tests need permission to bind localhost;
+all tests run without external network access. Build first because lifecycle tests launch
+the compiled command.
