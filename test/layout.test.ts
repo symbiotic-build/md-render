@@ -1,9 +1,12 @@
-import { expect, it } from 'vitest';
+import { useBrowser } from './browser-fixture.js';
+import { expect, it, vi } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { withBrowser } from '../src/browser.js';
+const withBrowser = useBrowser();
+
+vi.mock('../src/diagrams.js', () => import('./diagram-fixture.js'));
 import { renderSite } from '../src/site.js';
 
 it('keeps wide diagrams readable, contains code and table overflow, and prints on white from either theme', async () => {

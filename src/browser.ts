@@ -13,8 +13,21 @@ export interface BrowserSession {
   evaluate<T>(expression: string): Promise<T>;
 }
 
+/** A Chromium process that owns isolated page sessions and its temporary profile. */
+export interface BrowserHost {
+  withPage<T>(work: (browser: BrowserSession) => Promise<T>): Promise<T>;
+  close(): Promise<void>;
+}
+
 /** Uses an installed Chromium browser over a pipe, with an isolated temporary profile. */
 export async function withBrowser<T>(work: (browser: BrowserSession) => Promise<T>): Promise<T> {
+  const host = await launchBrowser();
+  try { return await host.withPage(work); }
+  finally { await host.close(); }
+}
+
+/** Starts Chromium once; each withPage call owns a fresh context, target and storage. */
+export async function launchBrowser(): Promise<BrowserHost> {
   const candidates = process.env.MD_RENDER_BROWSER ? [process.env.MD_RENDER_BROWSER] : process.platform === 'darwin'
     ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser']
     : (process.env.PATH ?? '').split(path.delimiter).flatMap((dir) => ['chromium', 'chromium-browser', 'google-chrome'].map((name) => path.join(dir, name)));
@@ -25,7 +38,7 @@ export async function withBrowser<T>(work: (browser: BrowserSession) => Promise<
   }
   if (!executable) throw new Error('Build-time Mermaid needs an installed Chromium browser; set MD_RENDER_BROWSER to its executable');
   const profile = await mkdtemp(path.join(tmpdir(), 'md-render-browser-'));
-  const child = spawn(executable, ['--headless', '--remote-debugging-pipe', `--user-data-dir=${profile}`,
+  const child = spawn(executable, ['--headless', '--no-startup-window', '--remote-debugging-pipe', `--user-data-dir=${profile}`,
     '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-component-update',
     '--disable-sync', '--disable-extensions', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'], { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
   const input = child.stdio[3] as Writable;
@@ -33,9 +46,7 @@ export async function withBrowser<T>(work: (browser: BrowserSession) => Promise<
   let sequence = 0;
   let buffer = '';
   let stderr = '';
-  let sessionId: string | undefined;
-  let loaded: (() => void) | undefined;
-  let committed = false;
+  const sessions = new Map<string, { loaded?: () => void; committed: boolean }>();
   const pending = new Map<number, { resolve(value: any): void; reject(error: Error): void; timer: NodeJS.Timeout }>();
   function fail(error: Error): void {
     for (const request of pending.values()) { clearTimeout(request.timer); request.reject(error); }
@@ -54,8 +65,9 @@ export async function withBrowser<T>(work: (browser: BrowserSession) => Promise<
       buffer = buffer.slice(end + 1);
       // A load event counts only after the main frame commits the awaited
       // document; a late event from the previous page must not end the wait.
-      if (message.method === 'Page.frameNavigated' && !message.params.frame.parentId) committed = true;
-      if (message.method === 'Page.loadEventFired' && committed) loaded?.();
+      const session = sessions.get(message.sessionId);
+      if (session && message.method === 'Page.frameNavigated' && !message.params.frame.parentId) session.committed = true;
+      if (session && message.method === 'Page.loadEventFired' && session.committed) session.loaded?.();
       const request = pending.get(message.id);
       if (!request) continue;
       pending.delete(message.id);
@@ -64,44 +76,55 @@ export async function withBrowser<T>(work: (browser: BrowserSession) => Promise<
       else request.resolve(message.result);
     }
   });
-  async function waitForNavigation(action: () => Promise<unknown>): Promise<void> {
-    await browser.send('Page.enable');
-    let timer: NodeJS.Timeout;
-    const load = new Promise<void>((resolve, reject) => {
-      loaded = resolve;
-      timer = setTimeout(() => reject(new Error('Page load timed out')), 30_000);
+  function send(method: string, params: object = {}, sessionId?: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const id = ++sequence;
+      const timer = setTimeout(() => { pending.delete(id); reject(new Error(`Headless browser timed out: ${method}. ${stderr}`)); }, 30_000);
+      pending.set(id, { resolve, reject, timer });
+      input.write(JSON.stringify({ id, method, params, sessionId }) + '\0');
     });
-    committed = false;
-    try { await action(); await load; }
-    finally { clearTimeout(timer!); loaded = undefined; }
   }
-  const browser: BrowserSession = {
-    send(method, params = {}) {
-      return new Promise((resolve, reject) => {
-        const id = ++sequence;
-        const timer = setTimeout(() => { pending.delete(id); reject(new Error(`Headless browser timed out: ${method}. ${stderr}`)); }, 30_000);
-        pending.set(id, { resolve, reject, timer });
-        input.write(JSON.stringify({ id, method, params, sessionId }) + '\0');
-      });
-    },
-    waitForNavigation,
-    async navigate(url) {
-      await waitForNavigation(async () => {
-        const result = await browser.send('Page.navigate', { url });
-        if (result.errorText) throw new Error(result.errorText);
-      });
-    },
-    async evaluate<T>(expression: string): Promise<T> {
-      const result = await browser.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
-      if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
-      return result.result.value as T;
-    },
-  };
-  try {
-    const { targetId } = await browser.send('Target.createTarget', { url: 'about:blank' });
-    sessionId = (await browser.send('Target.attachToTarget', { targetId, flatten: true })).sessionId;
-    return await work(browser);
-  } finally {
+  async function withPage<T>(work: (browser: BrowserSession) => Promise<T>): Promise<T> {
+    const { browserContextId } = await send('Target.createBrowserContext');
+    let sessionId: string | undefined;
+    try {
+      const { targetId } = await send('Target.createTarget', { url: 'about:blank', browserContextId });
+      sessionId = (await send('Target.attachToTarget', { targetId, flatten: true })).sessionId;
+      const state: { loaded?: () => void; committed: boolean } = { committed: false };
+      sessions.set(sessionId!, state);
+      async function waitForNavigation(action: () => Promise<unknown>): Promise<void> {
+        await browser.send('Page.enable');
+        let timer: NodeJS.Timeout;
+        const load = new Promise<void>((resolve, reject) => {
+          state.loaded = resolve;
+          timer = setTimeout(() => reject(new Error('Page load timed out')), 30_000);
+        });
+        state.committed = false;
+        try { await action(); await load; }
+        finally { clearTimeout(timer!); state.loaded = undefined; }
+      }
+      const browser: BrowserSession = {
+        send: (method, params) => send(method, params, sessionId),
+        waitForNavigation,
+        async navigate(url) {
+          await waitForNavigation(async () => {
+            const result = await browser.send('Page.navigate', { url });
+            if (result.errorText) throw new Error(result.errorText);
+          });
+        },
+        async evaluate<T>(expression: string): Promise<T> {
+          const result = await browser.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+          if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
+          return result.result.value as T;
+        },
+      };
+      return await work(browser);
+    } finally {
+      if (sessionId) sessions.delete(sessionId);
+      await send('Target.disposeBrowserContext', { browserContextId });
+    }
+  }
+  async function close(): Promise<void> {
     const exited = child.exitCode !== null || child.signalCode !== null
       ? Promise.resolve()
       : new Promise<void>((resolve) => child.once('exit', () => resolve()));
@@ -109,7 +132,7 @@ export async function withBrowser<T>(work: (browser: BrowserSession) => Promise<
     // otherwise keep writing into the profile after the main process exits.
     let timer: NodeJS.Timeout | undefined;
     await Promise.race([
-      browser.send('Browser.close').then(() => exited, () => undefined),
+      send('Browser.close').then(() => exited, () => undefined),
       new Promise<void>((resolve) => { timer = setTimeout(resolve, 5_000); }),
     ]);
     clearTimeout(timer);
@@ -118,4 +141,5 @@ export async function withBrowser<T>(work: (browser: BrowserSession) => Promise<
     await exited;
     await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
+  return { withPage, close };
 }

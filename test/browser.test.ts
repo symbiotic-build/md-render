@@ -1,10 +1,13 @@
-import { it, expect } from 'vitest';
+import { useBrowser } from './browser-fixture.js';
+import { it, expect, vi } from 'vitest';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { renderSite } from '../src/site.js';
-import { withBrowser } from '../src/browser.js';
+const withBrowser = useBrowser();
+
+vi.mock('../src/diagrams.js', () => import('./diagram-fixture.js'));
 
 it('checks rendered menu, theme controls, storage failure and diagram contrast in both themes', async () => {
   const source = await mkdtemp(path.join(tmpdir(), 'md-render-ui-'));
@@ -128,5 +131,39 @@ it('checks rendered menu, theme controls, storage failure and diagram contrast i
         expect(await browser.evaluate(`document.querySelector('main').textContent.includes('Real title')`)).toBe(true);
       });
     }
+  } finally { await rm(source, { recursive: true, force: true }); }
+});
+
+it('reuses one Chromium without a startup page and isolates storage and overrides after a failed callback', async () => {
+  const source = await mkdtemp(path.join(tmpdir(), 'md-render-isolation-'));
+  const url = pathToFileURL(path.join(source, 'index.html')).href;
+  try {
+    await writeFile(path.join(source, 'index.html'), '<!doctype html><script>window.pageScript = true;</script>');
+    let defaults: { width: number; dark: boolean };
+    let sentinel: string;
+    await expect(withBrowser(async browser => {
+      const { targetInfos } = await browser.send('Target.getTargets');
+      expect(targetInfos.filter((target: { type: string }) => target.type === 'page')).toHaveLength(1);
+      // A browser-owned target survives page-context disposal, proving process reuse.
+      sentinel = (await browser.send('Target.createTarget', { url: 'about:blank' })).targetId;
+      defaults = await browser.evaluate(`({width:innerWidth, dark:matchMedia('(prefers-color-scheme: dark)').matches})`);
+      await browser.send('Emulation.setDeviceMetricsOverride', { width: 321, height: 456, deviceScaleFactor: 1, mobile: false });
+      await browser.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
+      await browser.send('Page.addScriptToEvaluateOnNewDocument', { source: 'window.injected = true;' });
+      await browser.navigate(url);
+      await browser.evaluate(`localStorage.setItem('isolation', 'old'); sessionStorage.setItem('isolation', 'old')`);
+      await browser.send('Network.setCookie', { name: 'isolation', value: 'old', url: 'http://127.0.0.1/' });
+      await browser.send('Emulation.setScriptExecutionDisabled', { value: true });
+      throw new Error('synthetic callback failure');
+    })).rejects.toThrow('synthetic callback failure');
+    await withBrowser(async browser => {
+      expect((await browser.send('Target.getTargets')).targetInfos.map((target: { targetId: string }) => target.targetId)).toContain(sentinel!);
+      await browser.send('Target.closeTarget', { targetId: sentinel! });
+      expect((await browser.send('Network.getCookies', { urls: ['http://127.0.0.1/'] })).cookies).toEqual([]);
+      await browser.navigate(url);
+      expect(await browser.evaluate(`({local:localStorage.getItem('isolation'), session:sessionStorage.getItem('isolation'),
+        injected:typeof injected, script:window.pageScript, width:innerWidth, dark:matchMedia('(prefers-color-scheme: dark)').matches})`))
+        .toEqual({ local: null, session: null, injected: 'undefined', script: true, ...defaults! });
+    });
   } finally { await rm(source, { recursive: true, force: true }); }
 });

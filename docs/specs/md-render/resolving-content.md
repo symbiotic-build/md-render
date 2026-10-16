@@ -105,6 +105,12 @@ Text, fills, strokes, clusters and edge labels then inherit page colour tokens.
 Changing colour mode recolours the existing SVG without rerendering the diagram.
 The figure retains Mermaid source in a disclosure.
 
+Chromium starts without an unused startup window.
+Browser transport can share one Chromium process across independent page sessions.
+Each session uses a fresh browser context and target.
+Disposing its context removes that session’s storage, cookies and page overrides.
+The default diagram build still owns and closes its browser process and temporary profile.
+
 The built-in themes meet [diagram-contrast](#diagram-contrast) for the text/background and line/background pairs exercised by the browser fixture.
 The fixture includes custom authored colours that the renderer replaces.
 This evidence is not a guarantee for arbitrary custom CSS or every Mermaid diagram family.

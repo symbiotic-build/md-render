@@ -1,7 +1,7 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
-import { access, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { access, cp, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,15 @@ const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const viewers: Viewer[] = [];
 const children: ChildProcess[] = [];
 const directories: string[] = [];
+let cliFixture: string;
+beforeAll(async () => {
+  cliFixture = await mkdtemp(path.join(tmpdir(), 'md-render-cli-fixture-'));
+  await cp(fixture, cliFixture, { recursive: true });
+  const tour = path.join(cliFixture, 'chapters/start.md');
+  // Lifecycle assertions need the real corpus order and content, but no diagram build.
+  await writeFile(tour, (await readFile(tour, 'utf8')).replace(/```mermaid[\s\S]*?```/g, ''));
+});
+afterAll(async () => { if (cliFixture) await rm(cliFixture, { recursive: true, force: true }); });
 afterEach(async () => {
   for (const child of children.splice(0)) if (child.exitCode === null && child.signalCode === null) {
     const exited = once(child, 'exit'); child.kill('SIGTERM'); await exited;
@@ -25,7 +34,7 @@ async function startChild(args: string[]): Promise<{ child: ChildProcess; output
   children.push(child);
   let output = '';
   return new Promise((resolve, reject) => {
-    // Runaway guard only: startup renders diagrams in a browser and slows under a parallel suite.
+    // Runaway guard only; CLI startup should finish in seconds.
     const timeout = setTimeout(() => { child.kill('SIGTERM'); reject(new Error(`Child startup exceeded 60s: ${output}`)); }, 60_000);
     child.stdout!.on('data', (chunk: Buffer) => {
       output += chunk.toString();
@@ -53,7 +62,7 @@ it('serves pages on a free loopback port and removes output on close', async () 
 });
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   it(`removes temporary CLI output on ${signal}`, async () => {
-    const { child, output } = await startChild([cli, fixture]);
+    const { child, output } = await startChild([cli, cliFixture]);
     const directory = /Temporary output: (.+)/.exec(output)![1]!;
     await access(directory);
     const exited = once(child, 'exit');
@@ -74,7 +83,7 @@ it('removes output on normal process exit', async () => {
 it('keeps static output after the CLI exits', async () => {
   const output = await mkdtemp(path.join(tmpdir(), 'md-render-static-test-'));
   directories.push(output);
-  const child = spawn(process.execPath, [cli, fixture, '--out', output], { stdio: 'ignore' });
+  const child = spawn(process.execPath, [cli, cliFixture, '--out', output], { stdio: 'ignore' });
   children.push(child);
   expect((await once(child, 'exit'))[0]).toBe(0);
   expect(await readFile(path.join(output, 'chapters/start.html'), 'utf8')).toContain('<h1 id="tour-1">Tour</h1>');
@@ -86,7 +95,7 @@ it('returns a visible error for invalid input and cleans startup resources', asy
 });
 
 it('opens the first manifest page even when index.md appears later', async () => {
-  const { child, output } = await startChild([cli, fixture]);
+  const { child, output } = await startChild([cli, cliFixture]);
   const url = /http:\/\/127\.0\.0\.1:\d+\/[^\s]*/.exec(output)![0];
   expect(new URL(url).pathname).toBe('/chapters/nested/home.html');
   expect(await (await fetch(url)).text()).toContain('<title>Home</title>');

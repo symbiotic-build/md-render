@@ -159,7 +159,7 @@ Selected Vitest names:
 
 **Expected:** The build produces SVG without viewer Mermaid scripts; disabled rendering visibly shows source.
 
-**Implementation:** [test/renderer.test.ts::builds pinned offline Mermaid SVG without viewer scripts](../../../test/renderer.test.ts), [test/renderer.test.ts::rewrites cross-file, fragment, query and reference links and adds entity hovers](../../../test/renderer.test.ts)
+**Implementation:** [test/renderer.test.ts::builds pinned offline Mermaid SVG without viewer scripts](../../../test/renderer.test.ts), [test/renderer.test.ts::rewrites cross-file, fragment, query and reference links and adds entity hovers](../../../test/renderer.test.ts), [test/browser.test.ts::reuses one Chromium without a startup page and isolates storage and overrides after a failed callback](../../../test/browser.test.ts)
 
 The [Entity meanings](#test-entity-meanings) evidence also exercises the explicit source-only diagram display.
 
@@ -240,7 +240,7 @@ Selected Vitest names:
 
 **Expected:** A title-free Appearance group sits at the menu bottom with Light, System and Dark icon buttons in that order. Each has its name as `aria-label` and `title`, and only the selected button is pressed. Restored storage, pressed state and palette agree; System follows the system preference and clears the override; instant page changes retain the choice. Without JavaScript the control is hidden and System applies. Tested diagram colour pairs meet the bound; unavailable storage leaves the page readable and its current selection usable.
 
-**Implementation:** [test/browser.test.ts::checks rendered menu, theme controls, storage failure and diagram contrast in both themes](../../../test/browser.test.ts), [test/renderer.test.ts::uses a single chapter menu with independent disclosures and an appearance button group](../../../test/renderer.test.ts), [test/navigation.test.ts::swaps rendered pages with prefetch history and reading controls](../../../test/navigation.test.ts)
+**Implementation:** [test/browser.test.ts::checks rendered menu, theme controls, storage failure and diagram contrast in both themes](../../../test/browser.test.ts), [test/renderer.test.ts::uses a single chapter menu with independent disclosures and an appearance button group](../../../test/renderer.test.ts), [test/page-changes.test.ts::swaps rendered pages with prefetch history and reading controls](../../../test/page-changes.test.ts)
 
 Source inspection completed on 2026-10-16 at `4305d3e`:
 [src/site.ts::page](../../../src/site.ts) emits the inline theme script before both stylesheet links.
@@ -407,7 +407,7 @@ This case checks the page-change contract through executable behavior.
 
 **Expected:** Page, wrapper and matching-menu node identities survive swaps. Menu scroll and reader-opened or closed chapters survive; the new current chapter opens and its page and section are marked. Cross-directory links update, and structurally different menus replace their children. Content, focus, fragments, themes and diagrams update; history restores scroll; cache requests are reused and bounded; failures load normally. Current sections retain tint and bold text without an inset bar in both built-in themes and light/dark modes.
 
-**Implementation:** [test/navigation.test.ts::retains menu nodes scroll and reader disclosures across page changes](../../../test/navigation.test.ts), [test/navigation.test.ts::replaces a structurally different menu on page change](../../../test/navigation.test.ts), [test/navigation.test.ts::highlights current sections without an inset bar in both themes and colour modes](../../../test/navigation.test.ts), [test/navigation.test.ts::swaps rendered pages with prefetch history and reading controls](../../../test/navigation.test.ts), [test/navigation.test.ts::keeps excluded clicks native and falls back on navigation failures](../../../test/navigation.test.ts), [test/navigation.test.ts::bounds prefetch requests and ignores superseded navigation](../../../test/navigation.test.ts)
+**Implementation:** [test/page-changes.test.ts::retains menu nodes scroll and reader disclosures across page changes](../../../test/page-changes.test.ts), [test/page-changes.test.ts::replaces a structurally different menu on page change](../../../test/page-changes.test.ts), [test/page-changes.test.ts::highlights current sections without an inset bar in both themes and colour modes](../../../test/page-changes.test.ts), [test/page-changes.test.ts::swaps rendered pages with prefetch history and reading controls](../../../test/page-changes.test.ts), [test/page-changes.test.ts::keeps excluded clicks native and falls back on navigation failures](../../../test/page-changes.test.ts), [test/page-changes.test.ts::bounds prefetch requests and ignores superseded navigation](../../../test/page-changes.test.ts)
 
 <a id="test-viewer-caching"></a>
 ## Acceptance test: viewer caching
