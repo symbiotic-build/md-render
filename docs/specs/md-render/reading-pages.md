@@ -1,8 +1,8 @@
 <a id="reading-pages"></a>
 # Reading pages
 
-Readers choose chapters and sections in one menu, then use Previous and Next to follow the declared reading order.
-Readers can hide the menu, follow the section being read and select a colour mode.
+This chapter explains chapter labels, current-section tracking and the controls that keep pages readable across widths and colour modes.
+Readers use Previous and Next to follow the declared reading order.
 
 <a id="reading-menu"></a>
 ## Reading menu
@@ -12,7 +12,7 @@ It combines document groups, chapters and section links so the article needs no 
 
 | Key | Value | Status | Basis |
 |---|---|---|---|
-| <a id="desktop-width"></a>desktop-width | 1024 px | implemented | [themes/base.css](../../../themes/base.css) |
+| <a id="desktop-width"></a>desktop-width | 1024 px | specified | [themes/base.css](../../../themes/base.css) |
 
 At [desktop-width](#desktop-width) and wider, the sidebar stays fixed beneath the sticky menu bar while the document scrolls.
 The Menu button hides or shows it.
@@ -29,27 +29,38 @@ Without a manifest, all initially selected pages belong to one group.
 A multi-page group is labelled Documentation; a single page has only its chapter entry.
 For example, a plain folder containing `index.md` headed Start and `a.md` headed Detail lists Documentation, Start, then Detail.
 
-A single-chapter document displays one entry labelled with the document title rather than a repeated group heading.
-For a multi-chapter document, chapter labels use the first authored heading.
-If the first chapter title exactly equals its group title, its first level-two heading labels the chapter instead.
-
-The comparison is case-sensitive and compares plain heading text, with Markdown formatting removed.
-It applies no further case or whitespace normalization.
-With no such heading, the label is Introduction.
-When the first outline heading also labels the chapter, the menu lists it once and retains its child links.
-The heading remains in the article.
-
+Title comparisons are case-sensitive and use plain heading text, with Markdown formatting removed.
+They apply no further case or whitespace normalization.
 For example, a book and first chapter both called Guide use the chapter’s Overview section as its menu label.
+
 The menu must never list equal titles consecutively, even for unrelated chapters.
 Equal titles elsewhere keep their names.
-The [proposed label rule](decisions-and-questions.md#title-label-proposal) qualifies the later entry with its source-root-relative path so both chapters stay reachable.
-Current structural suppression does not compare consecutive unrelated chapters; that remains an [implementation gap](decisions-and-questions.md#open-questions).
+The [label rule](decisions-and-questions.md#title-label-proposal) qualifies the later entry with its source-root-relative path so both chapters stay reachable.
+The [equal-title acceptance case](acceptance.md#test-adjacent-equal-titles) checks consecutive labels and intervening sections.
 
-A heading overrides a conflicting YAML title.
-Without any heading, a nonempty YAML title supplies the label; otherwise the label is Untitled chapter.
 The renderer does not use filename slugs as chapter titles.
-The proposed duplicate-label path qualifier adds menu text without changing the authored title.
+The duplicate-label path qualifier adds menu text without changing the authored title.
 Referenced pages additionally show their paths so heading-free pages remain distinguishable.
+
+Apply label rules in this order so overlapping conditions have one result:
+
+**Procedure: choose chapter menu text**
+
+1. **Choose the parsed title:** use the first heading, otherwise nonempty YAML title, otherwise Untitled chapter.
+2. **Choose the chapter label:** use the document title for a single-chapter document when that title exists.
+   Otherwise, keep the parsed title unless the first chapter of a multi-chapter group repeats its group title.
+   That chapter uses its first level-two heading, or Introduction when none exists.
+3. **Remove a repeated outline entry:** if the first entry equals the chosen label, replace it with its children.
+   Otherwise, retain the outline; the heading always remains in the article.
+4. **Compare menu titles in output order:** if the chapter entry equals the preceding title, append its source-root-relative path.
+   A referenced chapter's comparison text already includes its displayed path.
+
+Group headings and all section links, including links inside collapsed disclosures, participate in that output order.
+With no preceding title, keep the chapter label.
+A first chapter cannot simultaneously belong to a single-chapter and a multi-chapter group.
+Later chapters cannot take the first-chapter substitution branch.
+For Guide, Guide, Guide with no sections, the labels become Guide, Guide — b.md, Guide when the middle file is `b.md`.
+If Section intervenes between two Guide chapter entries, both Guide labels remain.
 
 Each chapter with sections has an independent disclosure.
 The current chapter starts expanded; other chapters start collapsed.

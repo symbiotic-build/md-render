@@ -4,10 +4,10 @@
 The executable cases name existing Vitest tests through the declared repository runner.
 Their Implementation links use URI-encoded test-name patterns, explained in [Selector execution](reference.md#selector-reference).
 An audit passes only when every named pattern runs at least one passing test and no test fails.
-Inspection cases identify behavior without automated coverage and name the source evidence to examine.
+Source-inspection observations below record behavior outside the automated assertions, with the inspected code and result.
 
 Runtime evidence is scoped to the assertions in each linked test.
-The [implementation gaps](decisions-and-questions.md#open-questions) distinguish settled requirements from behavior the current implementation does not satisfy.
+The [implementation evidence](decisions-and-questions.md#open-questions) connects settled folder-order and duplicate-title requirements to their regressions.
 
 Choose [input and rendering evidence](#input-evidence), [reading controls evidence](#display-evidence) or [output lifecycle evidence](#lifecycle-evidence).
 
@@ -20,7 +20,7 @@ These cases follow selected sources through definition lookup, URL resolution an
 ### Acceptance test: source selection
 
 This case checks that source selection follows author-declared order rather than filename order.
-Selected nested-folder priority has a separate [inspection case](#test-selected-folder-index).
+Selected nested-folder priority has a separate [automated case](#test-selected-folder-index).
 
 Selected Vitest names:
 
@@ -239,10 +239,13 @@ Selected Vitest names:
 
 **Implementation:** [test/browser.test.ts::checks%5C%20rendered%5C%20menu%2C%5C%20theme%5C%20controls%2C%5C%20storage%5C%20failure%5C%20and%5C%20diagram%5C%20contrast%5C%20in%5C%20both%5C%20themes%24](../../../test/browser.test.ts)
 
-
-Head-script ordering and console-warning text need source inspection of [src/site.ts](../../../src/site.ts) and [themes/theme-init.js](../../../themes/theme-init.js); the automated case does not assert them.
-
-
+Source inspection completed on 2026-10-16 at `4305d3e`:
+[src/site.ts::page](../../../src/site.ts) emits the inline theme script before both stylesheet links.
+[themes/theme-init.js](../../../themes/theme-init.js) reads the saved override and applies only `light` or `dark` to the document element.
+Its exception handler logs “Theme preference could not be read; using System.”
+These observations establish source ordering and warning text.
+They do not measure first-paint timing.
+The automated case does not assert those source details.
 
 <a id="test-article-navigation"></a>
 ### Acceptance test: article navigation
@@ -345,16 +348,16 @@ Selected Vitest names:
 
 **Implementation:** [test/renderer.test.ts::does%5C%20not%5C%20overwrite%5C%20existing%5C%20static%5C%20output%24](../../../test/renderer.test.ts), [test/server.test.ts::keeps%5C%20static%5C%20output%5C%20after%5C%20the%5C%20CLI%5C%20exits%24](../../../test/server.test.ts)
 
-Partial-write recovery remains a source-inspected limitation described at [Static export](serving-and-export.md#static-export).
-
-
-
+Source inspection completed on 2026-10-16 at `4305d3e`:
+[src/site.ts::renderSite](../../../src/site.ts) checks destination emptiness before copying assets and writing pages directly into that destination.
+It has no rollback around those writes.
+A later failure can therefore leave partial static output; this is an analysis of the write path, not an injected write-failure test.
+[Static export](serving-and-export.md#static-export) describes the caller's recovery.
 
 <a id="test-selected-folder-index"></a>
 ## Acceptance test: selected nested-folder index
 
-This inspection exposes the gap between the settled folder order and the current root-relative comparison.
-No automated test covers a selected plain folder nested inside a repository.
+This regression checks the settled folder order when repository discovery gives the selected folder a repository-relative path.
 
 **Method:** test.
 
@@ -366,15 +369,13 @@ No automated test covers a selected plain folder nested inside a repository.
 
 **Implementation:** [test/renderer.test.ts::opens%5C%20the%5C%20selected%5C%20nested%5C%20folder%5C%20index%5C%20before%5C%20its%5C%20remaining%5C%20lexical%5C%20paths%24](../../../test/renderer.test.ts)
 
-Evidence: inspect `loadCorpus` in [src/corpus.ts](../../../src/corpus.ts).
-Its comparison with the exact root-relative `index.md` leaves `nested/a.md` first, so this inspection currently fails.
-The [settled folder decision](decisions-and-questions.md#question-nested-index) requires a later runtime fix.
+The executable case also checks the map, document group, rendered page order and root redirect.
+It covers the [settled folder decision](decisions-and-questions.md#question-nested-index) after its implementation repair.
 
 <a id="test-adjacent-equal-titles"></a>
 ## Acceptance test: adjacent equal authored titles
 
-This inspection checks consecutive equal titles outside the tested group/chapter suppression.
-No automated test covers equal titles in consecutive unrelated chapters.
+This regression checks consecutive equal chapter labels after group and outline suppression.
 
 **Method:** test.
 
@@ -386,6 +387,6 @@ No automated test covers equal titles in consecutive unrelated chapters.
 
 **Implementation:** [test/renderer.test.ts::qualifies%5C%20adjacent%5C%20equal%5C%20chapter%5C%20labels%5C%20with%5C%20source%5C%20relative%5C%20paths%5C%20while%5C%20retaining%5C%20both%5C%20links%24](../../../test/renderer.test.ts)
 
-Evidence: inspect the `chapters` helper in [src/site.ts](../../../src/site.ts).
-It compares a chapter only with its group and first outline heading, so unrelated consecutive Guide entries remain duplicated.
-This inspection currently fails the [settled title decision](decisions-and-questions.md#question-equal-titles).
+The executable case covers two and three equal titles, separated equal titles, intervening sections, exact case and retained child links.
+It checks each rendered page's menu and preserves authored page titles.
+These assertions cover the repaired [settled title decision](decisions-and-questions.md#question-equal-titles).

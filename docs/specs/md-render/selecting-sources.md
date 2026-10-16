@@ -14,15 +14,16 @@ The selected input must be a directory or a regular file with a case-insensitive
 
 The source root is the directory that supplies the base for repository-relative paths and confines local file reads.
 Selecting a folder does not always make that folder the source root: metadata or an enclosing Git repository can supply a wider root.
-Initial selection still follows the chosen input, unless a manifest supplies the page list.
+Initial selection follows the input kind and the [document manifest](#document-manifest), when present.
 
 **Procedure: resolve the source root**
 
 1. **Choose the base directory:** use the selected folder, or the containing directory for a selected Markdown file.
    This identifies where metadata lookup begins.
 
-2. **Look for local metadata:** use the base directory, except that a folder named `docs` uses its parent.
-   If either metadata file exists there, that directory becomes the source root.
+2. **Look for local metadata:** use the base directory, except that a base named `docs` uses its parent.
+   This rule applies to both folder and single-file inputs.
+   If either metadata file exists there, that directory becomes the source root; do not search for an enclosing repository.
 
    > **Detail — fixture selection**
    >
@@ -44,7 +45,21 @@ Without a [document manifest](#document-manifest), recursive discovery excludes 
 The selected folder’s `index.md` must open first; remaining paths sort lexically.
 For example, selecting `nested` must order `nested/index.md` before `nested/a.md`.
 The [settled folder decision](decisions-and-questions.md#question-nested-index) also applies after repository-root discovery.
-The current loader promotes only root-relative `index.md`, so nested selection remains an [implementation gap](decisions-and-questions.md#open-questions).
+The [nested-folder acceptance case](acceptance.md#test-selected-folder-index) checks this order after repository-root discovery.
+
+After root resolution, initial selection covers these combinations:
+
+| Input | Manifest | Initial pages |
+|---|---|---|
+| Folder | Present | Declared sections and navigation |
+| Folder | Absent | Recursive selected-folder Markdown |
+| Markdown file | Present | Selected file only |
+| Markdown file | Absent | Selected file only |
+
+An [entity index](#entity-index) without a manifest affects root selection and hover lookup, but does not supply an initial page list.
+For a single-file input with a manifest, only matching section entries contribute manifest anchors and grouping; navigation does not add pages.
+Without a matching section, the selected file still renders in an unlabelled group.
+Invalid metadata refuses selection before these branches; it never acts as absent metadata.
 
 The loader reads each initial Markdown file as UTF-8 and keeps its text in memory.
 The parser creates one reusable tree for each page.

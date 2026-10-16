@@ -1,8 +1,8 @@
 <a id="decisions-and-questions"></a>
 # Decisions and questions
 
-This chapter separates proposed implementation choices from the lead’s settled scope decisions.
-The specification remains a draft; known implementation gaps remain visible rather than being described as satisfied requirements.
+This chapter identifies the authority for implementation choices and preserves the lead’s settled scope decisions.
+The specification remains a draft pending lead acceptance.
 
 <a id="derived-output-choice"></a>
 ## Rebuild from local sources
@@ -43,7 +43,7 @@ It is a specification gate, not part of the renderer’s runtime. [scripts/vites
 
 **Choice:** After structural group/chapter suppression, append ` — ` and the source-root-relative file path to a later chapter label when it equals the preceding menu title. Compare plain displayed text with exact case. Keep both chapter links.
 
-**Authority:** Author proposal to complete the lead’s settled adjacent-title requirement; lead acceptance is pending.
+**Authority:** Current implementation in [src/site.ts::page](../../../src/site.ts), fulfilling the lead’s [settled adjacent-title requirement](#question-equal-titles). Lead acceptance of the path-qualifier design remains pending.
 
 **Reason:** Two consecutive chapters called Guide remain reachable as Guide and Guide — b.md. This adds no stored title or global uniqueness rule.
 
@@ -122,13 +122,13 @@ Each answer defines scope; an implementation gap does not reopen the decision.
 **Rejected alternatives:** Checking ancestors above the source root broadens the settled boundary. Checking only the final filename misses symlinked parent directories inside it.
 
 <a id="open-questions"></a>
-## Open questions and implementation gaps
+## Open questions and implementation evidence
 
 No operator decision remains open from the six questions.
-Two settled requirements need runtime work outside this specification revision:
+Both previously identified runtime gaps are repaired in commit `4305d3e`:
 
-- [Selected-folder index priority](#question-nested-index): `loadCorpus` in [src/corpus.ts](../../../src/corpus.ts) promotes only the exact root-relative index. The [nested-folder inspection](acceptance.md#test-selected-folder-index) records the uncovered case.
-- [Consecutive title suppression](#question-equal-titles): the `chapters` helper in [src/site.ts](../../../src/site.ts) removes structural repetition, but does not compare consecutive unrelated chapter labels. The [equal-title inspection](acceptance.md#test-adjacent-equal-titles) records that gap.
+- [Selected-folder index priority](#question-nested-index): `loadCorpus` compares paths with the selected folder's repository-relative index path in [src/corpus.ts::loadCorpus](../../../src/corpus.ts). The [nested-folder acceptance case](acceptance.md#test-selected-folder-index) checks selection and rendered entry order.
+- [Consecutive title suppression](#question-equal-titles): `page` compares menu titles in output order in [src/site.ts::page](../../../src/site.ts). The [equal-title acceptance case](acceptance.md#test-adjacent-equal-titles) checks qualification, intervening sections and retained chapter links.
 
-Existing automated cases continue to establish the narrower behavior they assert.
-The lead can assign the runtime repairs without choosing these scopes again.
+These cases provide executable evidence; they are not pending inspections.
+Passing them does not establish behavior beyond their assertions.

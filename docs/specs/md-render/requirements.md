@@ -4,7 +4,7 @@
 These obligations define the renderer’s required behavior, with evidence boundaries kept beside each acceptance case.
 They remain proposed contracts until the lead accepts this draft.
 The display bounds come from [desktop-width](reading-pages.md#desktop-width) and [diagram-contrast](resolving-content.md#diagram-contrast).
-The [implementation gaps](decisions-and-questions.md#open-questions) identify settled requirements that current code does not yet satisfy.
+The [implementation evidence](decisions-and-questions.md#open-questions) links the regressions for the settled folder-order and duplicate-title requirements.
 
 <a id="req-source-order"></a>
 ## Requirement: select sources in declared order
@@ -21,7 +21,7 @@ Selection makes the authored order observable in the rendered site.
 
 **Tests:** [Source selection](acceptance.md#test-source-order), [Selected nested-folder index](acceptance.md#test-selected-folder-index).
 
-**Status:** lead-settled scope; partially implemented, with the linked inspection gap.
+**Status:** lead-settled scope; implemented behavior, with linked executable regression evidence.
 
 **Basis:** [Document manifest](selecting-sources.md#document-manifest).
 
@@ -135,7 +135,7 @@ A unified outline lets readers find the chapter and section being read.
 
 **Tests:** [Menu navigation](acceptance.md#test-menu-navigation), [Adjacent equal authored titles](acceptance.md#test-adjacent-equal-titles).
 
-**Status:** lead-settled scope; partially implemented, with the linked inspection gap.
+**Status:** lead-settled scope; implemented behavior, with linked executable regression evidence.
 
 **Basis:** [Reading menu](reading-pages.md#reading-menu).
 

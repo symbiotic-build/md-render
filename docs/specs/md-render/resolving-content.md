@@ -1,9 +1,8 @@
 <a id="resolving-content"></a>
 # Resolving content
 
-Rendering preserves authored relationships while turning local Markdown into linked HTML pages.
+This chapter explains how parsing, link validation and diagram builds preserve authored relationships in the HTML output.
 Parsing precedes link validation, so forward links and referenced-page cycles can resolve against the complete set.
-For example, Tour links back to Writer in Home even though Home appears earlier in reading order.
 
 <a id="content-pipeline"></a>
 ## Parse and resolve
@@ -80,13 +79,24 @@ The fixture's preparation-to-check diagram is rendered during the same build as 
 
 | Key | Value | Status | Basis |
 |---|---|---|---|
-| <a id="mermaid-version"></a>mermaid-version | 12.2.0 | implemented | [src/diagrams.ts](../../../src/diagrams.ts) |
-| <a id="diagram-contrast"></a>diagram-contrast | 4.5:1 | acceptance bound for built-in themes | [test/browser.test.ts](../../../test/browser.test.ts) |
+| <a id="mermaid-version"></a>mermaid-version | 12.2.0 | specified | [src/diagrams.ts::renderDiagrams](../../../src/diagrams.ts) |
+| <a id="diagram-contrast"></a>diagram-contrast | 4.5:1 | specified | [Built-in contrast acceptance](acceptance.md#test-theme-mode) |
 
-When the optional package is absent or the API disables Mermaid, figures visibly show readable source.
-When present, its version must equal [mermaid-version](#mermaid-version).
-With the package present and rendering enabled, a diagram page requires an installed Chromium executable.
-A missing browser, version mismatch or rendering error fails visibly instead of selecting the unavailable-package fallback.
+The build evaluates these rules in order; a terminal outcome ends the procedure.
+
+**Procedure: choose diagram output**
+
+1. **Check the API option:** if it disables Mermaid, retain readable source without checking the package or browser.
+2. **Locate the package:** if absent, retain readable source without checking the browser.
+3. **Check the installed version:** if it differs from [mermaid-version](#mermaid-version), fail, even when no page contains a diagram.
+4. **Check for diagram blocks:** if none exist, finish without starting a browser.
+5. **Build SVG:** with diagram blocks present, start the browser and render them.
+   Any browser or rendering error fails the build.
+
+Package read errors other than absence also fail.
+Disabled rendering makes package, diagram and browser combinations irrelevant.
+An absent browser cannot cause a build failure on a branch that never starts one.
+Rendering success is observed during the build, before serving; it is not a browser qualification assumed before invocation.
 
 The build opens an isolated temporary browser profile and loads the installed Mermaid bundle locally.
 It uses strict Mermaid security and disables browser background networking and host resolution.
