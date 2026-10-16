@@ -193,7 +193,7 @@ it('swaps rendered pages with prefetch history and reading controls', async () =
     await browser.navigate(viewer.url);
     await browser.evaluate(`window.originalDocument = document; window.calls=[]; window.nativeFetch=fetch;
       window.fetch=(...args)=>{ calls.push(String(args[0])); return nativeFetch(...args); };
-      document.querySelector('input[value="dark"]').click();
+      document.querySelector('.theme-switch button[value="dark"]').click();
       document.querySelector('.chapter-row a[href="c0.html"]').dispatchEvent(new MouseEvent('mouseover', {bubbles:true}));
       document.querySelector('.chapter-row a[href="c0.html"]').focus();`);
     await until(browser, `performance.getEntriesByType('resource').some(e => e.name.endsWith('/c0.html'))`);
@@ -211,7 +211,7 @@ it('swaps rendered pages with prefetch history and reading controls', async () =
     expect(await browser.evaluate(`scrollY`)).toBe(0);
     expect(await browser.evaluate(`document.activeElement.textContent`)).toBe('Chapter 2');
     expect(await browser.evaluate(`document.documentElement.dataset.theme`)).toBe('dark');
-    expect(await browser.evaluate(`document.querySelector('input[value="dark"]').checked`)).toBe(true);
+    expect(await browser.evaluate(`document.querySelector('.theme-switch button[value="dark"]').getAttribute('aria-pressed')`)).toBe('true');
     expect(await browser.evaluate(`document.querySelector('a[aria-current="page"]').previousElementSibling.getAttribute('aria-expanded')`)).toBe('true');
     await browser.evaluate(`scrollTo(0, 480)`);
     await settle(browser);
@@ -245,7 +245,7 @@ it('swaps rendered pages with prefetch history and reading controls', async () =
     await browser.evaluate(`history.back()`);
     await until(browser, `!location.hash && scrollY === 0`);
   });
-}, 15_000);
+});
 
 it('keeps excluded clicks native and falls back on navigation failures', async () => {
   const viewer = await swapFixture();
@@ -278,7 +278,7 @@ it('keeps excluded clicks native and falls back on navigation failures', async (
     expect(await browser.evaluate(`document.title`)).toBe('Chapter 7');
     expect(await browser.evaluate(`typeof window.beforeFailure`)).toBe('undefined');
   });
-}, 15_000);
+});
 
 it('bounds prefetch requests and ignores superseded navigation', async () => {
   const viewer = await swapFixture(false, 2);
@@ -397,7 +397,7 @@ it('highlights current sections without an inset bar in both themes and colour m
     await withBrowser(async browser => {
       await browser.navigate(viewer.url + '#section');
       for (const mode of ['light', 'dark']) {
-        await browser.evaluate(`document.querySelector('input[value="${mode}"]').click()`);
+        await browser.evaluate(`document.querySelector('.theme-switch button[value="${mode}"]').click()`);
         await settle(browser);
         const style = await browser.evaluate<{ shadow: string; weight: string; background: string; tint: string }>(`(() => {
           const link = document.querySelector('a[aria-current="location"]');

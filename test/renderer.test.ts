@@ -520,7 +520,7 @@ it('never uses a filename slug as a chapter title when no heading is authored', 
 });
 
 
-it('uses a single chapter menu with independent disclosures and a theme radio group', async () => {
+it('uses a single chapter menu with independent disclosures and an appearance button group', async () => {
   const source = await temp();
   await writeFile(path.join(source, 'index.md'), '# Current title\n\n## Only section\n\n### Nested section');
   await writeFile(path.join(source, 'other.md'), '# Other title\n\n## Other section');
@@ -535,9 +535,18 @@ it('uses a single chapter menu with independent disclosures and a theme radio gr
   expect(html).not.toContain('Toggle No sections');
   expect(html).toContain('>Only section</a>');
   expect(html).toContain('>Nested section</a>');
-  expect(html).toContain('role="radiogroup" aria-labelledby="theme-label"');
-  expect(html).toContain('<span id="theme-label">Colour theme</span>');
-  for (const value of ['system', 'light', 'dark']) expect(html).toContain(`value="${value}"`);
+  expect(html).toContain('role="group" aria-label="Appearance"');
+  expect(html).not.toMatch(/Colour theme|theme-label|radiogroup|type="radio"/);
+  const appearance = html.match(/<div class="theme-switch"[^>]*>(.*?)<\/div><\/aside>/s)![1]!;
+  expect([...appearance.matchAll(/aria-label="([^"]+)"/g)].map(match => match[1])).toEqual(['Light', 'System', 'Dark']);
+  for (const name of ['Light', 'System', 'Dark']) {
+    expect(appearance).toContain(`type="button" value="${name.toLowerCase()}" aria-label="${name}" title="${name}" aria-pressed="${name === 'System'}"`);
+  }
+  expect(appearance.match(/<svg viewBox="0 0 24 24" aria-hidden="true">/g)).toHaveLength(3);
+  expect(appearance).toContain('<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path>');
+  expect(appearance).toContain('<rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path>');
+  expect(appearance).toContain('<path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"></path>');
+  expect(html.indexOf('<script>')).toBeLessThan(html.indexOf('<link rel="stylesheet"'));
   const css = await readFile(path.join(output, '_md-render/theme.css'), 'utf8');
   expect(css).not.toContain('counter(sd-section');
   expect(css).toContain(':root:not([data-theme="light"])');

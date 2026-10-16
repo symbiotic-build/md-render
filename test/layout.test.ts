@@ -21,7 +21,7 @@ it('keeps wide diagrams readable, contains code and table overflow, and prints o
         expect(await browser.evaluate(`document.querySelector('.sd-doc pre').scrollWidth > document.querySelector('.sd-doc pre').clientWidth`)).toBe(true);
         // Screen diagrams retain natural text size and scroll instead of shrinking labels.
         expect.soft(await browser.evaluate(`(() => { const svg=document.querySelector('.mermaid-diagram svg'); return svg.getBoundingClientRect().width / svg.viewBox.baseVal.width; })()`)).toBeGreaterThanOrEqual(1);
-        await browser.evaluate(`document.querySelector('#menu-button').click(); document.querySelector('input[value="dark"]').click()`);
+        await browser.evaluate(`document.querySelector('#menu-button').click(); document.querySelector('.theme-switch button[value="dark"]').click()`);
         await browser.send('Emulation.setEmulatedMedia', { media: 'print' });
         expect(await browser.evaluate(`getComputedStyle(document.querySelector('#document-menu')).display`)).toBe('none');
         expect.soft(await browser.evaluate(`getComputedStyle(document.querySelector('.sd-doc')).color`)).toBe('rgb(0, 0, 0)');
@@ -33,4 +33,4 @@ it('keeps wide diagrams readable, contains code and table overflow, and prints o
       });
     }
   } finally { await rm(source, { recursive: true, force: true }); }
-}, 15_000);
+});

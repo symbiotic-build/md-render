@@ -35,6 +35,7 @@ export async function withBrowser<T>(work: (browser: BrowserSession) => Promise<
   let stderr = '';
   let sessionId: string | undefined;
   let loaded: (() => void) | undefined;
+  let committed = false;
   const pending = new Map<number, { resolve(value: any): void; reject(error: Error): void; timer: NodeJS.Timeout }>();
   function fail(error: Error): void {
     for (const request of pending.values()) { clearTimeout(request.timer); request.reject(error); }
@@ -51,7 +52,10 @@ export async function withBrowser<T>(work: (browser: BrowserSession) => Promise<
     while ((end = buffer.indexOf('\0')) >= 0) {
       const message = JSON.parse(buffer.slice(0, end));
       buffer = buffer.slice(end + 1);
-      if (message.method === 'Page.loadEventFired') loaded?.();
+      // A load event counts only after the main frame commits the awaited
+      // document; a late event from the previous page must not end the wait.
+      if (message.method === 'Page.frameNavigated' && !message.params.frame.parentId) committed = true;
+      if (message.method === 'Page.loadEventFired' && committed) loaded?.();
       const request = pending.get(message.id);
       if (!request) continue;
       pending.delete(message.id);
@@ -67,6 +71,7 @@ export async function withBrowser<T>(work: (browser: BrowserSession) => Promise<
       loaded = resolve;
       timer = setTimeout(() => reject(new Error('Page load timed out')), 30_000);
     });
+    committed = false;
     try { await action(); await load; }
     finally { clearTimeout(timer!); loaded = undefined; }
   }

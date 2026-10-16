@@ -210,11 +210,19 @@
   "test_runners": [
     {
       "pattern": "test/*.test.ts",
-      "command": [
+      "kind": "junit",
+      "reports": [
+        "reports/vitest.xml"
+      ],
+      "testcase": {
+        "classname": "{file}",
+        "name": "{selector}"
+      },
+      "batch": [
         "node",
-        "scripts/vitest-selector.mjs",
-        "{file}",
-        "{selector}"
+        "scripts/vitest-batch.mjs",
+        "{report}",
+        "{selectors}"
       ]
     }
   ]

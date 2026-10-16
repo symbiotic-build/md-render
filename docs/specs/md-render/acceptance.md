@@ -2,8 +2,9 @@
 # Acceptance
 
 The executable cases name existing Vitest tests through the declared repository runner.
-Their Implementation links use URI-encoded test-name patterns, explained in [Selector execution](reference.md#selector-reference).
-An audit passes only when every named pattern runs at least one passing test and no test fails.
+Their Implementation links use exact full test names, explained in [Selector execution](reference.md#selector-reference).
+The audit matches these names against JUnit results from the normal test run.
+Every citation must match a passing testcase; missing, failing, errored or skipped matches fail the audit.
 Source-inspection observations below record behavior outside the automated assertions, with the inspected code and result.
 
 Runtime evidence is scoped to the assertions in each linked test.
@@ -36,7 +37,7 @@ Selected Vitest names:
 
 **Expected:** Declared Home, Tour and index order; no unlisted initial pages; index first for the standalone plain folder.
 
-**Implementation:** [test/renderer.test.ts::follows%5C%20manifest%5C%20section%5C%20order%5C%20and%5C%20deduplicates%5C%20files%24](../../../test/renderer.test.ts), [test/renderer.test.ts::uses%5C%20the%5C%20manifest%5C%20for%5C%20a%5C%20selected%5C%20docs%5C%20folder%5C%20without%5C%20adding%5C%20unrelated%5C%20inventory%24](../../../test/renderer.test.ts), [test/renderer.test.ts::puts%5C%20index%5C.md%5C%20first%5C%20without%5C%20a%5C%20manifest%5C%20and%5C%20includes%5C%20nested%5C%20chapters%24](../../../test/renderer.test.ts)
+**Implementation:** [test/renderer.test.ts::follows manifest section order and deduplicates files](../../../test/renderer.test.ts), [test/renderer.test.ts::uses the manifest for a selected docs folder without adding unrelated inventory](../../../test/renderer.test.ts), [test/renderer.test.ts::puts index.md first without a manifest and includes nested chapters](../../../test/renderer.test.ts)
 
 
 
@@ -59,7 +60,7 @@ Selected Vitest names:
 
 **Expected:** The Writer hover matches its paragraph; a selected home without a definition paragraph fails.
 
-**Implementation:** [test/renderer.test.ts::rewrites%5C%20cross%5C-file%2C%5C%20fragment%2C%5C%20query%5C%20and%5C%20reference%5C%20links%5C%20and%5C%20adds%5C%20entity%5C%20hovers%24](../../../test/renderer.test.ts), [test/renderer.test.ts::refuses%5C%20entity%5C%20homes%5C%20with%5C%20no%5C%20canonical%5C%20meaning%24](../../../test/renderer.test.ts)
+**Implementation:** [test/renderer.test.ts::rewrites cross-file, fragment, query and reference links and adds entity hovers](../../../test/renderer.test.ts), [test/renderer.test.ts::visible input failures \> refuses entity homes with no canonical meaning](../../../test/renderer.test.ts)
 
 
 
@@ -84,7 +85,7 @@ Selected Vitest names:
 
 **Expected:** All stacked targets and meanings resolve once; the outline uses the last anchor; missing targets or fragments refuse the build.
 
-**Implementation:** [test/renderer.test.ts::resolves%20%5B23%5D%20stacked%20entity%20anchors%20in%20a%20%28paragraph%7Chtml%7Cadjacent%29%20block%24](../../../test/renderer.test.ts), [test/renderer.test.ts::rejects%20duplicate%20ids%20in%20stacked%20anchors%20with%20.%2A%20before%20the%20closing%20tag%24](../../../test/renderer.test.ts), [test/renderer.test.ts::rewrites%5C%20cross%5C-file%2C%5C%20fragment%2C%5C%20query%5C%20and%5C%20reference%5C%20links%5C%20and%5C%20adds%5C%20entity%5C%20hovers%24](../../../test/renderer.test.ts), [test/renderer.test.ts::refuses%5C%20missing%5C%20Markdown%5C%20targets%5C%20and%5C%20fragments%24](../../../test/renderer.test.ts)
+**Implementation:** [test/renderer.test.ts::resolves 2 stacked entity anchors in a paragraph block](../../../test/renderer.test.ts), [test/renderer.test.ts::resolves 3 stacked entity anchors in a paragraph block](../../../test/renderer.test.ts), [test/renderer.test.ts::resolves 2 stacked entity anchors in a html block](../../../test/renderer.test.ts), [test/renderer.test.ts::resolves 3 stacked entity anchors in a html block](../../../test/renderer.test.ts), [test/renderer.test.ts::resolves 2 stacked entity anchors in a adjacent block](../../../test/renderer.test.ts), [test/renderer.test.ts::resolves 3 stacked entity anchors in a adjacent block](../../../test/renderer.test.ts), [test/renderer.test.ts::rejects duplicate ids in stacked anchors with "" before the closing tag](../../../test/renderer.test.ts), [test/renderer.test.ts::rejects duplicate ids in stacked anchors with "\\n" before the closing tag](../../../test/renderer.test.ts), [test/renderer.test.ts::rewrites cross-file, fragment, query and reference links and adds entity hovers](../../../test/renderer.test.ts), [test/renderer.test.ts::visible input failures \> refuses missing Markdown targets and fragments](../../../test/renderer.test.ts)
 
 
 
@@ -107,7 +108,7 @@ Selected Vitest names:
 
 **Expected:** Only direct references render, once each, with titles and no section lists. Further-out Markdown and native files keep labels, icons, path hovers and original-file URLs; their contents are not read.
 
-**Implementation:** [test/renderer.test.ts::renders%5C%20only%5C%20direct%5C%20Markdown%5C%20references%5C%20with%5C%20title-only%5C%20menu%5C%20entries%24](../../../test/renderer.test.ts), [test/renderer.test.ts::keeps%5C%20reference%5C-style%5C%20non%5C-Markdown%5C%20labels%5C%20with%5C%20a%5C%20file%5C%20icon%5C%20and%5C%20repository%5C%20path%24](../../../test/renderer.test.ts)
+**Implementation:** [test/renderer.test.ts::renders only direct Markdown references with title-only menu entries](../../../test/renderer.test.ts), [test/renderer.test.ts::keeps reference-style non-Markdown labels with a file icon and repository path](../../../test/renderer.test.ts)
 
 
 
@@ -135,7 +136,7 @@ Selected Vitest names:
 
 **Expected:** Raw scripts remain text; local images copy; disallowed images and executable links reject visibly.
 
-**Implementation:** [test/renderer.test.ts::renders%5C%20unsupported%5C%20raw%5C%20HTML%5C%20as%5C%20text%5C%20and%5C%20blocks%5C%20executable%5C%20markup%24](../../../test/renderer.test.ts), [test/renderer.test.ts::rejects%5C%20image%5C%20escapes%5C%20and%5C%20executable%5C%20links%24](../../../test/renderer.test.ts), [test/renderer.test.ts::applies%5C%20offline%5C%20image%5C%20rules%5C%20to%5C%20reference%5C-style%5C%20images%24](../../../test/renderer.test.ts), [test/renderer.test.ts::preserves%5C%20encoded%5C%20filenames%5C%20and%5C%20copies%5C%20reference%5C-style%5C%20local%5C%20images%24](../../../test/renderer.test.ts), [test/renderer.test.ts::refuses%5C%20output%5C%20collisions%5C%20between%5C%20attachments%5C%20and%5C%20rendered%5C%20pages%24](../../../test/renderer.test.ts)
+**Implementation:** [test/renderer.test.ts::renders unsupported raw HTML as text and blocks executable markup](../../../test/renderer.test.ts), [test/renderer.test.ts::visible input failures \> rejects image escapes and executable links](../../../test/renderer.test.ts), [test/renderer.test.ts::applies offline image rules to reference-style images](../../../test/renderer.test.ts), [test/renderer.test.ts::preserves encoded filenames and copies reference-style local images](../../../test/renderer.test.ts), [test/renderer.test.ts::refuses output collisions between attachments and rendered pages](../../../test/renderer.test.ts)
 
 
 
@@ -158,7 +159,7 @@ Selected Vitest names:
 
 **Expected:** The build produces SVG without viewer Mermaid scripts; disabled rendering visibly shows source.
 
-**Implementation:** [test/renderer.test.ts::builds%5C%20pinned%5C%20offline%5C%20Mermaid%5C%20SVG%5C%20without%5C%20viewer%5C%20scripts%24](../../../test/renderer.test.ts), [test/renderer.test.ts::rewrites%5C%20cross%5C-file%2C%5C%20fragment%2C%5C%20query%5C%20and%5C%20reference%5C%20links%5C%20and%5C%20adds%5C%20entity%5C%20hovers%24](../../../test/renderer.test.ts)
+**Implementation:** [test/renderer.test.ts::builds pinned offline Mermaid SVG without viewer scripts](../../../test/renderer.test.ts), [test/renderer.test.ts::rewrites cross-file, fragment, query and reference links and adds entity hovers](../../../test/renderer.test.ts)
 
 The [Entity meanings](#test-entity-meanings) evidence also exercises the explicit source-only diagram display.
 
@@ -189,7 +190,7 @@ Selected Vitest names:
 
 **Expected:** The menu has one current page, no redundant structural title and the last section above the reading line marked current.
 
-**Implementation:** [test/navigation.test.ts::flattens%5C%20single%5C-chapter%5C%20documents%5C%20to%5C%20their%5C%20document%5C%20title%5C%20with%5C%20current%5C%20sections%24](../../../test/navigation.test.ts), [test/navigation.test.ts::labels%5C%20the%5C%20first%5C%20chapter%5C%20by%5C%20its%5C%20heading%2C%5C%20first%5C%20level%5C-two%5C%20heading%5C%20or%5C%20Introduction%5C%20without%5C%20adjacent%5C%20duplicate%5C%20labels%24](../../../test/navigation.test.ts), [test/navigation.test.ts::tracks%5C%20the%5C%20last%5C%20section%5C%20above%5C%20the%5C%20reading%5C%20line%2C%5C%20handles%5C%20hash%5C%20navigation%5C%20and%5C%20reveals%5C%20the%5C%20current%5C%20entry%5C%20without%5C%20scrolling%5C%20the%5C%20page%24](../../../test/navigation.test.ts)
+**Implementation:** [test/navigation.test.ts::flattens single-chapter documents to their document title with current sections](../../../test/navigation.test.ts), [test/navigation.test.ts::labels the first chapter by its heading, first level-two heading or Introduction without adjacent duplicate labels](../../../test/navigation.test.ts), [test/navigation.test.ts::tracks the last section above the reading line, handles hash navigation and reveals the current entry without scrolling the page](../../../test/navigation.test.ts)
 
 
 
@@ -215,7 +216,7 @@ Selected Vitest names:
 
 **Expected:** The sidebar stays fixed at desktop widths; the compact menu locks the background; content does not widen the viewport or create an article scrolling pane.
 
-**Implementation:** [test/browser.test.ts::checks%5C%20rendered%5C%20menu%2C%5C%20theme%5C%20controls%2C%5C%20storage%5C%20failure%5C%20and%5C%20diagram%5C%20contrast%5C%20in%5C%20both%5C%20themes%24](../../../test/browser.test.ts), [test/layout.test.ts::keeps%5C%20wide%5C%20diagrams%5C%20readable%2C%5C%20contains%5C%20code%5C%20and%5C%20table%5C%20overflow%2C%5C%20and%5C%20prints%5C%20on%5C%20white%5C%20from%5C%20either%5C%20theme%24](../../../test/layout.test.ts), [test/navigation.test.ts::keeps%5C%20a%5C%20tall%5C%20sidebar%5C%20fixed%5C%20with%5C%20independent%5C%20scrolling%5C%20at%5C%20desktop%5C%20widths%5C%20and%5C%20only%5C%20one%5C%20document%5C%20navigation%5C%20at%5C%20every%5C%20width%24](../../../test/navigation.test.ts)
+**Implementation:** [test/browser.test.ts::checks rendered menu, theme controls, storage failure and diagram contrast in both themes](../../../test/browser.test.ts), [test/layout.test.ts::keeps wide diagrams readable, contains code and table overflow, and prints on white from either theme](../../../test/layout.test.ts), [test/navigation.test.ts::keeps a tall sidebar fixed with independent scrolling at desktop widths and only one document navigation at every width](../../../test/navigation.test.ts)
 
 
 
@@ -228,6 +229,8 @@ This case checks palette restoration and the documented built-in diagram contras
 Selected Vitest names:
 
 - `checks rendered menu, theme controls, storage failure and diagram contrast in both themes`.
+- `uses a single chapter menu with independent disclosures and an appearance button group`.
+- `swaps rendered pages with prefetch history and reading controls`.
 
 **Method:** test.
 
@@ -235,9 +238,9 @@ Selected Vitest names:
 
 **Inputs:** Both built-in themes, both explicit modes, System and unavailable browser storage.
 
-**Expected:** Restored selection and radio controls agree; tested diagram colour pairs meet the bound; unavailable storage leaves the page readable and its current selection usable.
+**Expected:** A title-free Appearance group sits at the menu bottom with Light, System and Dark icon buttons in that order. Each has its name as `aria-label` and `title`, and only the selected button is pressed. Restored storage, pressed state and palette agree; System follows the system preference and clears the override; instant page changes retain the choice. Without JavaScript the control is hidden and System applies. Tested diagram colour pairs meet the bound; unavailable storage leaves the page readable and its current selection usable.
 
-**Implementation:** [test/browser.test.ts::checks%5C%20rendered%5C%20menu%2C%5C%20theme%5C%20controls%2C%5C%20storage%5C%20failure%5C%20and%5C%20diagram%5C%20contrast%5C%20in%5C%20both%5C%20themes%24](../../../test/browser.test.ts)
+**Implementation:** [test/browser.test.ts::checks rendered menu, theme controls, storage failure and diagram contrast in both themes](../../../test/browser.test.ts), [test/renderer.test.ts::uses a single chapter menu with independent disclosures and an appearance button group](../../../test/renderer.test.ts), [test/navigation.test.ts::swaps rendered pages with prefetch history and reading controls](../../../test/navigation.test.ts)
 
 Source inspection completed on 2026-10-16 at `4305d3e`:
 [src/site.ts::page](../../../src/site.ts) emits the inline theme script before both stylesheet links.
@@ -245,7 +248,7 @@ Source inspection completed on 2026-10-16 at `4305d3e`:
 Its exception handler logs “Theme preference could not be read; using System.”
 These observations establish source ordering and warning text.
 They do not measure first-paint timing.
-The automated case does not assert those source details.
+The browser case does not assert those source details; the markup case checks script-before-stylesheet ordering.
 
 <a id="test-article-navigation"></a>
 ### Acceptance test: article navigation
@@ -266,7 +269,7 @@ Selected Vitest names:
 
 **Expected:** Overview and the generated term-list section remain, the duplicate list disappears, inbound fragments resolve and adjacent links use declared neighbors.
 
-**Implementation:** [test/renderer.test.ts::omits%5C%20only%5C%20the%5C%20marked%5C%20level%5C-two%5C%20document%5C%20map%5C%20and%5C%20keeps%5C%20its%5C%20siblings%5C%20unchanged%24](../../../test/renderer.test.ts), [test/renderer.test.ts::resolves%20inbound%20links%20to%20omitted%20anchors%20and%20keeps%20menu%20siblings%20%5C%28%5B%5Cs%5CS%5D%2A%5C%29%24](../../../test/renderer.test.ts), [test/renderer.test.ts::groups%5C%20chapters%5C%20by%5C%20document%5C%20title%2C%5C%20uses%5C%20first%5C%20headings%5C%20over%5C%20manifest%5C%20labels%5C%20and%5C%20follows%5C%20manifest%5C%20order%24](../../../test/renderer.test.ts)
+**Implementation:** [test/renderer.test.ts::generated navigation regions \> omits only the marked level-two document map and keeps its siblings unchanged](../../../test/renderer.test.ts), [test/renderer.test.ts::generated navigation regions \> resolves inbound links to omitted anchors and keeps menu siblings ()](../../../test/renderer.test.ts), [test/renderer.test.ts::generated navigation regions \> resolves inbound links to omitted anchors and keeps menu siblings (\<a id="map-home"\>\</a\>  )](../../../test/renderer.test.ts), [test/renderer.test.ts::groups chapters by document title, uses first headings over manifest labels and follows manifest order](../../../test/renderer.test.ts)
 
 <a id="lifecycle-evidence"></a>
 ## Output lifecycle evidence
@@ -297,7 +300,7 @@ Selected Vitest names:
 
 **Expected:** The host is 127.0.0.1; pages are readable; close and handled exits remove output; startup failure retains no viewer handlers.
 
-**Implementation:** [test/server.test.ts::serves%5C%20pages%5C%20on%5C%20a%5C%20free%5C%20loopback%5C%20port%5C%20and%5C%20removes%5C%20output%5C%20on%5C%20close%24](../../../test/server.test.ts), [test/server.test.ts::removes%5C%20temporary%5C%20CLI%5C%20output%5C%20on%5C%20SIGINT%24](../../../test/server.test.ts), [test/server.test.ts::removes%5C%20temporary%5C%20CLI%5C%20output%5C%20on%5C%20SIGTERM%24](../../../test/server.test.ts), [test/server.test.ts::removes%5C%20output%5C%20on%5C%20normal%5C%20process%5C%20exit%24](../../../test/server.test.ts), [test/server.test.ts::returns%5C%20a%5C%20visible%5C%20error%5C%20for%5C%20invalid%5C%20input%5C%20and%5C%20cleans%5C%20startup%5C%20resources%24](../../../test/server.test.ts)
+**Implementation:** [test/server.test.ts::serves pages on a free loopback port and removes output on close](../../../test/server.test.ts), [test/server.test.ts::removes temporary CLI output on SIGINT](../../../test/server.test.ts), [test/server.test.ts::removes temporary CLI output on SIGTERM](../../../test/server.test.ts), [test/server.test.ts::removes output on normal process exit](../../../test/server.test.ts), [test/server.test.ts::returns a visible error for invalid input and cleans startup resources](../../../test/server.test.ts)
 
 
 
@@ -322,7 +325,7 @@ Selected Vitest names:
 
 **Expected:** Each invalid selected input refuses rather than producing an announced site; repairing the source permits a new clean build.
 
-**Implementation:** [test/renderer.test.ts::rejects%5C%20an%5C%20unknown%5C%20real%5C-format%5C%20manifest%5C%20version%5C%20before%5C%20selecting%5C%20files%24](../../../test/renderer.test.ts), [test/renderer.test.ts::still%5C%20refuses%5C%20symlinked%5C%20manifest%5C%20sections%5C%20and%5C%20symlinked%5C%20parent%5C%20directories%24](../../../test/renderer.test.ts), [test/renderer.test.ts::refuses%5C%20missing%5C%20Markdown%5C%20targets%5C%20and%5C%20fragments%24](../../../test/renderer.test.ts), [test/renderer.test.ts::refuses%5C%20entity%5C%20homes%5C%20with%5C%20no%5C%20canonical%5C%20meaning%24](../../../test/renderer.test.ts)
+**Implementation:** [test/renderer.test.ts::rejects an unknown real-format manifest version before selecting files](../../../test/renderer.test.ts), [test/renderer.test.ts::still refuses symlinked manifest sections and symlinked parent directories](../../../test/renderer.test.ts), [test/renderer.test.ts::visible input failures \> refuses missing Markdown targets and fragments](../../../test/renderer.test.ts), [test/renderer.test.ts::visible input failures \> refuses entity homes with no canonical meaning](../../../test/renderer.test.ts)
 
 
 
@@ -346,7 +349,7 @@ Selected Vitest names:
 
 **Expected:** Success retains a static site; the nonempty check preserves existing files; failures return visibly rather than claiming atomic export.
 
-**Implementation:** [test/renderer.test.ts::does%5C%20not%5C%20overwrite%5C%20existing%5C%20static%5C%20output%24](../../../test/renderer.test.ts), [test/server.test.ts::keeps%5C%20static%5C%20output%5C%20after%5C%20the%5C%20CLI%5C%20exits%24](../../../test/server.test.ts)
+**Implementation:** [test/renderer.test.ts::visible input failures \> does not overwrite existing static output](../../../test/renderer.test.ts), [test/server.test.ts::keeps static output after the CLI exits](../../../test/server.test.ts)
 
 Source inspection completed on 2026-10-16 at `4305d3e`:
 [src/site.ts::renderSite](../../../src/site.ts) checks destination emptiness before copying assets and writing pages directly into that destination.
@@ -367,7 +370,7 @@ This regression checks the settled folder order when repository discovery gives 
 
 **Expected:** The selected folder's index opens before `a.md`, even though repository discovery retains repository-relative paths.
 
-**Implementation:** [test/renderer.test.ts::opens%5C%20the%5C%20selected%5C%20nested%5C%20folder%5C%20index%5C%20before%5C%20its%5C%20remaining%5C%20lexical%5C%20paths%24](../../../test/renderer.test.ts)
+**Implementation:** [test/renderer.test.ts::opens the selected nested folder index before its remaining lexical paths](../../../test/renderer.test.ts)
 
 The executable case also checks the map, document group, rendered page order and root redirect.
 It covers the [settled folder decision](decisions-and-questions.md#question-nested-index) after its implementation repair.
@@ -385,7 +388,7 @@ This regression checks consecutive equal chapter labels after group and outline 
 
 **Expected:** Guide is not listed twice in a row; equal titles separated by other entries remain allowed.
 
-**Implementation:** [test/renderer.test.ts::qualifies%5C%20adjacent%5C%20equal%5C%20chapter%5C%20labels%5C%20with%5C%20source%5C%20relative%5C%20paths%5C%20while%5C%20retaining%5C%20both%5C%20links%24](../../../test/renderer.test.ts)
+**Implementation:** [test/renderer.test.ts::qualifies adjacent equal chapter labels with source relative paths while retaining both links](../../../test/renderer.test.ts)
 
 The executable case covers two and three equal titles, separated equal titles, intervening sections, exact case and retained child links.
 It checks each rendered page's menu and preserves authored page titles.
@@ -404,7 +407,7 @@ This case checks the page-change contract through executable behavior.
 
 **Expected:** Page, wrapper and matching-menu node identities survive swaps. Menu scroll and reader-opened or closed chapters survive; the new current chapter opens and its page and section are marked. Cross-directory links update, and structurally different menus replace their children. Content, focus, fragments, themes and diagrams update; history restores scroll; cache requests are reused and bounded; failures load normally. Current sections retain tint and bold text without an inset bar in both built-in themes and light/dark modes.
 
-**Implementation:** [test/navigation.test.ts::retains%20menu%20nodes%20scroll%20and%20reader%20disclosures%20across%20page%20changes%24](../../../test/navigation.test.ts), [test/navigation.test.ts::replaces%20a%20structurally%20different%20menu%20on%20page%20change%24](../../../test/navigation.test.ts), [test/navigation.test.ts::highlights%20current%20sections%20without%20an%20inset%20bar%20in%20both%20themes%20and%20colour%20modes%24](../../../test/navigation.test.ts), [test/navigation.test.ts::swaps%20rendered%20pages%20with%20prefetch%20history%20and%20reading%20controls%24](../../../test/navigation.test.ts), [test/navigation.test.ts::keeps%20excluded%20clicks%20native%20and%20falls%20back%20on%20navigation%20failures%24](../../../test/navigation.test.ts), [test/navigation.test.ts::bounds%20prefetch%20requests%20and%20ignores%20superseded%20navigation%24](../../../test/navigation.test.ts)
+**Implementation:** [test/navigation.test.ts::retains menu nodes scroll and reader disclosures across page changes](../../../test/navigation.test.ts), [test/navigation.test.ts::replaces a structurally different menu on page change](../../../test/navigation.test.ts), [test/navigation.test.ts::highlights current sections without an inset bar in both themes and colour modes](../../../test/navigation.test.ts), [test/navigation.test.ts::swaps rendered pages with prefetch history and reading controls](../../../test/navigation.test.ts), [test/navigation.test.ts::keeps excluded clicks native and falls back on navigation failures](../../../test/navigation.test.ts), [test/navigation.test.ts::bounds prefetch requests and ignores superseded navigation](../../../test/navigation.test.ts)
 
 <a id="test-viewer-caching"></a>
 ## Acceptance test: viewer caching
@@ -419,4 +422,4 @@ This case checks the page-change contract through executable behavior.
 
 **Expected:** HTML uses no-cache; assets use the configured max-age, defaulting to 3600 seconds.
 
-**Implementation:** [test/server.test.ts::revalidates%20HTML%20and%20caches%20session%20assets%24](../../../test/server.test.ts)
+**Implementation:** [test/server.test.ts::revalidates HTML and caches session assets](../../../test/server.test.ts)

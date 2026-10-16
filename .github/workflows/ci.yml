@@ -1,0 +1,38 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v4.1.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile < /dev/null
+      - name: Find the runner's Chromium browser
+        run: |
+          browser=$(command -v google-chrome)
+          echo "MD_RENDER_BROWSER=$browser" >> "$GITHUB_ENV"
+      - run: pnpm typecheck < /dev/null
+      - run: pnpm build < /dev/null
+      - run: pnpm test:report < /dev/null
+      - uses: actions/checkout@v7
+        with:
+          repository: symbiotic-sh/house-rules
+          ref: e8a17db0a3af83b597f1d313e0d9a2b4f688edd3
+          path: .tmp/house-rules
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Prepare the pinned specification tools
+        run: |
+          python -m venv .tmp/spec-docs-venv < /dev/null
+          .tmp/spec-docs-venv/bin/python -m pip install --require-hashes --only-binary=:all: --no-deps -r .tmp/house-rules/skills/spec-writing/scripts/requirements.lock < /dev/null
+      - name: Check the specification and acceptance evidence
+        run: |
+          .tmp/spec-docs-venv/bin/python .tmp/house-rules/skills/spec-writing/scripts/spec_docs.py check --root . < /dev/null
+          .tmp/spec-docs-venv/bin/python .tmp/house-rules/skills/spec-writing/scripts/audit_selectors.py --root . --report reports/vitest.xml < /dev/null

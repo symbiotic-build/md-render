@@ -169,7 +169,7 @@ Early colour restoration avoids an initial paint in the wrong palette.
 
 **Result:** Place the switch at the menu bottom, persist explicit modes and apply the saved override before styles load. System follows the OS. Storage failure warns without blocking reading. Meet the built-in diagram contrast bound for the documented tested pairs in each mode.
 
-**Verification:** Inspect head ordering, restored radio selection and the tested diagram colour pairs.
+**Verification:** Inspect head ordering, restored pressed-button selection and the tested diagram colour pairs.
 
 **Tests:** [Colour mode and contrast](acceptance.md#test-theme-mode).
 

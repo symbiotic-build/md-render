@@ -98,7 +98,11 @@ function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, b
 <script>${themeInit}</script><title>${escapeHtml(doc.title)}</title><link rel="stylesheet" href="${href(`${assets}/base.css`)}"><link rel="stylesheet" href="${href(`${assets}/theme.css`)}"></head>
 <body><a class="skip-link" href="#md-render-content">Skip to document</a>
 <header class="menu-bar"><button id="menu-button" type="button" aria-expanded="true" aria-controls="document-menu">Menu</button><a class="site-title" href="${href(pagePath(corpus.files[0]!.path))}">${logo ? `<img src="${href(`${assets}/${logo}`)}" alt="Theme logo">` : ''}<span>Documentation</span></a></header>
-<aside class="sidebar" id="document-menu" aria-label="Documentation menu"><button id="menu-close" type="button">Close menu</button><nav aria-label="Document map">${sidebar}</nav><div class="theme-switch" role="radiogroup" aria-labelledby="theme-label"><span id="theme-label">Colour theme</span>${['system', 'light', 'dark'].map((value) => `<label><input type="radio" name="theme" value="${value}"${value === 'system' ? ' checked' : ''}>${value[0]!.toUpperCase() + value.slice(1)}</label>`).join('')}</div></aside>
+<aside class="sidebar" id="document-menu" aria-label="Documentation menu"><button id="menu-close" type="button">Close menu</button><nav aria-label="Document map">${sidebar}</nav><div class="theme-switch" role="group" aria-label="Appearance">${[
+  ['light', 'Light', '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path>'],
+  ['system', 'System', '<rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path>'],
+  ['dark', 'Dark', '<path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"></path>'],
+].map(([value, label, icon]) => `<button type="button" value="${value}" aria-label="${label}" title="${label}" aria-pressed="${value === 'system'}"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg></button>`).join('')}</div></aside>
 <main id="md-render-content"><header class="page-meta"><span>${escapeHtml(file)}</span><span>${index < 0 ? 'Referenced file' : `${index + 1} / ${corpus.files.length}`}</span></header><article class="sd-doc">${body}</article><nav class="adjacent" aria-label="Reading order">${adjacent(-1, 'Previous')}${adjacent(1, 'Next')}</nav></main>
 <script src="${href(`${assets}/navigation.js`)}" defer></script>
 </body></html>`;

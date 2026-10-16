@@ -77,14 +77,29 @@ Revealing a current entry scrolls only the menu list, not the article.
 ## Colour mode
 
 The colour controls keep the selected page palette consistent across navigation and diagrams.
-System, Light and Dark form a native radio group at the bottom of the menu.
+The bottom of both the sidebar and phone overlay contains one compact group with `role="group"` and `aria-label="Appearance"`.
+It has no visible title or text labels.
+
+Three icon buttons appear in this order: Light (sun), System (computer screen), Dark (moon).
+Each button has its mode name as both `aria-label` and `title`; exactly the selected button has `aria-pressed="true"`.
+The buttons use native Tab focus and Enter or Space activation.
+
+The portal-style pill uses a 1 px `--line` border, 8 px radius, 3 px padding and 2 px gap.
+Its buttons are 30 × 28 px with 5 px radius and 15 px icons drawn in a 24 × 24 view box.
+
+Icons use no fill, current-colour strokes of width 1.8, and round caps and joins.
+Idle icons use `--muted`, hover uses `--tint`, and the pressed button uses `--accent` with a `--paper` icon.
+Keyboard focus has a visible accent ring in both built-in themes and colour modes.
 System follows the operating-system preference; Light and Dark set explicit overrides.
-The default is System.
+The default is System. Without JavaScript the group is hidden and System applies.
 
 An inline script in the head restores the saved override before the stylesheets load.
 This establishes the selected colour mode before first paint.
 A content security policy authorizes that exact script by its hash.
 Choosing System removes the override from browser storage.
+
+The existing per-viewer choice survives instant page changes and also controls diagram colours.
+For example, choosing Dark presses only the moon button and stores `dark` under `md-render-theme`; choosing System clears that key and presses only the screen button.
 Storage failures produce console warnings and keep the selected mode usable for the current page.
 They do not prevent reading.
 

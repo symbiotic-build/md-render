@@ -66,8 +66,8 @@ document.addEventListener('keydown', (event) => {
   if (!compact.matches || !mobileOpen) return;
   if (event.key === 'Escape') { event.preventDefault(); closeMenu(); }
   if (event.key === 'Tab') {
-    const focusable = [...menu.querySelectorAll('button, a[href], input')].filter((element) =>
-      element.getClientRects().length && (element.type !== 'radio' || element.checked));
+    const focusable = [...menu.querySelectorAll('button, a[href]')].filter((element) =>
+      element.getClientRects().length);
     const first = focusable[0];
     const last = focusable.at(-1);
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
@@ -80,15 +80,20 @@ compact.addEventListener('change', () => {
   updateMenu();
   if (wasOpen || menu.contains(document.activeElement) && menu.hidden) button.focus();
 });
-for (const radio of menu.querySelectorAll('input[name="theme"]')) {
-  radio.checked = radio.value === (document.documentElement.dataset.theme || 'system');
-  radio.addEventListener('change', () => {
-    if (!radio.checked) return;
-    if (radio.value === 'system') delete document.documentElement.dataset.theme;
-    else document.documentElement.dataset.theme = radio.value;
+const appearanceButtons = menu.querySelectorAll('.theme-switch button');
+function updateAppearance() {
+  const selected = document.documentElement.dataset.theme || 'system';
+  for (const control of appearanceButtons) control.setAttribute('aria-pressed', String(control.value === selected));
+}
+updateAppearance();
+for (const control of appearanceButtons) {
+  control.addEventListener('click', () => {
+    if (control.value === 'system') delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = control.value;
+    updateAppearance();
     try {
-      if (radio.value === 'system') localStorage.removeItem('md-render-theme');
-      else localStorage.setItem('md-render-theme', radio.value);
+      if (control.value === 'system') localStorage.removeItem('md-render-theme');
+      else localStorage.setItem('md-render-theme', control.value);
     } catch (error) { console.warn('Theme preference could not be saved; using it for this page.', error); }
   });
 }

@@ -29,14 +29,17 @@ The specification remains a draft pending lead acceptance.
 <a id="evidence-choice"></a>
 ## Execute TypeScript acceptance evidence
 
-**Choice:** Mark automated acceptance cases with Method `test`. Each Implementation field links a test file and runnable name pattern. The manifest’s `test_runners` entry supplies the execution command.
+**Choice:** Mark automated acceptance cases with Method `test` and exact full-name Implementation selectors.
+Declare JUnit report matching and one batched fallback in the manifest's `test_runners` entry.
 
-**Authority:** The task requires the language-neutral runner contract and executable evidence.
+**Authority:** The task pins House Rules commit `e8a17db0a3af83b597f1d313e0d9a2b4f688edd3` and requires report-based auditing.
 
-**Reason:** The shared authoring tool’s selector audit executes each Implementation link through the repository-declared command.
-It is a specification gate, not part of the renderer’s runtime. [scripts/vitest-selector.mjs](../../../scripts/vitest-selector.mjs) adapts Vitest's name filtering to the audit's missing-selector exit status. A skipped file cannot count as passing evidence.
+**Reason:** The shared selector audit reads normal-run results without rerunning each citation.
+[Selector execution](reference.md#selector-reference) defines the report mapping, commands and single-invocation fallback.
+A skipped or missing testcase cannot count as passing evidence.
 
-**Rejected alternatives:** Inspection alone hides executable coverage. Calling Vitest directly treats an unmatched name filter as success. Python wrappers add an unrelated test framework.
+**Rejected alternatives:** Per-selector processes repeat test startup and browser work.
+Inspection alone hides executable coverage; name filtering alone can succeed without running a matching case.
 
 <a id="title-label-proposal"></a>
 ## Qualify later duplicate chapter labels

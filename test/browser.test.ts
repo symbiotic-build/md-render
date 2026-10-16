@@ -22,16 +22,31 @@ it('checks rendered menu, theme controls, storage failure and diagram contrast i
         expect(await browser.evaluate(`getComputedStyle(document.querySelector('#document-menu')).position`)).toBe('fixed');
         expect(await browser.evaluate(`(() => { const list=document.querySelector('#document-menu nav'); return list.scrollHeight === list.clientHeight; })()`)).toBe(true);
         expect(await browser.evaluate(`getComputedStyle(document.querySelector('.sd-doc h2'), '::before').content`)).toBe('none');
-        expect(await browser.evaluate(`Math.max(...[...document.querySelectorAll('.theme-switch label')].map(label => label.getBoundingClientRect().height))`)).toBeLessThanOrEqual(24);
-        // Native radio keyboard navigation also fires change and persists the choice.
-        await browser.evaluate(`document.querySelector('input[value="system"]').focus()`);
-        await browser.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight' });
-        await browser.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight' });
+        expect(await browser.evaluate(`Math.max(...[...document.querySelectorAll('.theme-switch button')].map(control => control.getBoundingClientRect().height))`)).toBe(28);
+        expect(await browser.evaluate(`(() => {
+          const group = document.querySelector('.theme-switch');
+          return {role:group.getAttribute('role'), label:group.getAttribute('aria-label'), text:group.textContent,
+            names:[...group.children].map(b => [b.getAttribute('aria-label'), b.title, b.getAttribute('aria-pressed')]),
+            last:group === document.querySelector('#document-menu').lastElementChild};
+        })()`)).toEqual({role:'group', label:'Appearance', text:'', names:[['Light','Light','false'],['System','System','true'],['Dark','Dark','false']], last:true});
+        // Native button keyboard activation persists the choice.
+        await browser.evaluate(`document.querySelector('.theme-switch button[value="light"]').focus()`);
+        await browser.send('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+        await browser.send('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
         expect(await browser.evaluate(`document.documentElement.dataset.theme`)).toBe('light');
         expect(await browser.evaluate(`localStorage.getItem('md-render-theme')`)).toBe('light');
+        expect(await browser.evaluate(`(() => {const s=getComputedStyle(document.activeElement); return [s.outlineStyle,s.outlineWidth];})()`)).toEqual(['solid','2px']);
         for (const mode of ['light', 'dark']) {
-          await browser.evaluate(`document.querySelector('input[value="${mode}"]').click()`);
+          await browser.evaluate(`document.querySelector('.theme-switch button[value="${mode}"]').click()`);
           expect(await browser.evaluate(`document.documentElement.dataset.theme`)).toBe(mode);
+          expect(await browser.evaluate(`[...document.querySelectorAll('.theme-switch button[aria-pressed="true"]')].map(b=>b.value)`)).toEqual([mode]);
+          expect(await browser.evaluate(`(() => {
+            const button=document.querySelector('.theme-switch button[aria-pressed="true"]');
+            const probe=document.createElement('i'); document.body.append(probe);
+            probe.style.color='var(--accent)'; const accent=getComputedStyle(probe).color;
+            probe.style.color='var(--paper)'; const paper=getComputedStyle(probe).color; probe.remove();
+            const s=getComputedStyle(button); return s.backgroundColor === accent && s.color === paper;
+          })()`)).toBe(true);
           const contrast = await browser.evaluate<number[]>(`(() => {
             const style = getComputedStyle(document.querySelector('.mermaid-diagram svg'));
             const resolve = (token) => {
@@ -61,12 +76,17 @@ it('checks rendered menu, theme controls, storage failure and diagram contrast i
         }
         await browser.navigate(url);
         expect(await browser.evaluate(`document.documentElement.dataset.theme`)).toBe('dark');
-        await browser.evaluate(`document.querySelector('input[value="system"]').click()`);
+        expect(await browser.evaluate(`[...document.querySelectorAll('.theme-switch button[aria-pressed="true"]')].map(b=>b.value)`)).toEqual(['dark']);
+        await browser.evaluate(`document.querySelector('.theme-switch button[value="system"]').click()`);
+        expect(await browser.evaluate(`[...document.querySelectorAll('.theme-switch button[aria-pressed="true"]')].map(b=>b.value)`)).toEqual(['system']);
         expect(await browser.evaluate(`document.documentElement.hasAttribute('data-theme')`)).toBe(false);
         expect(await browser.evaluate(`localStorage.getItem('md-render-theme')`)).toBe(null);
         await browser.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
         expect(await browser.evaluate(`getComputedStyle(document.documentElement).colorScheme`)).toBe('dark');
-        await browser.evaluate(`document.querySelector('input[value="light"]').click()`);
+        await browser.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
+        expect(await browser.evaluate(`getComputedStyle(document.documentElement).colorScheme`)).toBe('light');
+        await browser.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
+        await browser.evaluate(`document.querySelector('.theme-switch button[value="light"]').click()`);
         expect(await browser.evaluate(`getComputedStyle(document.documentElement).colorScheme`)).toBe('light');
         await browser.send('Emulation.setDeviceMetricsOverride', { width: 1023, height: 800, deviceScaleFactor: 1, mobile: false });
         await browser.evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
@@ -89,17 +109,24 @@ it('checks rendered menu, theme controls, storage failure and diagram contrast i
         await browser.evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
         await browser.evaluate(`document.querySelector('#menu-button').click()`);
         expect(await browser.evaluate(`document.querySelector('#document-menu').getBoundingClientRect().width`)).toBe(390);
-        expect(await browser.evaluate(`Math.max(...[...document.querySelectorAll('.theme-switch label')].map(label => label.getBoundingClientRect().height))`)).toBeLessThanOrEqual(24);
+        expect(await browser.evaluate(`Math.max(...[...document.querySelectorAll('.theme-switch button')].map(control => control.getBoundingClientRect().height))`)).toBe(28);
         await browser.evaluate(`document.querySelector('#menu-close').click()`);
+        // A stored override cannot affect a page when JavaScript is disabled.
+        await browser.send('Emulation.setScriptExecutionDisabled', { value: true });
+        await browser.navigate(url);
+        expect(await browser.evaluate(`getComputedStyle(document.querySelector('.theme-switch')).display`)).toBe('none');
+        expect(await browser.evaluate(`getComputedStyle(document.documentElement).colorScheme`)).toBe('dark');
+        expect(await browser.evaluate(`document.documentElement.hasAttribute('data-theme')`)).toBe(false);
+        await browser.send('Emulation.setScriptExecutionDisabled', { value: false });
         await browser.send('Page.addScriptToEvaluateOnNewDocument', { source: `Object.defineProperty(window, 'localStorage', { get() { throw new Error('storage blocked'); } });` });
         await browser.navigate(url);
         expect(await browser.evaluate(`document.documentElement.hasAttribute('data-theme')`)).toBe(false);
-        expect(await browser.evaluate(`document.querySelector('input[value="system"]').checked`)).toBe(true);
+        expect(await browser.evaluate(`document.querySelector('.theme-switch button[value="system"]').getAttribute('aria-pressed')`)).toBe('true');
         expect(await browser.evaluate(`getComputedStyle(document.documentElement).colorScheme`)).toBe('dark');
-        await browser.evaluate(`document.querySelector('#menu-button').click(); document.querySelector('input[value="light"]').click(); document.querySelector('input[value="system"]').click()`);
+        await browser.evaluate(`document.querySelector('#menu-button').click(); document.querySelector('.theme-switch button[value="light"]').click(); document.querySelector('.theme-switch button[value="system"]').click()`);
         expect(await browser.evaluate(`document.documentElement.hasAttribute('data-theme')`)).toBe(false);
         expect(await browser.evaluate(`document.querySelector('main').textContent.includes('Real title')`)).toBe(true);
       });
     }
   } finally { await rm(source, { recursive: true, force: true }); }
-}, 15_000);
+});

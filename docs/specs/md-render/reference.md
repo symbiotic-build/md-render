@@ -32,22 +32,33 @@ The CLI prints each warning and reports unavailable Mermaid explicitly.
 <a id="selector-reference"></a>
 ## Selector execution
 
-Acceptance selectors let the shared audit execute the same Vitest cases as the package test command.
-[docs/DOCUMENTS.json](../../DOCUMENTS.json) declares `test/*.test.ts` with command arguments `node`, `scripts/vitest-selector.mjs`, `{file}` and `{selector}`.
-The audit substitutes the test file and selector as separate arguments without shell interpretation.
+Acceptance selectors connect each executable case to results from the normal Vitest run.
+[docs/DOCUMENTS.json](../../DOCUMENTS.json) declares `pattern: "test/*.test.ts"`, `kind: "junit"` and `reports: ["reports/vitest.xml"]`.
+Its `testcase` mapping is `{"classname": "{file}", "name": "{selector}"}`.
+Vitest writes the repository-relative file path in `classname` and the full `describe > test name` in `name`.
 
-The selector is a URI-encoded regular expression matched against the full Vitest test name.
-Encoding keeps spaces and punctuation intact within the whitespace-free Implementation label.
-For example, `follows%20manifest%20section%20order%20and%20deduplicates%20files%24` decodes to `follows manifest section order and deduplicates files$`.
-The final `$` requires the end of the name; a surrounding suite name may precede it.
-Parameterized patterns select all named rows, such as both anchor counts in each supported block form.
-The readable names remain beside each acceptance case.
+Each Implementation label contains the exact full name, preserving spaces, punctuation and parameter values.
+For example, `follows manifest section order and deduplicates files` identifies that exact test in `test/renderer.test.ts`.
+Parameterized cases cite each expanded name separately.
+A match passes only without failure, error or skipped children; no match is missing.
 
-[scripts/vitest-selector.mjs](../../../scripts/vitest-selector.mjs) decodes the pattern and runs installed Vitest with a temporary JSON report.
-It returns `0` only when Vitest succeeds and at least one test passes, `2` for an entirely unmatched or skipped selection, and `1` for failure.
-Invocation or report errors also fail visibly; the temporary report is removed after the run.
-[test/selector-runner.test.ts](../../../test/selector-runner.test.ts) checks a missing name, a passing name and an invalid pattern.
-No dependencies are installed by the runner.
+**Procedure: verify acceptance evidence**
+
+1. **Generate results:** run `pnpm test:report` with standard input closed.
+   This runs the normal suite with default and JUnit reporters, writing `reports/vitest.xml`.
+2. **Audit results:** run the pinned House Rules `audit_selectors.py --root . --report reports/vitest.xml` after `spec_docs.py check --root .`.
+   Acceptance requires zero missing and zero failing citations.
+
+`pnpm test` remains `vitest run` without report output.
+[vitest.config.ts](../../../vitest.config.ts) sets test and hook limits to 60 seconds as runaway guards; tests should finish in seconds.
+Assertion-level timing checks retain their behavioral bounds.
+Reports are ignored, rebuildable run artifacts; they must come from the candidate being checked.
+
+Without explicit or declared reports, the audit calls the manifest's `batch` command once with `{report}` and all `{selectors}`.
+[scripts/vitest-batch.mjs](../../../scripts/vitest-batch.mjs) runs the complete cited files in one Vitest invocation and writes JUnit to that report path.
+The shared audit matches exact cited names afterward, so missing or skipped cases cannot pass.
+The adapter supplies EOF on standard input and propagates startup errors, signals and nonzero exits.
+It installs no dependencies and starts no process per selector.
 
 <a id="metadata-reference"></a>
 ## Metadata lookup
