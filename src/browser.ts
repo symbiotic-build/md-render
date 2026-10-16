@@ -102,9 +102,20 @@ export async function withBrowser<T>(work: (browser: BrowserSession) => Promise<
     sessionId = (await browser.send('Target.attachToTarget', { targetId, flatten: true })).sessionId;
     return await work(browser);
   } finally {
+    const exited = child.exitCode !== null || child.signalCode !== null
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => child.once('exit', () => resolve()));
+    // A requested close also stops Chromium's helper processes, which can
+    // otherwise keep writing into the profile after the main process exits.
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([
+      browser.send('Browser.close').then(() => exited, () => undefined),
+      new Promise<void>((resolve) => { timer = setTimeout(resolve, 5_000); }),
+    ]);
+    clearTimeout(timer);
     fail(new Error('Headless browser closed'));
     child.kill();
-    if (child.exitCode === null && child.signalCode === null) await new Promise<void>((resolve) => child.once('exit', () => resolve()));
-    await rm(profile, { recursive: true, force: true });
+    await exited;
+    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
