@@ -7,7 +7,7 @@ Parsing precedes link validation, so forward links and referenced-page cycles ca
 <a id="content-pipeline"></a>
 ## Parse and resolve
 
-The renderer parses every linked page before checking its destinations.
+The renderer parses initially selected pages and their direct Markdown references before checking rendered destinations.
 A link from Tour back to Writer can therefore resolve before any HTML is written.
 The [source corpus](selecting-sources.md#source-corpus) provides initial files; each additional referenced page is parsed once.
 
@@ -15,9 +15,9 @@ The [source corpus](selecting-sources.md#source-corpus) provides initial files; 
 
 1. **Parse initial files:** reserve explicit anchors before generating heading identifiers.
    This keeps an inbound link to an omitted Document map heading valid.
-2. **Discover repository Markdown links:** add missing targets transitively, including reference-style links.
-   If A links to B and B links back to A, both pages are retained once.
-3. **Resolve definitions and validate targets:** read selected entity meanings and check manifest anchors and local link fragments.
+2. **Discover repository Markdown links:** inspect only initially selected pages, including reference-style links, and add their direct Markdown targets once.
+   If selected A links to B and B links to C, render A and B; C remains an original-file link unless another initially selected page links to C directly.
+3. **Resolve definitions and validate targets:** read selected entity meanings and check manifest anchors and fragments for rendered destinations.
    A missing target or anchor refuses the build.
 4. **Serialize sanitized bodies:** rewrite URLs, copy referenced images and wrap wide tables.
    HTML comments and YAML metadata disappear from body text.
@@ -55,7 +55,7 @@ The [anchor examples](reference.md#anchor-reference) show these exact inputs and
 
 Linked Markdown inside the repository joins a separate Referenced files group.
 The group starts collapsed unless the current page belongs to it.
-Discovery follows further Markdown references and tolerates cycles.
+Discovery stops after one hop from initially selected pages. Referenced entries show one title and path each, with no section list. Links from a reference to any already rendered page still use HTML; further-out links use the original-file treatment below.
 These pages do not alter previous/next links for the initial reading order.
 
 Non-Markdown local links retain their labels and become `file:` URLs to the original location.

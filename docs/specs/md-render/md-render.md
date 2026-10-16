@@ -58,6 +58,7 @@ Use this map to choose the next explanation to read.
   - [Reading menu](reading-pages.md#reading-menu)
   - [Colour mode](reading-pages.md#colour-mode)
   - [Article display](reading-pages.md#article-display)
+  - [Page changes](reading-pages.md#page-changes)
 - [Serving and export](serving-and-export.md#serving-and-export) — Choose temporary viewing or a retained static copy and recover from failure.
   - [Temporary viewer](serving-and-export.md#temporary-viewer)
   - [Static export](serving-and-export.md#static-export)
@@ -79,6 +80,7 @@ Use this map to choose the next explanation to read.
   - [Requirement: constrain and clean temporary serving](requirements.md#req-temporary-lifecycle)
   - [Requirement: refuse invalid selected input visibly](requirements.md#req-input-refusals)
   - [Requirement: retain static output without overwriting existing content](requirements.md#req-static-export)
+  - [Requirement: change rendered pages without a full load](requirements.md#req-instant-navigation)
 - [Decisions and questions](decisions-and-questions.md#decisions-and-questions) — Review settled scope decisions and remaining implementation gaps.
   - [Rebuild from local sources](decisions-and-questions.md#derived-output-choice)
   - [Keep one reading menu](decisions-and-questions.md#navigation-choice)
@@ -99,6 +101,8 @@ Use this map to choose the next explanation to read.
   - [Output lifecycle evidence](acceptance.md#lifecycle-evidence)
   - [Acceptance test: selected nested-folder index](acceptance.md#test-selected-folder-index)
   - [Acceptance test: adjacent equal authored titles](acceptance.md#test-adjacent-equal-titles)
+  - [Acceptance test: instant navigation](acceptance.md#test-instant-navigation)
+  - [Acceptance test: viewer caching](acceptance.md#test-viewer-caching)
 
 ## Entity index
 

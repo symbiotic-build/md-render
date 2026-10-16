@@ -72,9 +72,9 @@ Reference discovery lets readers follow supporting files without changing the ma
 
 **Condition:** A selected page links to repository Markdown or a non-Markdown local file.
 
-**Result:** Render transitive repository Markdown in Referenced files, with cycles deduplicated. Keep non-Markdown labels, add a file icon and original-path hover, warn and link to originals without reading or copying them.
+**Result:** Render only repository Markdown linked directly from initially selected document pages. Deduplicate these references and list each once by title, without sections. Further-out Markdown links from referenced pages use the original-file treatment: keep labels, add a file icon and original-path hover, warn and link to originals without reading or copying them. Apply the same original-file treatment to non-Markdown links.
 
-**Verification:** Inspect the referenced-page closure, warning list and native-file hover.
+**Verification:** Inspect one-hop selection, title-only reference entries, warning list and original-file hovers.
 
 **Tests:** [Referenced files](acceptance.md#test-reference-pages).
 
@@ -129,7 +129,7 @@ A unified outline lets readers find the chapter and section being read.
 
 **Condition:** A reader opens any rendered page.
 
-**Result:** Use one grouped menu; flatten single-chapter documents and never list a title twice consecutively. Allow unrelated equal titles elsewhere. Expand the current chapter and show its level-two and level-three sections. Highlight the section being read while scrolling and reveal it without moving the article.
+**Result:** Use one grouped menu; flatten single-chapter documents and never list a title twice consecutively. Allow unrelated equal titles elsewhere. Expand the current chapter and show its level-two and level-three sections. Highlight the section being read with background tint and bold text, without an inset bar in either built-in theme or colour mode; reveal it without moving the article.
 
 **Verification:** Compare the current menu entry with the visible section after scroll and hash changes.
 
@@ -252,3 +252,22 @@ The export check protects existing destination contents before writing begins.
 **Status:** implemented behavior; proposed specification.
 
 **Basis:** [Static export](serving-and-export.md#static-export).
+
+<a id="req-instant-navigation"></a>
+## Requirement: change rendered pages without a full load
+
+Page swaps avoid the browser overhead of loading a new document for each chapter.
+
+**Actor:** The reader in a JavaScript-enabled localhost or HTTP-served static site.
+
+**Condition:** The reader hovers, focuses or follows a link to another rendered page, or uses browser history.
+
+**Result:** Prefetch hovered or focused rendered links and the current page's previous/next destinations. Reuse a bounded in-memory HTML cache. Intercept only same-origin rendered-page links with a plain left click, no modifiers, target or download. Replace main content, title and menu state; push history, focus the new heading and scroll to the fragment or top. Back/forward swaps restore the entry's scroll position. Retain the wrapper and existing menu nodes across structurally matching pages, preserving menu scroll and reader-selected chapter disclosures while opening the new current chapter. Update relative link targets and current page and section markers; replace menu children only for a structurally different menu. Preserve section tracking, theme, diagrams, adjacent links and compact-menu closing. Fetch or document-validation failure warns and performs a normal full load. Original-file and external links remain normal, and all links work without JavaScript. Serve HTML with no-cache and static viewer assets with a session-length max-age.
+
+**Verification:** Exercise successful swaps, prefetch reuse, history, excluded clicks and full-load fallbacks through the real local viewer.
+
+**Tests:** [Instant navigation](acceptance.md#test-instant-navigation), [Viewer caching](acceptance.md#test-viewer-caching).
+
+**Status:** task-settled behavior; implementation details proposed for lead acceptance.
+
+**Basis:** [Page changes](reading-pages.md#page-changes).

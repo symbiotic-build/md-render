@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtemp, readFile, writeFile, mkdir, rm, access, cp, symlink } from 'node:fs/promises';
+import { mkdtemp, realpath, readFile, writeFile, mkdir, rm, access, cp, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadCorpus } from '../src/corpus.js';
 import { documentHtml, documentOutline, parseDocument, transformUrls } from '../src/markdown.js';
 import { renderSite } from '../src/site.js';
@@ -543,19 +543,29 @@ it('uses a single chapter menu with independent disclosures and a theme radio gr
   expect(css).toContain(':root:not([data-theme="light"])');
   expect(css).toContain(':root[data-theme="dark"]');
 });
-it('renders linked repository Markdown recursively in a collapsed referenced group', async () => {
+it('renders only direct Markdown references with title-only menu entries', async () => {
   const source = await temp();
   await mkdir(path.join(source, 'docs'));
   await writeFile(path.join(source, 'docs/DOCUMENTS.json'), JSON.stringify({ version: 1, inventory: [], documents: [
     { id: 'book', title: 'Book', sections: [{ id: 'one', path: 'one.md', anchor: 'one' }] },
   ] }));
-  await writeFile(path.join(source, 'one.md'), '# One\n\n[Two](two.md#two) [Native](source.ts)');
-  await writeFile(path.join(source, 'two.md'), '# Two\n\n[Three][ref]\n\n[ref]: three.md');
+  await writeFile(path.join(source, 'one.md'), '# One\n\n[Two](two.md#two) [Two again](two.md) [Native](source.ts)');
+  await writeFile(path.join(source, 'two.md'), '# Two\n\n## Detail\n\n[Three][ref] [Missing](unread.md#missing) [Cycle](one.md)\n\n[ref]: three.md');
   await writeFile(path.join(source, 'three.md'), '# Three\n\n[Cycle](two.md)');
   await writeFile(path.join(source, 'source.ts'), 'export {};');
   const output = await temp();
   const result = await renderSite(source, output, { mermaid: false });
-  expect(result.pages).toEqual(['one.html', 'two.html', 'three.html']);
+  expect(result.pages).toEqual(['one.html', 'two.html']);
+  const reference = await readFile(path.join(output, 'two.html'), 'utf8');
+  expect(reference).toContain(`href="${pathToFileURL(path.join(await realpath(source), 'three.md')).href}"`);
+  expect(reference).toContain('title="three.md" class="local-file"');
+  expect(reference).toContain('unread.md#missing');
+  expect(reference).toContain('href="one.html"');
+  const menu = reference.split('<details class="document-group referenced"')[1]!.split('</details>')[0]!;
+  expect(menu.match(/class="chapter-row"/g)).toHaveLength(1);
+  expect(menu).not.toContain('chapter-toggle');
+  expect(menu).not.toContain('Detail');
+  expect(result.warnings.filter(warning => warning.includes('three.md'))).toHaveLength(1);
   const html = await readFile(path.join(output, 'one.html'), 'utf8');
   expect(html).toContain('<details class="document-group referenced"><summary>Referenced files</summary>');
   expect(html).toContain('href="two.html#two"');

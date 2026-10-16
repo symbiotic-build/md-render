@@ -8,7 +8,12 @@ import { documentHtml, documentOutline, parseDocument, transformUrls, type Outli
 
 const assets = '_md-render';
 /** Static rendering options. Mermaid can be disabled to exercise the offline fallback. */
-export interface RenderOptions { theme?: string; mermaid?: boolean }
+export interface RenderOptions {
+  theme?: string;
+  mermaid?: boolean;
+  /** Versioned session policy; bounds HTML requests and HTTP asset freshness. */
+  navigation?: { version: 1; cachePages?: number; assetMaxAgeSeconds?: number };
+}
 /** Output summary. All files are rebuildable from the input corpus and theme. */
 export interface RenderResult { directory: string; pages: string[]; links: number; mermaid: boolean; warnings: string[] }
 
@@ -43,7 +48,7 @@ async function themeAssets(directory: string, theme: string): Promise<string | u
   return logo;
 }
 
-function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, body: string, logo: string | undefined, themeInit: string): string {
+function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, body: string, logo: string | undefined, themeInit: string, cachePages: number): string {
   const doc = docs.get(file)!;
   const href = (target: string): string => escapeHtml(relativeUrl(file, target));
   // Compare titles in menu order, including section links and group headings.
@@ -60,7 +65,7 @@ function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, b
     if (paths.length > 1 && index === 0 && label === groupTitle) {
       label = chapterDoc.headings.find((heading) => heading.depth === 2)?.title ?? 'Introduction';
     }
-    const entries = documentOutline(chapterDoc);
+    const entries = referenced ? [] : documentOutline(chapterDoc);
     // A heading used as the chapter label already has a link; retain its children.
     if (entries[0]?.title === label) entries.splice(0, 1, ...entries[0].children);
     if ((referenced ? label + chapter : label) === previousTitle) label += ` — ${chapter}`;
@@ -88,7 +93,8 @@ function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, b
   };
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'sha256-${createHash('sha256').update(themeInit).digest('base64')}'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'sha256-${createHash('sha256').update(themeInit).digest('base64')}'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="md-render-navigation" content="${escapeHtml(JSON.stringify({ version: 1, cachePages }))}">
 <script>${themeInit}</script><title>${escapeHtml(doc.title)}</title><link rel="stylesheet" href="${href(`${assets}/base.css`)}"><link rel="stylesheet" href="${href(`${assets}/theme.css`)}"></head>
 <body><a class="skip-link" href="#md-render-content">Skip to document</a>
 <header class="menu-bar"><button id="menu-button" type="button" aria-expanded="true" aria-controls="document-menu">Menu</button><a class="site-title" href="${href(pagePath(corpus.files[0]!.path))}">${logo ? `<img src="${href(`${assets}/${logo}`)}" alt="Theme logo">` : ''}<span>Documentation</span></a></header>
@@ -100,6 +106,13 @@ function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, b
 
 /** Renders every source before writing pages. Links resolve against the same parsed snapshot. */
 export async function renderSite(input: string, output: string, options: RenderOptions = {}): Promise<RenderResult> {
+  const navigation = options.navigation;
+  const cachePages = navigation?.cachePages ?? 6;
+  const assetMaxAgeSeconds = navigation?.assetMaxAgeSeconds ?? 3600;
+  if (navigation && navigation.version !== 1 || !Number.isSafeInteger(cachePages) || cachePages < 1 ||
+      !Number.isSafeInteger(assetMaxAgeSeconds) || assetMaxAgeSeconds < 0) {
+    throw new Error('Invalid version-1 navigation configuration');
+  }
   const corpus = await loadCorpus(input);
   const directory = path.resolve(output);
   await mkdir(directory, { recursive: true });
@@ -110,9 +123,9 @@ export async function renderSite(input: string, output: string, options: RenderO
   const logo = await themeAssets(directory, options.theme ?? 'symbiotic');
   const themeInit = await readFile(fileURLToPath(new URL('../themes/theme-init.js', import.meta.url)), 'utf8');
   const docs = new Map(corpus.files.map((file) => [file.path, parseDocument(file.markdown, 'Untitled chapter')]));
-  // Discover the transitive Markdown closure before rewriting URLs or validating anchors.
-  // Map iteration visits newly discovered pages once, including cycles and reference links.
-  for (const [file, doc] of docs) {
+  // Only initial documents discover references. Parse all direct targets before URL validation.
+  for (const { path: file } of corpus.files) {
+    const doc = docs.get(file)!;
     const targets = new Set<string>();
     transformUrls(doc, (url, image) => {
       if (!image && !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(url)) {
@@ -163,13 +176,13 @@ export async function renderSite(input: string, output: string, options: RenderO
       if (target === 'index.html' || [...docs.keys()].some((source) => pagePath(source) === target)) {
         throw new Error(`Attachment collides with rendered page: ${target}`);
       }
-      if (!image && (outside || pathname && !docs.has(target) && !/\.md$/i.test(target))) {
+      if (!image && (outside || pathname && !docs.has(target))) {
         const message = `${file}: external local reference ${url}; ${outside ? 'outside selected input' : 'not a rendered document'}, open the original file`;
         warnings.push(message);
         return { url: pathToFileURL(absolute).href + query + fragment, title: target };
       }
       within(corpus.root, target);
-      if (!image && (docs.has(target) || /\.md$/i.test(target) || !pathname)) {
+      if (!image && (docs.has(target) || !pathname)) {
         const destination = docs.get(target);
         if (!destination) throw new Error(`Markdown link is outside rendered corpus: ${file} -> ${url}`);
         const id = decodeURIComponent(fragment.slice(1));
@@ -197,7 +210,7 @@ export async function renderSite(input: string, output: string, options: RenderO
     if (file.startsWith(`${assets}/`)) throw new Error(`Input uses reserved directory: ${file}`);
     const target = within(directory, pagePath(file));
     await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, page(corpus, docs, file, diagrams.pages[index]!, logo, themeInit));
+    await writeFile(target, page(corpus, docs, file, diagrams.pages[index]!, logo, themeInit, cachePages));
     pages.push(pagePath(file));
   }
   if (!pages.includes('index.html')) {

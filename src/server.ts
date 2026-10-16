@@ -34,7 +34,9 @@ export async function startViewer(input: string, options: RenderOptions = {}): P
       const target = path.resolve(directory, relative);
       if (!target.startsWith(directory + path.sep)) { response.writeHead(403).end('Forbidden'); return; }
       const bytes = await readFile(target);
-      response.writeHead(200, { 'Content-Type': contentTypes[path.extname(target)] ?? 'application/octet-stream', 'X-Content-Type-Options': 'nosniff' });
+      response.writeHead(200, { 'Content-Type': contentTypes[path.extname(target)] ?? 'application/octet-stream', 'X-Content-Type-Options': 'nosniff',
+        'Cache-Control': relative.startsWith('_md-render/')
+          ? `max-age=${options.navigation?.assetMaxAgeSeconds ?? 3600}` : 'no-cache' });
       response.end(request.method === 'HEAD' ? undefined : bytes);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;

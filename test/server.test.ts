@@ -92,3 +92,18 @@ it('opens the first manifest page even when index.md appears later', async () =>
   expect(await (await fetch(url)).text()).toContain('<title>Home</title>');
   const exited = once(child, 'exit'); child.kill('SIGTERM'); await exited;
 }, 90_000);
+
+it('revalidates HTML and caches session assets', async () => {
+  for (const seconds of [undefined, 7200]) {
+    const viewer = await startViewer(fixture, { mermaid: false,
+      navigation: { version: 1, assetMaxAgeSeconds: seconds } });
+    viewers.push(viewer);
+    for (const method of ['GET', 'HEAD']) {
+      expect((await fetch(viewer.url, { method })).headers.get('cache-control')).toBe('no-cache');
+      for (const asset of ['base.css', 'navigation.js', 'logo.svg']) {
+        expect((await fetch(`${origin(viewer)}_md-render/${asset}`, { method })).headers.get('cache-control'))
+          .toBe(`max-age=${seconds ?? 3600}`);
+      }
+    }
+  }
+});

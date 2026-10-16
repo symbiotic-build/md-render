@@ -95,15 +95,21 @@ for (const radio of menu.querySelectorAll('input[name="theme"]')) {
 // Source order defines the reading order. The last heading at or above the
 // viewport's one-third line is current, including jumps past several sections.
 const navigation = menu.querySelector('nav');
-const pageLink = navigation.querySelector('a[aria-current="page"]');
-const sections = [...navigation.querySelectorAll('a[href^="#"]')].map((link) => {
-  const target = document.getElementById(decodeURIComponent(link.hash.slice(1)));
-  // Explicit anchors can sit in an empty paragraph before the actual heading.
-  const next = target?.closest('p')?.nextElementSibling ?? target?.nextElementSibling;
-  const heading = next?.matches('h2,h3') && !target.matches('h2,h3') ? next : target;
-  return { link, heading };
-}).filter((section) => section.heading);
-let currentLink = pageLink;
+let pageLink;
+let sections;
+function bindSections() {
+  pageLink = navigation.querySelector('a[aria-current="page"]');
+  sections = [...navigation.querySelectorAll('a[href^="#"]')].map((link) => {
+    const target = document.getElementById(decodeURIComponent(link.hash.slice(1)));
+    // Explicit anchors can sit in an empty paragraph before the actual heading.
+    const next = target?.closest('p')?.nextElementSibling ?? target?.nextElementSibling;
+    const heading = next?.matches('h2,h3') && !target.matches('h2,h3') ? next : target;
+    return { link, heading };
+  }).filter((section) => section.heading);
+  currentLink = pageLink;
+}
+let currentLink;
+bindSections();
 function revealCurrent() {
   if (!currentLink || menu.hidden || !currentLink.getClientRects().length) return;
   const link = currentLink.getBoundingClientRect();
@@ -112,18 +118,22 @@ function revealCurrent() {
   if (link.top < area.top) navigation.scrollTop += Math.floor(link.top - area.top);
   else if (link.bottom > area.bottom) navigation.scrollTop += Math.ceil(link.bottom - area.bottom);
 }
+function expandChapter(link) {
+  const chapter = link?.closest('.document-group > ol > li');
+  const toggle = chapter?.querySelector('.chapter-toggle');
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', 'true');
+    document.getElementById(toggle.getAttribute('aria-controls')).hidden = false;
+  }
+  const group = link?.closest('details');
+  if (group) group.open = true;
+}
 function markCurrent(link) {
   for (const section of sections) section.link.removeAttribute('aria-current');
   currentLink = link || pageLink;
   if (link) {
     link.setAttribute('aria-current', 'location');
-    const container = link.closest('.document-group > ol > li > div[id]');
-    if (container) {
-      container.hidden = false;
-      container.previousElementSibling.querySelector('.chapter-toggle').setAttribute('aria-expanded', 'true');
-    }
-    const group = link.closest('details');
-    if (group) group.open = true;
+    expandChapter(link);
   }
   revealCurrent();
 }
@@ -162,3 +172,185 @@ updateMenu();
 observeSections();
 followHash();
 document.fonts.ready.then(() => { trackSection(); revealCurrent(); });
+
+
+// Rendered output is immutable during a viewer session. The cache is transient;
+// insertion order evicts the oldest request, including unfinished prefetches.
+// Resolve shell assets before pushState changes the base for relative URLs.
+for (const element of document.querySelectorAll('head link[href], .site-title img[src]')) {
+  if (element.hasAttribute('href')) element.setAttribute('href', element.href);
+  else element.setAttribute('src', element.src);
+}
+const policy = JSON.parse(document.querySelector('meta[name="md-render-navigation"]').content);
+const pageKey = (value) => { const url = new URL(value, location.href); url.hash = ''; return url.href; };
+const renderedPaths = new Set([...navigation.querySelectorAll('.chapter-row a')].map(link => new URL(link.href).pathname));
+const pageCache = new Map();
+let displayedPage = pageKey(location.href);
+let navigationSequence = 0;
+// Keep coordinates per history entry in memory. Writing replaceState on every
+// scroll would consume the browser's history API rate limit during reading.
+const positions = new Map();
+const newEntryKey = () => [...crypto.getRandomValues(new Uint32Array(4))].join('-');
+let entryKey = history.state?.mdRender?.key || newEntryKey();
+function renderedLink(target) {
+  const link = target.closest('a[href]');
+  if (!link || link.hasAttribute('target') || link.hasAttribute('download')) return;
+  const url = new URL(link.href);
+  if (!/^https?:$/.test(url.protocol) || url.origin !== location.origin ||
+      !renderedPaths.has(url.pathname) || pageKey(url.href) === displayedPage) return;
+  return url;
+}
+function loadPage(url) {
+  const key = pageKey(url);
+  if (pageCache.has(key)) return pageCache.get(key).promise;
+  const controller = new AbortController();
+  const entry = { controller };
+  entry.promise = (async () => {
+    const response = await fetch(key, { signal: controller.signal });
+    if (!response.ok || response.redirected || !response.headers.get('content-type')?.includes('text/html')) {
+      throw new Error(`Unexpected rendered response: ${response.status} ${key}`);
+    }
+    const html = await response.text();
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    const meta = parsed.querySelector('meta[name="md-render-navigation"]');
+    if (!meta || JSON.parse(meta.content).version !== policy.version ||
+        !parsed.querySelector('main#md-render-content article.sd-doc') || !parsed.querySelector('title') ||
+        !parsed.querySelector('#document-menu nav[aria-label="Document map"]') ||
+        !parsed.querySelector('.site-title')) throw new Error(`Unexpected rendered document: ${key}`);
+    return parsed;
+  })().catch(error => {
+    if (pageCache.get(key) === entry) pageCache.delete(key);
+    throw error;
+  });
+  pageCache.set(key, entry);
+  while (pageCache.size > policy.cachePages) {
+    const oldest = pageCache.keys().next().value;
+    pageCache.get(oldest).controller.abort();
+    pageCache.delete(oldest);
+  }
+  return entry.promise;
+}
+function prefetch(url) {
+  loadPage(url).catch(error => console.warn('Page prefetch failed; a click will load the destination normally if needed.', error));
+}
+function prefetchAdjacent() {
+  for (const link of document.querySelectorAll('.adjacent a')) {
+    const url = renderedLink(link);
+    if (url) prefetch(url.href);
+  }
+}
+for (const eventName of ['mouseover', 'focusin']) document.addEventListener(eventName, event => {
+  const url = renderedLink(event.target);
+  if (url) prefetch(url.href);
+});
+function rememberPosition() {
+  positions.set(entryKey, { x: scrollX, y: scrollY });
+}
+function placeReader(url, position) {
+  const main = document.querySelector('main');
+  const heading = main.querySelector('h1,h2,h3,h4,h5,h6') || main;
+  heading.setAttribute('tabindex', '-1');
+  heading.focus({ preventScroll: true });
+  if (position) scrollTo(position.x, position.y);
+  else {
+    const target = url.hash && document.getElementById(decodeURIComponent(url.hash.slice(1)));
+    if (target) target.scrollIntoView();
+    else scrollTo(0, 0);
+  }
+  followHash();
+}
+// Compare the rendered map, excluding only state owned by the reading session.
+// Resolve each map's links against its own page, independent of history's base.
+function menuStructure(nav, base) {
+  const copy = nav.cloneNode(true);
+  for (const link of copy.querySelectorAll('a[href]')) {
+    link.setAttribute('href', new URL(link.getAttribute('href'), base).href);
+    link.removeAttribute('aria-current');
+  }
+  for (const toggle of copy.querySelectorAll('.chapter-toggle')) toggle.removeAttribute('aria-expanded');
+  for (const container of copy.querySelectorAll('.document-group > ol > li > div[id]')) container.removeAttribute('hidden');
+  for (const group of copy.querySelectorAll('details')) group.removeAttribute('open');
+  return copy;
+}
+function updateNavigation(next, url) {
+  const same = menuStructure(navigation, displayedPage).isEqualNode(menuStructure(next, url));
+  if (same) {
+    const links = [...navigation.querySelectorAll('a')];
+    for (const [index, incoming] of [...next.querySelectorAll('a')].entries()) {
+      const link = links[index];
+      const href = incoming.getAttribute('href');
+      if (link.getAttribute('href') !== href) link.setAttribute('href', href);
+      const current = incoming.getAttribute('aria-current');
+      if (current !== link.getAttribute('aria-current')) {
+        if (current) link.setAttribute('aria-current', current);
+        else link.removeAttribute('aria-current');
+      }
+    }
+  } else {
+    navigation.replaceChildren(...[...next.childNodes].map(node => node.cloneNode(true)));
+    renderedPaths.clear();
+    for (const link of navigation.querySelectorAll('.chapter-row a')) renderedPaths.add(new URL(link.getAttribute('href'), url).pathname);
+  }
+  expandChapter(navigation.querySelector('a[aria-current="page"]'));
+  return same;
+}
+async function changePage(url, position, push, targetEntryKey) {
+  const sequence = ++navigationSequence;
+  try {
+    const parsed = await loadPage(url.href);
+    if (sequence !== navigationSequence) return;
+    if (push) {
+      rememberPosition();
+      const nextKey = newEntryKey();
+      history.pushState({ mdRender: { key: nextKey } }, '', url.href);
+      entryKey = nextKey;
+    }
+    if (targetEntryKey) entryKey = targetEntryKey;
+    const menuPosition = { x: navigation.scrollLeft, y: navigation.scrollTop };
+    // Keep the shell and its controls/listeners; replace only page-owned nodes.
+    document.querySelector('main').replaceChildren(...[...parsed.querySelector('main').childNodes].map(node => node.cloneNode(true)));
+    const sameMenu = updateNavigation(parsed.querySelector('#document-menu nav'), url);
+    displayedPage = pageKey(url.href);
+    document.title = parsed.title;
+    document.querySelector('.site-title').setAttribute('href', new URL(parsed.querySelector('.site-title').getAttribute('href'), url).href);
+    bindSections();
+    mobileOpen = false;
+    updateMenu();
+    observeSections();
+    placeReader(url, position);
+    if (sameMenu) navigation.scrollTo(menuPosition.x, menuPosition.y);
+    rememberPosition();
+    prefetchAdjacent();
+  } catch (error) {
+    if (sequence !== navigationSequence) return;
+    console.warn('Page navigation failed; loading the destination normally.', error);
+    location.assign(url.href);
+  }
+}
+document.addEventListener('click', event => {
+  if (event.defaultPrevented) { navigationSequence++; return; }
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const url = renderedLink(event.target);
+  if (!url) { navigationSequence++; rememberPosition(); return; }
+  event.preventDefault();
+  changePage(url, undefined, true);
+});
+if (/^https?:$/.test(location.protocol)) {
+  history.scrollRestoration = 'manual';
+  history.replaceState({ ...history.state, mdRender: { key: entryKey } }, '', location.href);
+  rememberPosition();
+  addEventListener('popstate', event => {
+    rememberPosition();
+    const url = new URL(location.href);
+    const nextKey = event.state?.mdRender?.key || newEntryKey();
+    if (!event.state?.mdRender?.key) history.replaceState({ ...event.state, mdRender: { key: nextKey } }, '', url.href);
+    const position = positions.get(nextKey);
+    if (pageKey(url.href) === displayedPage) {
+      navigationSequence++;
+      entryKey = nextKey;
+      placeReader(url, position);
+      rememberPosition();
+    } else changePage(url, position, false, nextKey);
+  });
+  prefetchAdjacent();
+}

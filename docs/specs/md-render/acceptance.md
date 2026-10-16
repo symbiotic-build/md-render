@@ -96,18 +96,18 @@ This case checks referenced-page discovery and the original-file treatment of na
 
 Selected Vitest names:
 
-- `renders linked repository Markdown recursively in a collapsed referenced group`.
+- `renders only direct Markdown references with title-only menu entries`.
 - `keeps reference-style non-Markdown labels with a file icon and repository path`.
 
 **Method:** test.
 
 **Requirements:** [Render references without changing authored labels](requirements.md#req-reference-pages).
 
-**Inputs:** A manifest page linking to two further Markdown pages, a cycle and a source file.
+**Inputs:** A manifest page linking directly to a reference with sections, repeated direct links, further-out Markdown, a cycle and a source file.
 
-**Expected:** Referenced HTML pages appear once; the group is collapsed off-reference; the native file keeps its label and original-file URL.
+**Expected:** Only direct references render, once each, with titles and no section lists. Further-out Markdown and native files keep labels, icons, path hovers and original-file URLs; their contents are not read.
 
-**Implementation:** [test/renderer.test.ts::renders%5C%20linked%5C%20repository%5C%20Markdown%5C%20recursively%5C%20in%5C%20a%5C%20collapsed%5C%20referenced%5C%20group%24](../../../test/renderer.test.ts), [test/renderer.test.ts::keeps%5C%20reference%5C-style%5C%20non%5C-Markdown%5C%20labels%5C%20with%5C%20a%5C%20file%5C%20icon%5C%20and%5C%20repository%5C%20path%24](../../../test/renderer.test.ts)
+**Implementation:** [test/renderer.test.ts::renders%5C%20only%5C%20direct%5C%20Markdown%5C%20references%5C%20with%5C%20title-only%5C%20menu%5C%20entries%24](../../../test/renderer.test.ts), [test/renderer.test.ts::keeps%5C%20reference%5C-style%5C%20non%5C-Markdown%5C%20labels%5C%20with%5C%20a%5C%20file%5C%20icon%5C%20and%5C%20repository%5C%20path%24](../../../test/renderer.test.ts)
 
 
 
@@ -390,3 +390,33 @@ This regression checks consecutive equal chapter labels after group and outline 
 The executable case covers two and three equal titles, separated equal titles, intervening sections, exact case and retained child links.
 It checks each rendered page's menu and preserves authored page titles.
 These assertions cover the repaired [settled title decision](decisions-and-questions.md#question-equal-titles).
+
+<a id="test-instant-navigation"></a>
+## Acceptance test: instant navigation
+
+This case checks the page-change contract through executable behavior.
+
+**Method:** test.
+
+**Requirements:** [Change rendered pages without a full load](requirements.md#req-instant-navigation).
+
+**Inputs:** Rendered chapters on the real loopback viewer, history entries, intent events, excluded links and failed responses.
+
+**Expected:** Page, wrapper and matching-menu node identities survive swaps. Menu scroll and reader-opened or closed chapters survive; the new current chapter opens and its page and section are marked. Cross-directory links update, and structurally different menus replace their children. Content, focus, fragments, themes and diagrams update; history restores scroll; cache requests are reused and bounded; failures load normally. Current sections retain tint and bold text without an inset bar in both built-in themes and light/dark modes.
+
+**Implementation:** [test/navigation.test.ts::retains%20menu%20nodes%20scroll%20and%20reader%20disclosures%20across%20page%20changes%24](../../../test/navigation.test.ts), [test/navigation.test.ts::replaces%20a%20structurally%20different%20menu%20on%20page%20change%24](../../../test/navigation.test.ts), [test/navigation.test.ts::highlights%20current%20sections%20without%20an%20inset%20bar%20in%20both%20themes%20and%20colour%20modes%24](../../../test/navigation.test.ts), [test/navigation.test.ts::swaps%20rendered%20pages%20with%20prefetch%20history%20and%20reading%20controls%24](../../../test/navigation.test.ts), [test/navigation.test.ts::keeps%20excluded%20clicks%20native%20and%20falls%20back%20on%20navigation%20failures%24](../../../test/navigation.test.ts), [test/navigation.test.ts::bounds%20prefetch%20requests%20and%20ignores%20superseded%20navigation%24](../../../test/navigation.test.ts)
+
+<a id="test-viewer-caching"></a>
+## Acceptance test: viewer caching
+
+This case checks the page-change contract through executable behavior.
+
+**Method:** test.
+
+**Requirements:** [Change rendered pages without a full load](requirements.md#req-instant-navigation).
+
+**Inputs:** GET and HEAD requests for HTML and renderer assets.
+
+**Expected:** HTML uses no-cache; assets use the configured max-age, defaulting to 3600 seconds.
+
+**Implementation:** [test/server.test.ts::revalidates%20HTML%20and%20caches%20session%20assets%24](../../../test/server.test.ts)

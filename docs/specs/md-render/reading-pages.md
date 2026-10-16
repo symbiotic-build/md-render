@@ -20,7 +20,7 @@ The initial desktop state is expanded; browser storage remembers subsequent chan
 
 Below that boundary, the menu starts closed and opens as a full-screen overlay.
 The overlay locks background scrolling, makes background controls inert and keeps keyboard focus inside it.
-Escape, Close menu or following a link closes the overlay and restores focus to Menu.
+Escape, Close menu or following a same-page link closes the overlay and restores focus to Menu. A page swap instead focuses the new heading.
 The compact open state is not persisted.
 
 The [document manifest](selecting-sources.md#document-manifest) supplies group titles and chapter order.
@@ -69,6 +69,7 @@ Deeper headings remain in the article but do not enter this outline.
 
 Before the first section reaches the reading line, only the page entry is current.
 While scrolling, the last section at or above one-third of the viewport height is highlighted.
+In both built-in themes and both colour modes, the current section uses a background tint and bold text without an inset bar.
 Hash navigation immediately selects its matching entry and expands the chapter as needed.
 Revealing a current entry scrolls only the menu list, not the article.
 
@@ -120,3 +121,22 @@ The [settled scrolling decision](decisions-and-questions.md#question-scrollbars)
 
 Without JavaScript, the menu remains visible and chapter links remain accessible; interactive controls are hidden.
 Print styles hide navigation and use black text on white paper.
+
+<a id="page-changes"></a>
+## Page changes
+
+Rendered pages on the same HTTP origin share one reading session. A hovered or focused link starts fetching its HTML; previous/next pages are prefetched after initial load and each swap. The native fetch and History APIs supply transport and navigation; no router, database or disk cache is added.
+
+The version-1 `RenderOptions.navigation` configuration sets `cachePages` (default 6, a positive integer) and `assetMaxAgeSeconds` (default 3600, a nonnegative integer). Six entries retain the two adjacent destinations and four recent or intended destinations; eviction discards the oldest entry and aborts any unfinished fetch. The generated navigation meta tag carries the version and page bound. The cache is rebuilt from rendered HTML and disappears with the document. HTTP asset caching lasts one hour by default because viewer output is immutable for the process lifetime; HTML is revalidated with `no-cache`.
+
+**Procedure: change a page**
+
+1. **Recognize a rendered link:** require same origin and a path in the chapter menu, HTTP or HTTPS, and a different page URL. Only unmodified left clicks without a `target` or `download` attribute are intercepted. Fragment-only links remain native.
+2. **Fetch and validate:** reuse an existing cache request or fetch HTML. Require a successful nonredirected HTML response with the renderer configuration, main, article, title and document-map navigation. A failure logs its cause and loads the requested URL normally. File-URL exports continue to use normal links.
+3. **Remember the current position:** save scroll coordinates in memory under the current history entry key, then push the new URL with a fresh key. A later navigation supersedes an unfinished earlier one.
+4. **Swap and initialize:** replace main content and title while retaining the wrapper and menu DOM when its structure matches. Compare menu structure and resolved link destinations, ignoring current markers and disclosure state. Update only changed link targets and current markers, open the new current chapter (and its containing disclosure), and retain all other reader-selected disclosure states and menu scroll coordinates. Replace menu children only when the target menu differs structurally, such as another document set. Rebind section tracking, close a compact overlay and preserve the existing colour choice. Static SVG diagrams arrive in the new article without script execution.
+5. **Place the reader:** focus the new article's first heading (or main for a heading-free page) without scrolling, then scroll to the decoded fragment or top. Back/forward uses the same swap, restores stored coordinates, and falls back to the URL on failure. Same-page history also restores position.
+
+Browser history entries carry a navigation key; a document-scoped map holds each entry's scroll coordinates. Saving only when leaving an entry avoids repeated History API writes during scrolling. No new local-storage keys or persistent source structures are introduced.
+
+For example, a reader opens Chapter 4, closes Chapter 1 and scrolls the menu before following Chapter 2’s End section. The existing menu nodes and scroll coordinates remain. Chapter 4 stays open and Chapter 1 stays closed. Chapter 2 opens, and its page and End section become current. Relative links update when Chapter 2 lives in a different directory. Subsequent reading scrolls and same-page hash changes still reveal the current entry.

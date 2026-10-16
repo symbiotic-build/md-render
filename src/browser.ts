@@ -8,6 +8,8 @@ import type { Readable, Writable } from 'node:stream';
 export interface BrowserSession {
   send(method: string, params?: object): Promise<any>;
   navigate(url: string): Promise<void>;
+  /** Waits for the full load caused by an action, including a normal-link fallback. */
+  waitForNavigation(action: () => Promise<unknown>): Promise<void>;
   evaluate<T>(expression: string): Promise<T>;
 }
 
@@ -25,7 +27,7 @@ export async function withBrowser<T>(work: (browser: BrowserSession) => Promise<
   const profile = await mkdtemp(path.join(tmpdir(), 'md-render-browser-'));
   const child = spawn(executable, ['--headless', '--remote-debugging-pipe', `--user-data-dir=${profile}`,
     '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-component-update',
-    '--disable-sync', '--disable-extensions', '--host-resolver-rules=MAP * ~NOTFOUND'], { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
+    '--disable-sync', '--disable-extensions', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1'], { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
   const input = child.stdio[3] as Writable;
   const output = child.stdio[4] as Readable;
   let sequence = 0;
@@ -58,6 +60,16 @@ export async function withBrowser<T>(work: (browser: BrowserSession) => Promise<
       else request.resolve(message.result);
     }
   });
+  async function waitForNavigation(action: () => Promise<unknown>): Promise<void> {
+    await browser.send('Page.enable');
+    let timer: NodeJS.Timeout;
+    const load = new Promise<void>((resolve, reject) => {
+      loaded = resolve;
+      timer = setTimeout(() => reject(new Error('Page load timed out')), 30_000);
+    });
+    try { await action(); await load; }
+    finally { clearTimeout(timer!); loaded = undefined; }
+  }
   const browser: BrowserSession = {
     send(method, params = {}) {
       return new Promise((resolve, reject) => {
@@ -67,18 +79,12 @@ export async function withBrowser<T>(work: (browser: BrowserSession) => Promise<
         input.write(JSON.stringify({ id, method, params, sessionId }) + '\0');
       });
     },
+    waitForNavigation,
     async navigate(url) {
-      await browser.send('Page.enable');
-      let timer: NodeJS.Timeout;
-      const load = new Promise<void>((resolve, reject) => {
-        loaded = resolve;
-        timer = setTimeout(() => reject(new Error(`Page load timed out: ${url}`)), 30_000);
-      });
-      try {
+      await waitForNavigation(async () => {
         const result = await browser.send('Page.navigate', { url });
         if (result.errorText) throw new Error(result.errorText);
-        await load;
-      } finally { clearTimeout(timer!); loaded = undefined; }
+      });
     },
     async evaluate<T>(expression: string): Promise<T> {
       const result = await browser.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
