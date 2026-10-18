@@ -94,20 +94,30 @@ The CLI reports the output path and exact UTF-8 byte size without imposing a siz
 <a id="bundled-local-references"></a>
 ## Bundled local references
 
-A retained export includes the local files linked by every rendered page, so sharing it needs no access to the author's filesystem.
+A retained export includes local files linked directly by the input’s own rendered pages, so sharing it needs no access to the author's filesystem.
 This follows the [operator's bundling decision](decisions-and-questions.md#bundle-local-files-choice).
 Initial selection still follows the manifest; inventory classifications do not exclude linked references.
+Prepare the input’s existing rendered pages first, including directly linked in-root Markdown, before bundling their outgoing local files.
 
 **Procedure: prepare portable references**
 
 1. **Discover local links:** resolve paths relative to each source file, retaining source-root-relative interpretation of leading slashes.
-   Visit linked Markdown recursively, deduplicate paths, and finish discovery before validating fragments; cycles do not duplicate pages.
+   Inspect the input’s rendered pages, deduplicate direct targets, and parse all bundled pages before validating fragments.
 2. **Classify each regular file:** use the [bundle policy](reference.md#bundle-reference) before reading its contents.
    Render UTF-8 Markdown through the existing page renderer. Render other valid UTF-8 files without NUL bytes as read-only code pages.
 3. **Prepare destinations:** place rendered references under the existing collapsed Referenced files group, opened on its current page.
    Keep initial previous/next order. Copy other files into folder assets; embed their bytes as data URIs behind download links in the single file.
 4. **Rewrite links:** preserve authored labels and Markdown fragments, and resolve [source-line fragments](reference.md#bundle-reference) to line anchors.
    Use relative folder URLs or namespaced single-file targets; never generate original-machine URLs.
+
+Local links from bundled references to further files remain plain text with their authored label, “not bundled” and the portable path label.
+Warn once per unbundled target, without reading that file’s contents.
+Links to pages or files already included remain usable.
+This follows [one-level bundling](decisions-and-questions.md#bundle-depth-choice).
+
+A broken fragment authored in an input page refuses export.
+A broken fragment authored in a bundled reference instead links to the destination page’s top, with one warning per destination fragment.
+This follows [reference fragment validation](decisions-and-questions.md#bundle-fragment-choice).
 
 Code pages show their portable file label and monospaced, escaped source with numbered lines.
 They require no syntax highlighting. A line range lands on its first line; no range selection is required.
@@ -160,7 +170,7 @@ This refusal identifies unsupported or unsafe input before a valid site can be a
 
 This stop prevents broken selected entity hovers and unresolved local destinations from appearing as successful output.
 
-**Trigger:** In local-reading mode, a missing Markdown target; in either mode, a broken local anchor, missing manifest anchor, duplicate explicit anchor, unknown home section or selected entity home without an anchor, heading and first paragraph.
+**Trigger:** In local-reading mode, a missing Markdown target; in either mode, a broken local anchor authored in an input page, missing manifest anchor, duplicate explicit anchor, unknown home section or selected entity home without an anchor, heading and first paragraph. Local-reading mode also refuses broken anchors in referenced pages.
 
 **Outcome:** Rendering rejects with the offending link, anchor or home in its diagnostic; the command exits with code 1.
 

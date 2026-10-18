@@ -292,9 +292,12 @@ The [retained export](serving-and-export.md#bundled-local-references) uses this 
 
 Code-page fragments accept `#L42` and `#L10-L20`, with positive decimal line numbers and no leading zeros.
 The ending line must be at least the starting line, and both must exist.
-A range URL resolves to the first line's anchor, such as `#L10`; unsupported or out-of-range fragments reject visibly.
+A range URL resolves to the first line's anchor, such as `#L10`.
 CRLF and CR normalize to LF; a terminal newline does not create an additional numbered line.
 An empty text file has one empty line.
+
+Unsupported or out-of-range fragments authored in input pages reject visibly.
+In bundled references, invalid fragments instead warn and link to the destination top, following [reference fragment validation](decisions-and-questions.md#bundle-fragment-choice).
 
 Other byte sequences become binary downloads; the single file uses `application/octet-stream` for unknown types.
 Generated reference destinations live beneath the reserved `_md-render/references/` output directory and never contain absolute source paths.

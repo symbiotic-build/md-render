@@ -64,10 +64,10 @@ it.each(['Chapter', 'Source', 'Range', 'Binary'] as const)('bundles %s links for
       }
     });
   }
-  expect(result.warnings).toEqual([]);
+  expect(result.warnings).toEqual(['chapter.md: more.md not bundled']);
 });
 
-it('keeps recursive and inventory references portable without machine paths', async () => {
+it('keeps direct and inventory references portable without machine paths', async () => {
   const out = path.join(root, 'portable');
   const result = await exportSite(input, { out }, { mermaid: false });
   async function files(directory: string): Promise<string[]> {
@@ -82,7 +82,7 @@ it('keeps recursive and inventory references portable without machine paths', as
   }
   await withBrowser(async browser => {
     await browser.navigate(pathToFileURL(result.singleFile).href);
-    expect(await browser.evaluate(`Array.from(document.querySelectorAll('nav details a')).map(a=>a.textContent)`)).toEqual(expect.arrayContaining(['Referenced chapterchapter.md', 'Moremore.md', 'Oldold.md', `code.hnative @ ${commit}: code.h`]));
+    expect(await browser.evaluate(`Array.from(document.querySelectorAll('nav details a')).map(a=>a.textContent)`)).toEqual(expect.arrayContaining(['Referenced chapterchapter.md', 'Oldold.md', `code.hnative @ ${commit}: code.h`]));
     expect(await browser.evaluate(`Array.from(document.querySelectorAll('article p')).filter(e=>e.checkVisibility()).map(e=>e.textContent).find(t=>t.startsWith('Source note:'))`)).toBe('Source note: old.md. Home note: private.md.');
     expect(await browser.evaluate(`Array.from(document.querySelectorAll('a[href^="#"]')).filter(a=>!document.getElementById(decodeURIComponent(a.hash.slice(1)))).map(a=>a.textContent)`)).toEqual([]);
   });
@@ -130,4 +130,78 @@ it('refuses linked symlinks inside the input root', async () => {
   await writeFile(path.join(source, 'real.txt'), 'Source text.');
   await symlink('real.txt', path.join(source, 'alias.txt'));
   await expect(exportSite(path.join(source, 'index.md'), { singleFile: path.join(root, 'unsafe.html') }, { mermaid: false })).rejects.toThrow('without symlinks');
+});
+
+it('marks further local targets as not bundled once per target in both exports', async () => {
+  const source = path.join(root, 'one-level');
+  await mkdir(source);
+  await writeFile(path.join(source, 'index.md'), '# Input\n\n[Reference](../reference-depth.md) [Input page](local.md)');
+  await writeFile(path.join(source, 'local.md'), '# Local input page\n\n[Other](../other-depth.md)');
+  await writeFile(path.join(root, 'reference-depth.md'), '# Reference\n\n[Further](native/further.md#next) [Again][f]\n\n[f]: native/further.md#next');
+  await writeFile(path.join(root, 'other-depth.md'), '# Other\n\n[Further](native/further.md#next)');
+  await writeFile(path.join(root, 'native/further.md'), '# Further\n\n## Next');
+  const result = await exportSite(path.join(source, 'index.md'), { out: path.join(root, 'one-level-out') }, { mermaid: false });
+  const label = `native @ ${commit}: further.md`;
+  expect(result.warnings).toEqual([`reference-depth.md: ${label} not bundled`]);
+  expect(result.pages).toEqual(['index.html', 'local.html', '_md-render/references/0/reference-depth.html', '_md-render/references/1/other-depth.html']);
+  for (const file of [path.join(result.directory!, result.pages[2]!), result.singleFile]) {
+    await withBrowser(async browser => {
+      await browser.navigate(pathToFileURL(file).href);
+      if (file === result.singleFile) await browser.evaluate(`Array.from(document.querySelectorAll('article a')).find(a=>a.textContent==='Reference').click()`);
+      expect(await browser.evaluate(`(()=>{const article=Array.from(document.querySelectorAll('article')).find(e=>e.checkVisibility());return {text:article.textContent.trim(),links:Array.from(article.querySelectorAll('a')).map(a=>a.textContent)}})()`)).toEqual({
+        text: `Reference\nFurther (not bundled: ${label}) Again (not bundled: ${label})`, links: [],
+      });
+    });
+  }
+});
+
+it('warns once and lands at the page top for broken fragments in bundled references', async () => {
+  const source = path.join(root, 'reference-fragments');
+  await mkdir(source);
+  await writeFile(path.join(source, 'index.md'), '# Input\n\n[Reference](../reference-fragment.md) [Source](code.txt)');
+  await writeFile(path.join(root, 'reference-fragment.md'), '# Reference\n\n[Self](#gone) [Again][s] [Input](reference-fragments/index.md#gone) [Source](reference-fragments/code.txt#L9)\n\n[s]: #gone');
+  await writeFile(path.join(source, 'code.txt'), 'first\nsecond\n');
+  const result = await exportSite(path.join(source, 'index.md'), { out: path.join(root, 'reference-fragments-out') }, { mermaid: false });
+  expect(result.warnings.slice().sort()).toEqual([
+    'reference-fragment.md: missing fragment code.txt#L9; linked to page top',
+    'reference-fragment.md: missing fragment index.md#gone; linked to page top',
+    'reference-fragment.md: missing fragment reference-fragment.md#gone; linked to page top',
+  ]);
+  for (const single of [false, true]) {
+    for (const [label, heading] of [['Self', 'Reference'], ['Input', 'Input'], ['Source', 'code.txt']]) {
+      await withBrowser(async browser => {
+        await browser.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 800, deviceScaleFactor: 1, mobile: false });
+        await browser.navigate(pathToFileURL(single ? result.singleFile : path.join(result.directory!, result.pages[1]!)).href);
+        if (single) await browser.evaluate(`Array.from(document.querySelectorAll('article a')).find(a=>a.textContent==='Reference').click()`);
+        const click = () => browser.evaluate(`Array.from(document.querySelectorAll('article')).find(e=>e.checkVisibility()).querySelectorAll('a')` + `.values().find(a=>a.textContent===${JSON.stringify(label)}).click()`);
+        if (single) await click(); else await browser.waitForNavigation(click);
+        expect(await browser.evaluate(`(()=>{const h=Array.from(document.querySelectorAll('article h1')).find(e=>e.checkVisibility());return {heading:h.textContent,top:scrollY,missing:location.hash.includes('gone')||location.hash.includes('L9')}})()`)).toEqual({ heading, top: 0, missing: false });
+      });
+    }
+  }
+});
+
+it('refuses broken fragments authored in input pages', async () => {
+  const source = path.join(root, 'input-fragments');
+  await mkdir(source);
+  for (const [target, reference] of [['#gone', '# Reference'], ['reference.md#gone', '# Reference'], ['reference.md', '# Reference\n\n[Broken](#gone)']]) {
+    await writeFile(path.join(source, 'reference.md'), reference!);
+    await writeFile(path.join(source, 'index.md'), `# Input\n\n[Broken](${target})`);
+    await expect(exportSite(path.join(source, 'index.md'), { singleFile: path.join(root, 'input-fragments.html') }, { mermaid: false })).rejects.toThrow('Missing anchor');
+  }
+});
+
+it('keeps diagram text portable after SVG rendering in both exports', async () => {
+  const source = path.join(root, 'diagram-paths.md');
+  const diagram = 'flowchart TD\nA["profile: value"] --> B[Finish]';
+  await writeFile(source, `# Diagram\n\n\`\`\`mermaid\n${diagram}\n\`\`\``);
+  const result = await exportSite(source, { out: path.join(root, 'diagram-paths-out') });
+  for (const file of [path.join(result.directory!, 'diagram-paths.html'), result.singleFile]) {
+    expect((await readFile(file, 'utf8')).match(/file:/g) ?? []).toEqual([]);
+    await withBrowser(async browser => {
+      await browser.navigate(pathToFileURL(file).href);
+      expect(await browser.evaluate(`Array.from(document.querySelectorAll('figure code')).map(e=>e.textContent)`)).toEqual([diagram]);
+      expect(await browser.evaluate(`Array.from(document.querySelectorAll('figure svg')).map(e=>e.textContent.includes('profile: value')&&e.getBoundingClientRect().width>0)`)).toEqual([true]);
+    });
+  }
 });

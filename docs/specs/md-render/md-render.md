@@ -92,6 +92,8 @@ Use this map to choose the next explanation to read.
   - [Qualify later duplicate chapter labels](decisions-and-questions.md#title-label-proposal)
   - [Settled scope decisions](decisions-and-questions.md#scope-decisions)
   - [Bundle local files for sharing](decisions-and-questions.md#bundle-local-files-choice)
+  - [Bundle one level of local references](decisions-and-questions.md#bundle-depth-choice)
+  - [Warn for broken fragments in bundled references](decisions-and-questions.md#bundle-fragment-choice)
   - [Open questions and implementation evidence](decisions-and-questions.md#open-questions)
 - [Reference](reference.md#reference) — Look up command arguments, metadata fields and implementation entry points.
   - [Command and API](reference.md#command-reference)

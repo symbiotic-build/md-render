@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadCorpus, readSource, within, type Corpus } from './corpus.js';
-import { bundleReferences } from './references.js';
+import { bundleReferences, type ReferenceTarget } from './references.js';
 import { renderDiagrams } from './diagrams.js';
 import { documentHtml, documentOutline, parseDocument, transformUrls, type OutlineEntry, type ParsedDocument } from './markdown.js';
 
@@ -160,9 +160,8 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
   const themeInit = await readFile(fileURLToPath(new URL('../themes/theme-init.js', import.meta.url)), 'utf8');
   const docs = new Map(corpus.files.map((file) => [file.path, parseDocument(file.markdown, 'Untitled chapter')]));
   if (corpus.files.some(file => file.path === assets || file.path.startsWith(assets + '/'))) throw new Error('Input uses reserved directory: ' + assets);
-  const references = bundle ? await bundleReferences(corpus, docs, files, maxFileBytes) : undefined;
   // Only initial documents discover references. Parse all direct targets before URL validation.
-  for (const { path: file } of references ? [] : corpus.files) {
+  for (const { path: file } of corpus.files) {
     const doc = docs.get(file)!;
     const targets = new Set<string>();
     transformUrls(doc, (url, image) => {
@@ -179,12 +178,16 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
       let bytes: Buffer;
       try { bytes = await readSource(corpus.root, target); }
       catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`Markdown link is outside rendered corpus: ${file} -> ${target}`, { cause: error });
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          if (bundle) continue; // Retained exports report missing references during URL rewriting.
+          throw new Error(`Markdown link is outside rendered corpus: ${file} -> ${target}`, { cause: error });
+        }
         throw error;
       }
       docs.set(target, parseDocument(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'Untitled chapter'));
     }
   }
+  const references = bundle ? await bundleReferences(corpus, docs, files, maxFileBytes) : undefined;
   const meanings = new Map<string, string>();
   for (const home of corpus.entities) {
     const meaning = docs.get(home.path)?.meanings.get(home.anchor);
@@ -194,6 +197,8 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
   const copiedAssets = new Set<string>();
   let links = 0;
   const warnings: string[] = [];
+  const warnedUnbundled = new Set<ReferenceTarget>();
+  const warnedFragments = new Set<string>();
   for (const [file, doc] of docs) {
     for (const entry of corpus.map.filter((entry) => entry.path === file && entry.anchor)) {
       if (!doc.anchors.has(entry.anchor!)) throw new Error(`Missing manifest anchor: ${file}#${entry.anchor}`);
@@ -216,6 +221,13 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
       }
       if (!image && references) {
         const reference = references.target(file, pathname);
+        if (reference.kind === 'unbundled') {
+          if (!warnedUnbundled.has(reference)) {
+            warnedUnbundled.add(reference);
+            warnings.push(`${doc.displayPath ?? file}: ${reference.label} not bundled`);
+          }
+          return { url: '', remove: true, suffix: ` (not bundled: ${reference.label})` };
+        }
         if (reference.kind === 'missing') {
           warnings.push(`${doc.displayPath ?? file}: external local reference ${reference.label}; missing file`);
           return { url: '', remove: true };
@@ -231,14 +243,25 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
         if (reference.kind === 'binary') return { url: relativeUrl(file, reference.key!) + query + fragment, title: reference.label, download: path.basename(reference.key!) };
         const destination = docs.get(reference.key!)!;
         let id = decodeURIComponent(fragment.slice(1));
+        let valid = !id || destination.anchors.has(id);
         if (id && reference.kind === 'text') {
           const line = /^L([1-9][0-9]*)(?:-L([1-9][0-9]*))?$/.exec(id);
-          if (!line || Number(line[1]) > destination.sourceLines! || line[2] && (Number(line[2]) < Number(line[1]) || Number(line[2]) > destination.sourceLines!)) {
-            throw new Error(`Invalid source line fragment: ${reference.label}#${id}`);
-          }
-          id = `L${line[1]}`;
+          valid = !!line && Number(line[1]) <= destination.sourceLines! &&
+            (!line[2] || Number(line[2]) >= Number(line[1]) && Number(line[2]) <= destination.sourceLines!);
+          if (valid) id = `L${line![1]}`;
         }
-        if (id && !destination.anchors.has(id)) throw new Error(`Missing anchor: ${doc.displayPath ?? file} -> ${reference.label}#${id}`);
+        if (!valid) {
+          if (doc.displayPath === undefined) {
+            throw new Error(reference.kind === 'text' ? `Invalid source line fragment: ${reference.label}#${id}` :
+              `Missing anchor: ${file} -> ${reference.label}#${id}`);
+          }
+          const target = `${reference.key}#${id}`;
+          if (!warnedFragments.has(target)) {
+            warnedFragments.add(target);
+            warnings.push(`${doc.displayPath}: missing fragment ${reference.label}#${id}; linked to page top`);
+          }
+          id = '';
+        }
         links++;
         return { url: (pathname ? relativeUrl(file, pagePath(reference.key!)) : '') + query + (id ? '#' + encodeURIComponent(id) : ''), title: meanings.get(`${reference.key}#${id}`) ?? reference.label };
       }
@@ -266,12 +289,9 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
     const bytes = await readSource(corpus.root, file);
     files.set(file, bytes);
   }
-  const bodies = await Promise.all([...docs.values()].map(async doc => {
-    const html = await documentHtml(doc);
-    return bundle ? html.replace(/file:/gi, value => value.slice(0, -1) + '&#58;') : html;
-  }));
+  const bodies = await Promise.all([...docs.values()].map(doc => documentHtml(doc)));
   const diagrams = await renderDiagrams(bodies, options.mermaid !== false);
-  return { corpus, docs, bodies: diagrams.pages, files, logo, themeInit, cachePages, links, mermaid: diagrams.available, warnings };
+  return { corpus, docs, bodies: diagrams.pages.map(html => bundle ? html.replace(/file:/gi, value => value.slice(0, -1) + '&#58;') : html), files, logo, themeInit, cachePages, links, mermaid: diagrams.available, warnings };
 }
 
 /** Writes the existing folder layout from one validated snapshot. */

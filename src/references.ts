@@ -33,7 +33,7 @@ async function displayPath(root: string, absolute: string): Promise<string> {
 export interface ReferenceTarget {
   key?: string;
   label: string;
-  kind: 'markdown' | 'text' | 'binary' | 'missing' | 'directory' | 'omitted';
+  kind: 'markdown' | 'text' | 'binary' | 'missing' | 'directory' | 'omitted' | 'unbundled';
   size?: number;
 }
 
@@ -42,14 +42,15 @@ export interface BundledReferences {
   target(file: string, pathname: string): ReferenceTarget;
 }
 
-/** Discovers the linked-file closure before URL rewriting, reusing the shared parsed documents. */
+/** Bundles direct input links before URL rewriting, reusing the shared parsed documents. */
 export async function bundleReferences(corpus: Corpus, docs: Map<string, ParsedDocument>, files: Map<string, Buffer>, maxFileBytes: number): Promise<BundledReferences> {
   const sources = new Map([...docs.keys()].map(file => [file, path.join(corpus.root, file)]));
   const targets = new Map<string, ReferenceTarget>([...sources].map(([key, absolute]) => [absolute, { key, label: key, kind: 'markdown' }]));
   const resolve = (file: string, pathname: string): string => pathname.startsWith('/')
     ? path.resolve(corpus.root, '.' + pathname) : path.resolve(path.dirname(sources.get(file)!), pathname);
   let sequence = 0;
-  // Map iteration includes newly discovered Markdown. Targets are registered before parsing their outgoing links.
+  // Initial input pages precede appended references: all direct targets are registered first.
+  // Reference-page links can reuse those targets, but never discover another bundled page.
   for (const [file, doc] of docs) {
     const discovered = new Set<string>();
     transformUrls(doc, (url, image) => {
@@ -62,6 +63,10 @@ export async function bundleReferences(corpus: Corpus, docs: Map<string, ParsedD
     for (const absolute of discovered) {
       if (targets.has(absolute)) continue;
       const label = await displayPath(corpus.root, absolute);
+      if (doc.displayPath !== undefined) {
+        targets.set(absolute, { label, kind: 'unbundled' });
+        continue;
+      }
       let info;
       try { info = await (inside(corpus.root, absolute) ? lstat(absolute) : stat(absolute)); }
       catch (error) {

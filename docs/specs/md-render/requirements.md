@@ -53,7 +53,7 @@ Anchor preservation keeps existing inbound references usable after rendering.
 
 **Condition:** A page links to local Markdown or a fragment.
 
-**Result:** Rewrite rendered Markdown destinations to HTML, preserving query and fragment. Preserve every stacked empty anchor, use the last as its outline destination, retain generated heading targets and reject duplicates or broken targets.
+**Result:** Rewrite rendered Markdown destinations to HTML, preserving query and valid fragments. Preserve every stacked empty anchor, use the last as its outline destination and retain generated heading targets. Reject duplicates and broken targets, except for the retained-reference fragment fallback in [Bundled local references](serving-and-export.md#bundled-local-references).
 
 **Verification:** Follow every stacked anchor and inspect the last-anchor menu destination.
 
@@ -224,7 +224,7 @@ Visible refusal gives the author enough information to repair invalid input.
 
 **Condition:** Metadata, paths, links or homes cannot satisfy the supported input contract.
 
-**Result:** Refuse unknown versions, broken local anchors, missing selected homes and symlinked selected inputs. Report the cause with CLI exit 1 or an API rejection; leave original inputs intact and explain repair through the failure declarations.
+**Result:** Refuse unknown versions, broken local anchors authored in input pages, missing selected homes and symlinked selected inputs. Report the cause with CLI exit 1 or an API rejection; leave original inputs intact and explain repair through the failure declarations.
 
 **Verification:** Inspect each diagnostic and the absence of an announced viewer on refusal.
 
@@ -294,13 +294,13 @@ The standalone document makes the complete reading session portable without sibl
 <a id="req-bundled-references"></a>
 ## Requirement: bundle portable local references
 
-Bundling keeps every rendered page's local destinations usable on another machine.
+Bundling makes the input pages’ direct local references usable on another machine.
 
 **Actor:** md-render.
 
 **Condition:** The caller requests a retained folder or single-file export.
 
-**Result:** Follow [Bundled local references](serving-and-export.md#bundled-local-references): recursively render linked Markdown regardless of inventory kind or root, render UTF-8 text as numbered code pages, and embed binary downloads. Preserve labels and valid fragments. Display portable paths, including local Git commit labels, without absolute input/home paths or original-machine URLs. Warn for missing files and leave their labels as non-link text. Visibly omit linked files above the configured byte limit with their exact size.
+**Result:** Follow [Bundled local references](serving-and-export.md#bundled-local-references): render directly linked Markdown regardless of inventory kind or root, render UTF-8 text as numbered code pages, and embed binary downloads. Mark further local targets as not bundled with portable paths and one warning per target. Preserve labels and valid fragments. Refuse broken fragments in input pages; warn and link to the destination top for broken fragments in bundled references. Display portable paths, including local Git commit labels, without absolute input/home paths or original-machine URLs. Warn for missing files and leave their labels as non-link text. Visibly omit linked files above the configured byte limit with their exact size.
 
 **Verification:** Open both exports through file URLs, navigate chapter and source-line links, compare binary bytes, inspect labels and omission messages.
 

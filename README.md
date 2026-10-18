@@ -54,7 +54,9 @@ raw HTML appears as escaped text. HTML comments and YAML metadata do not appear 
 text. Unsupported executable link schemes fail.
 
 Links between rendered Markdown files become `.html` links with their fragments intact.
-Relative images inside the source root are copied. Retained exports bundle local links recursively and display portable paths.
+Relative images inside the source root are copied. Retained exports bundle local files linked directly from the input pages and display portable paths.
+Further local links in bundled references become plain text marked “not bundled”.
+Broken fragments in bundled references warn and link to the destination top; input-page fragments remain strict.
 The temporary viewer keeps its local-reading behavior: non-Markdown and outside-root links
 open original files with a warning. Browsers may block those original-file links from localhost.
 
