@@ -27,7 +27,9 @@ Press Ctrl+C to close the viewer. Its temporary directory is removed on SIGINT,
 SIGTERM, normal process exit, or startup failure. Closing a browser tab alone does not
 stop the process. SIGKILL and machine failure cannot run cleanup handlers.
 
-`--out` writes a static copy and exits. The destination must be absent or empty, so an
+`--out` writes a static folder plus one self-contained HTML file and exits.
+`--single-file ./guide.html` writes just that file; combine it with `--out` to choose its name.
+Both retained formats open directly from disk on another machine. The destination must be absent or empty, so an
 existing export cannot be overwritten accidentally. Open the printed entry page or serve the directory
 with any static server. An authored `index.md` keeps its own `index.html` page. No remote scripts, fonts, or diagram services are requested.
 
@@ -35,9 +37,11 @@ When `docs/DOCUMENTS.json` exists, its `documents[].sections[]` order controls n
 Files appear once, at their first section. Declared navigation files are included too.
 Inventory entries classified as `other` or `generated`, directories, and unlisted Markdown
 are not added as document pages. A generated file is included when declared as navigation.
-Linked repository Markdown files render as additional pages under the collapsed
-“Referenced files” menu group. Other local file links keep their authored labels, show a
-file icon and original path on hover, and produce warnings. Unknown manifest versions fail with a diagnostic.
+In retained exports, linked Markdown renders under the collapsed “Referenced files” menu group,
+including files outside the input and inventory entries classified as `other`.
+Other UTF-8 text files become numbered source pages; `#L42` and `#L10-L20` links land on the first referenced line.
+Other files become downloads. Files larger than 5 MB are visibly omitted with their size;
+set `--max-linked-file-bytes <bytes>` to change that per-file limit. Missing files warn and keep their labels as non-link text. Unknown manifest versions fail with a diagnostic.
 Without a manifest, `index.md` comes first, followed by all
 Markdown files recursively in lexical path order. Git internals and `node_modules` are
 excluded. A selected `docs` folder uses repository-relative metadata paths.
@@ -50,10 +54,9 @@ raw HTML appears as escaped text. HTML comments and YAML metadata do not appear 
 text. Unsupported executable link schemes fail.
 
 Links between rendered Markdown files become `.html` links with their fragments intact.
-Relative images inside the source root are copied. Local non-Markdown links open the
-original file. References outside the source repository become `file:` links and produce warnings; their original
-files are not copied or validated. Browsers may block opening those links from localhost.
-Their hover title gives the original path.
+Relative images inside the source root are copied. Retained exports bundle local links recursively and display portable paths.
+The temporary viewer keeps its local-reading behavior: non-Markdown and outside-root links
+open original files with a warning. Browsers may block those original-file links from localhost.
 
 Mermaid 12.2.0 is an optional, pinned dependency. When present, an installed Chromium browser renders SVG diagrams at build time and
 retains source in a disclosure. Set `MD_RENDER_BROWSER` to a Chromium executable if it
@@ -73,9 +76,9 @@ offline. Base layout and print styles remain available to every theme.
 ## Package API and checks
 
 ```ts
-import { renderSite, startViewer } from 'md-render';
+import { exportSite, startViewer } from 'md-render';
 
-await renderSite('./spec', './output', { theme: 'default' });
+await exportSite('./spec', { out: './output' }, { theme: 'default' });
 const viewer = await startViewer('./spec');
 console.log(viewer.url);
 await viewer.close();

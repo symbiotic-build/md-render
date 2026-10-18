@@ -13,7 +13,7 @@ Use Node.js 22 or later with the package dependencies already installed.
 SVG diagram builds also need the pinned Mermaid package and an installed Chromium browser; source-only display needs neither.
 
 ```sh
-node dist/cli.js <Markdown-file-or-folder-or-repository> [--out <empty-directory>] [--single-file <path.html>] [--theme <name-or-css-path>]
+node dist/cli.js <Markdown-file-or-folder-or-repository> [--out <empty-directory>] [--single-file <path.html>] [--theme <name-or-css-path>] [--max-linked-file-bytes <bytes>]
 ```
 
 The command accepts exactly one positional input.
@@ -27,7 +27,8 @@ The optional environment variable `MD_RENDER_BROWSER` selects an installed Chrom
 
 The package exports `loadCorpus`, `parseDocument`, `documentHtml`, `renderSite`, `exportSite` and `startViewer` from [src/index.ts](../../../src/index.ts).
 `renderSite(input, output, options)` returns directory, pages, checked local-link count, Mermaid availability and warnings.
-Its options are `theme?: string` and `mermaid?: boolean`.
+Its options include `theme?: string` and `mermaid?: boolean`.
+Retained exports additionally accept the versioned [bundle policy](#bundle-reference).
 `exportSite(input, { out?, singleFile? }, options)` writes the requested exports and returns the rendering summary plus `singleFile` and `bytes`.
 
 `startViewer(input, options)` adds a local URL and asynchronous `close()`.
@@ -269,5 +270,31 @@ This lookup points each failure family to its complete retained-state and recove
 | `Build-time Mermaid needs` | [Content refusal](serving-and-export.md#failure-content-build) |
 | `must be empty` | [Output refusal](serving-and-export.md#failure-output-startup) |
 
-An external local reference is a warning with an original-file URL, not a copied attachment or a validated destination.
+In temporary local-reading mode, an external local reference warns and links to the original file.
+Retained exports instead follow [Bundled local references](serving-and-export.md#bundled-local-references).
 A browser-storage failure is a console warning with a current-page preference, not a build refusal.
+
+<a id="bundle-reference"></a>
+## Bundle policy and source-line fragments
+
+The retained-export policy bounds each additional linked file before reading its bytes.
+It does not cap initially selected documents or the total export size.
+
+| Surface | Field | Default | Valid values |
+|---|---|---|---|
+| API `options.bundle` | `version` | `1` | `1` |
+| API `options.bundle` | `maxFileBytes` | `5000000` | Nonnegative safe integer |
+| CLI | `--max-linked-file-bytes` | API default | Decimal byte count |
+
+The default is 5 MB in decimal bytes. A file exactly at the limit is bundled; a larger file is visibly omitted with its exact size.
+Invalid configuration rejects before output is written.
+The [retained export](serving-and-export.md#bundled-local-references) uses this same policy for both destinations.
+
+Code-page fragments accept `#L42` and `#L10-L20`, with positive decimal line numbers and no leading zeros.
+The ending line must be at least the starting line, and both must exist.
+A range URL resolves to the first line's anchor, such as `#L10`; unsupported or out-of-range fragments reject visibly.
+CRLF and CR normalize to LF; a terminal newline does not create an additional numbered line.
+An empty text file has one empty line.
+
+Other byte sequences become binary downloads; the single file uses `application/octet-stream` for unknown types.
+Generated reference destinations live beneath the reserved `_md-render/references/` output directory and never contain absolute source paths.

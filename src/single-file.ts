@@ -10,8 +10,7 @@ import { escapeHtml, page, pageContent, prepareSite, writeSite, type PreparedSit
 const mimeTypes: Record<string, string> = { '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf' };
 function dataUri(file: string, bytes: Buffer): string {
   const mime = mimeTypes[path.extname(file).toLowerCase()];
-  if (!mime) throw new Error(`Cannot embed unsupported resource: ${file}`);
-  return `data:${mime};base64,${bytes.toString('base64')}`;
+  return `data:${mime ?? 'application/octet-stream'};base64,${bytes.toString('base64')}`;
 }
 
 async function inlineCss(source: string, active = new Set<string>()): Promise<string> {
@@ -77,7 +76,7 @@ async function standalone(site: PreparedSite, options: RenderOptions): Promise<s
         props[key] = url(target, match[2] ? decodeURIComponent(match[2]) : undefined);
       }
     });
-  })));
+  }).then(html => html.replace(/file:/gi, value => value.slice(0, -1) + '&#58;'))));
   const diagrams = await renderDiagrams(bodies, options.mermaid !== false);
   const content = paths.map((file, index) => `<section class="single-page" id="page-${index}" data-title="${escapeHtml(site.docs.get(file)!.title)}">${pageContent(site.corpus, site.docs, file, diagrams.pages[index]!, target => escapeHtml(url(target)))}</section>`).join('\n');
   const theme = options.theme ?? 'symbiotic';
@@ -95,7 +94,7 @@ export interface ExportTargets { out?: string; singleFile?: string }
 export async function exportSite(input: string, targets: ExportTargets, options: RenderOptions = {}) {
   if (!targets.out && !targets.singleFile) throw new Error('An export destination is required');
   if (targets.singleFile && !/\.html$/i.test(targets.singleFile)) throw new Error('Single-file destination must end in .html');
-  const site = await prepareSite(input, options);
+  const site = await prepareSite(input, options, true);
   const singleFile = path.resolve(targets.singleFile ?? path.join(targets.out!, automaticName(site.docs.values().next().value!.title)));
   try {
     await lstat(singleFile);

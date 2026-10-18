@@ -7,7 +7,8 @@ Parsing precedes link validation, so forward links and referenced-page cycles ca
 <a id="content-pipeline"></a>
 ## Parse and resolve
 
-The renderer parses initially selected pages and their direct Markdown references before checking rendered destinations.
+The renderer parses initially selected pages and discovered Markdown references before checking rendered destinations.
+Retained exports use [recursive bundling](serving-and-export.md#bundled-local-references); the [temporary viewer](serving-and-export.md#temporary-viewer) uses the one-hop procedure below.
 A link from Tour back to Writer can therefore resolve before any HTML is written.
 The [source corpus](selecting-sources.md#source-corpus) provides initial files; each additional referenced page is parsed once.
 
@@ -18,7 +19,7 @@ The [source corpus](selecting-sources.md#source-corpus) provides initial files; 
 2. **Discover repository Markdown links:** inspect only initially selected pages, including reference-style links, and add their direct Markdown targets once.
    If selected A links to B and B links to C, render A and B; C remains an original-file link unless another initially selected page links to C directly.
 3. **Resolve definitions and validate targets:** read selected entity meanings and check manifest anchors and fragments for rendered destinations.
-   A missing target or anchor refuses the build.
+   A broken rendered anchor refuses the build. Missing files in retained exports warn and become non-link text.
 4. **Serialize sanitized bodies:** rewrite URLs, copy referenced images and wrap wide tables.
    HTML comments and YAML metadata disappear from body text.
 5. **Render diagrams:** replace supported source figures with static SVG before page files are written.
@@ -53,12 +54,12 @@ An anchor paragraph containing `<br>` retains both targets but uses only the fir
 A block containing `<div>` instead has no extracted anchor targets.
 The [anchor examples](reference.md#anchor-reference) show these exact inputs and results.
 
-Linked Markdown inside the repository joins a separate Referenced files group.
+In temporary local-reading mode, linked Markdown inside the repository joins a separate Referenced files group.
 The group starts collapsed unless the current page belongs to it.
 Discovery stops after one hop from initially selected pages. Referenced entries show one title and path each, with no section list. Links from a reference to any already rendered page still use HTML; further-out links use the original-file treatment below.
 These pages do not alter previous/next links for the initial reading order.
 
-Non-Markdown local links retain their labels and become `file:` URLs to the original location.
+In temporary local-reading mode, non-Markdown local links retain their labels and become `file:` URLs to the original location.
 A file icon and path hover distinguish them; each produces a warning.
 Files outside the source root receive the same treatment, including outside Markdown references.
 Those originals are neither copied nor validated; browsers may block opening them from localhost.

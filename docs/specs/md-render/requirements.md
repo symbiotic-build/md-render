@@ -72,7 +72,7 @@ Reference discovery lets readers follow supporting files without changing the ma
 
 **Condition:** A selected page links to repository Markdown or a non-Markdown local file.
 
-**Result:** Render only repository Markdown linked directly from initially selected document pages. Deduplicate these references and list each once by title, without sections. Further-out Markdown links from referenced pages use the original-file treatment: keep labels, add a file icon and original-path hover, warn and link to originals without reading or copying them. Apply the same original-file treatment to non-Markdown links.
+**Result:** In temporary local-reading mode, render only repository Markdown linked directly from initially selected document pages. Deduplicate these references and list each once by title, without sections. Further-out Markdown links from referenced pages use the original-file treatment: keep labels, add a file icon and original-path hover, warn and link to originals without reading or copying them. Apply the same original-file treatment to non-Markdown links.
 
 **Verification:** Inspect one-hop selection, title-only reference entries, warning list and original-file hovers.
 
@@ -290,3 +290,22 @@ The standalone document makes the complete reading session portable without sibl
 **Status:** task-settled behavior; naming and routing details proposed for lead acceptance.
 
 **Basis:** [Single-file export](serving-and-export.md#single-file-export).
+
+<a id="req-bundled-references"></a>
+## Requirement: bundle portable local references
+
+Bundling keeps every rendered page's local destinations usable on another machine.
+
+**Actor:** md-render.
+
+**Condition:** The caller requests a retained folder or single-file export.
+
+**Result:** Follow [Bundled local references](serving-and-export.md#bundled-local-references): recursively render linked Markdown regardless of inventory kind or root, render UTF-8 text as numbered code pages, and embed binary downloads. Preserve labels and valid fragments. Display portable paths, including local Git commit labels, without absolute input/home paths or original-machine URLs. Warn for missing files and leave their labels as non-link text. Visibly omit linked files above the configured byte limit with their exact size.
+
+**Verification:** Open both exports through file URLs, navigate chapter and source-line links, compare binary bytes, inspect labels and omission messages.
+
+**Tests:** [Portable references](acceptance.md#test-bundled-references), [Bundle omissions](acceptance.md#test-bundle-omissions).
+
+**Status:** operator-settled bundling; line-fragment and policy details proposed for lead acceptance.
+
+**Basis:** [Bundle local files for sharing](decisions-and-questions.md#bundle-local-files-choice).

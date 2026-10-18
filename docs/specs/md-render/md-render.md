@@ -63,6 +63,7 @@ Use this map to choose the next explanation to read.
   - [Temporary viewer](serving-and-export.md#temporary-viewer)
   - [Static export](serving-and-export.md#static-export)
   - [Single-file export](serving-and-export.md#single-file-export)
+  - [Bundled local references](serving-and-export.md#bundled-local-references)
   - [Failure state: source input refused](serving-and-export.md#failure-source-input)
   - [Failure state: unresolved definition](serving-and-export.md#failure-definition)
   - [Failure state: content build refused](serving-and-export.md#failure-content-build)
@@ -83,12 +84,14 @@ Use this map to choose the next explanation to read.
   - [Requirement: retain static output without overwriting existing content](requirements.md#req-static-export)
   - [Requirement: change rendered pages without a full load](requirements.md#req-instant-navigation)
   - [Requirement: export one self-contained document](requirements.md#req-single-file-export)
+  - [Requirement: bundle portable local references](requirements.md#req-bundled-references)
 - [Decisions and questions](decisions-and-questions.md#decisions-and-questions) — Review settled scope decisions and remaining implementation gaps.
   - [Rebuild from local sources](decisions-and-questions.md#derived-output-choice)
   - [Keep one reading menu](decisions-and-questions.md#navigation-choice)
   - [Execute TypeScript acceptance evidence](decisions-and-questions.md#evidence-choice)
   - [Qualify later duplicate chapter labels](decisions-and-questions.md#title-label-proposal)
   - [Settled scope decisions](decisions-and-questions.md#scope-decisions)
+  - [Bundle local files for sharing](decisions-and-questions.md#bundle-local-files-choice)
   - [Open questions and implementation evidence](decisions-and-questions.md#open-questions)
 - [Reference](reference.md#reference) — Look up command arguments, metadata fields and implementation entry points.
   - [Command and API](reference.md#command-reference)
@@ -97,6 +100,7 @@ Use this map to choose the next explanation to read.
   - [Anchor and navigation markers](reference.md#anchor-reference)
   - [State and output lookup](reference.md#state-reference)
   - [Diagnostics and recovery lookup](reference.md#diagnostic-reference)
+  - [Bundle policy and source-line fragments](reference.md#bundle-reference)
 - [Acceptance](acceptance.md#acceptance) — Run linked tests and inspect behavior without automated coverage.
   - [Input and rendering evidence](acceptance.md#input-evidence)
   - [Reading controls evidence](acceptance.md#display-evidence)
@@ -107,6 +111,8 @@ Use this map to choose the next explanation to read.
   - [Acceptance test: viewer caching](acceptance.md#test-viewer-caching)
   - [Acceptance test: single-file output](acceptance.md#test-single-file-output)
   - [Acceptance test: single-file reading](acceptance.md#test-single-file-reading)
+  - [Acceptance test: portable references](acceptance.md#test-bundled-references)
+  - [Acceptance test: bundle omissions](acceptance.md#test-bundle-omissions)
 
 ## Entity index
 

@@ -124,6 +124,22 @@ Each answer defines scope; an implementation gap does not reopen the decision.
 
 **Rejected alternatives:** Checking ancestors above the source root broadens the settled boundary. Checking only the final filename misses symlinked parent directories inside it.
 
+<a id="bundle-local-files-choice"></a>
+## Bundle local files for sharing
+
+**Choice:** Bundle every local file linked by a rendered page in both retained export formats, including Markdown outside the input root.
+
+**Authority:** Operator decision, 2026-10-18: “no they should get bundled in”. This supersedes original-file links in retained exports.
+
+**Reason:** An export must work on another machine. Machine-local destinations do not satisfy that purpose.
+The [bundling procedure](serving-and-export.md#bundled-local-references) defines portable destinations and visible exceptions.
+
+**Rejected alternatives:** Retaining original-file URLs requires the author's filesystem. Dropping local links loses requested material.
+
+**Implementation proposal:** Discover references recursively, render text with line numbers, and use a versioned per-file byte limit.
+Keep the viewer's existing local-reading behavior and expose portable retained output through `exportSite`.
+The [reference](reference.md#bundle-reference) defines the configurable bound and accepted line-fragment forms for lead acceptance.
+
 <a id="open-questions"></a>
 ## Open questions and implementation evidence
 

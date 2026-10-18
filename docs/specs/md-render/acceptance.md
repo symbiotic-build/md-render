@@ -93,7 +93,7 @@ Selected Vitest names:
 <a id="test-reference-pages"></a>
 ### Acceptance test: referenced files
 
-This case checks referenced-page discovery and the original-file treatment of native sources.
+This case checks temporary local-reading discovery and the original-file treatment of native sources.
 
 Selected Vitest names:
 
@@ -435,7 +435,7 @@ This case checks export destinations, embedded resources and existing-target pre
 
 **Inputs:** Two pages, images, themes, explicit and automatic destinations, and existing output.
 
-**Expected:** Standalone mode writes only one HTML file; combined modes retain folder output. All resources are embedded, authored external and original-file links retain their behavior, and existing targets are unchanged.
+**Expected:** Standalone mode writes only one HTML file; combined modes retain folder output. All resources are embedded, authored external links retain their behavior and local text links resolve internally, and existing targets are unchanged.
 
 **Implementation:** [test/single-file.test.ts::writes only the standalone file and reports its byte size](../../../test/single-file.test.ts), [test/single-file.test.ts::adds the named file to folder output and supports an explicit combined target](../../../test/single-file.test.ts), [test/single-file.test.ts::refuses existing single-file targets without changing them](../../../test/single-file.test.ts), [test/single-file.test.ts::embeds resources and preserves authored link behavior](../../../test/single-file.test.ts), [test/single-file.test.ts::preserves rendered diagrams and readable offline source in single files](../../../test/single-file.test.ts), [test/single-file.test.ts::refuses a single-file destination that collides with a folder page](../../../test/single-file.test.ts)
 
@@ -453,3 +453,33 @@ This case checks the portable document through the real browser fixture.
 **Expected:** Menu and previous/next change the visible page, cross-page fragments land on their heading, identifiers remain unique, themes work and browser find can reveal inactive content. No viewing resource references leave the file.
 
 **Implementation:** [test/single-file.test.ts::reads and navigates the standalone document through file URLs](../../../test/single-file.test.ts)
+
+<a id="test-bundled-references"></a>
+## Acceptance test: portable references
+
+This case follows portable chapter, source and binary destinations through the real browser fixture.
+
+**Method:** test.
+
+**Requirements:** [Bundle portable local references](requirements.md#req-bundled-references).
+
+**Inputs:** External Markdown with another linked chapter and a cycle, inventory-classified other Markdown, a Git source file with line fragments, UTF-8 text and binary bytes.
+
+**Expected:** Both retained formats opened through file URLs resolve chapter and line destinations internally, expose matching binary bytes, and show portable Git labels. No absolute input/home paths or original-machine URLs appear in output. Referenced pages appear once under Referenced files.
+
+**Implementation:** [test/bundled-files.test.ts::bundles Chapter links for both file URL exports](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::bundles Source links for both file URL exports](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::bundles Range links for both file URL exports](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::bundles Binary links for both file URL exports](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::keeps recursive and inventory references portable without machine paths](../../../test/bundled-files.test.ts)
+
+<a id="test-bundle-omissions"></a>
+## Acceptance test: bundle omissions
+
+This case checks explicit exceptions to bundling without broken local links.
+
+**Method:** test.
+
+**Requirements:** [Bundle portable local references](requirements.md#req-bundled-references).
+
+**Inputs:** A missing file, linked files at and above a configured byte limit, invalid policy or source-line fragments, and an in-root symlink.
+
+**Expected:** Missing labels remain non-link text with warnings. Oversized files visibly show omission and size; files at the limit are bundled. Invalid policy, line destinations and in-root symlinks reject visibly.
+
+**Implementation:** [test/bundled-files.test.ts::lists oversized files and missing labels visibly without local URLs](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::rejects invalid bundle policies](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::rejects unsupported source line fragments](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::refuses linked symlinks inside the input root](../../../test/bundled-files.test.ts)

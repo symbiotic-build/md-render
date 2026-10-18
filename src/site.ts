@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadCorpus, readSource, within, type Corpus } from './corpus.js';
+import { bundleReferences } from './references.js';
 import { renderDiagrams } from './diagrams.js';
 import { documentHtml, documentOutline, parseDocument, transformUrls, type OutlineEntry, type ParsedDocument } from './markdown.js';
 
@@ -11,6 +12,8 @@ const assets = '_md-render';
 export interface RenderOptions {
   theme?: string;
   mermaid?: boolean;
+  /** Versioned retained-export policy for additional linked files, in bytes. */
+  bundle?: { version: 1; maxFileBytes?: number };
   /** Versioned session policy; bounds HTML requests and HTTP asset freshness. */
   navigation?: { version: 1; cachePages?: number; assetMaxAgeSeconds?: number };
 }
@@ -75,7 +78,7 @@ export function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: st
     const outline = outlineHtml(entries, chapter);
     const id = `chapter-sections-${chapterId++}`;
     const current = chapter === file;
-    return `<li><div class="chapter-row">${outline ? `<button class="chapter-toggle" type="button" aria-label="Toggle ${title}" aria-expanded="${current}" aria-controls="${id}"><span aria-hidden="true">›</span></button>` : ''}<a href="${escapeHtml(target)}"${current ? ' aria-current="page"' : ''}>${title}${referenced ? `<small class="reference-path">${escapeHtml(chapter)}</small>` : ''}</a></div>${outline ? `<div id="${id}"${current ? '' : ' hidden'}>${outline}</div>` : ''}</li>`;
+    return `<li><div class="chapter-row">${outline ? `<button class="chapter-toggle" type="button" aria-label="Toggle ${title}" aria-expanded="${current}" aria-controls="${id}"><span aria-hidden="true">›</span></button>` : ''}<a href="${escapeHtml(target)}"${current ? ' aria-current="page"' : ''}>${title}${referenced ? `<small class="reference-path">${escapeHtml(chapterDoc.displayPath ?? chapter)}</small>` : ''}</a></div>${outline ? `<div id="${id}"${current ? '' : ' hidden'}>${outline}</div>` : ''}</li>`;
   }).join('');
   const references = [...docs.keys()].filter((chapter) => !corpus.files.some((source) => source.path === chapter));
   let sidebar = corpus.documents.filter((group) => group.paths.length).map((group) => {
@@ -120,7 +123,7 @@ export function pageContent(corpus: Corpus, docs: Map<string, ParsedDocument>, f
     const source = index < 0 ? undefined : corpus.files[index + offset];
     return source ? `<a href="${href(pagePath(source.path))}"><small>${label}</small>${escapeHtml(docs.get(source.path)!.title)}</a>` : '<span></span>';
   };
-  return `<header class="page-meta"><span>${escapeHtml(file)}</span><span>${index < 0 ? 'Referenced file' : `${index + 1} / ${corpus.files.length}`}</span></header><article class="sd-doc">${body}</article><nav class="adjacent" aria-label="Reading order">${adjacent(-1, 'Previous')}${adjacent(1, 'Next')}</nav>`;
+  return `<header class="page-meta"><span>${escapeHtml(docs.get(file)!.displayPath ?? file)}</span><span>${index < 0 ? 'Referenced file' : `${index + 1} / ${corpus.files.length}`}</span></header><article class="sd-doc">${body}</article><nav class="adjacent" aria-label="Reading order">${adjacent(-1, 'Previous')}${adjacent(1, 'Next')}</nav>`;
 }
 
 /** Validated rendering snapshot shared by retained export formats. */
@@ -138,7 +141,11 @@ export interface PreparedSite {
 }
 
 /** Renders every source before writing pages. Links resolve against the same parsed snapshot. */
-export async function prepareSite(input: string, options: RenderOptions = {}): Promise<PreparedSite> {
+export async function prepareSite(input: string, options: RenderOptions = {}, bundle = false): Promise<PreparedSite> {
+  const maxFileBytes = options.bundle?.maxFileBytes ?? 5_000_000;
+  if (options.bundle && options.bundle.version !== 1 || !Number.isSafeInteger(maxFileBytes) || maxFileBytes < 0) {
+    throw new Error('Invalid version-1 bundle configuration');
+  }
   const navigation = options.navigation;
   const cachePages = navigation?.cachePages ?? 6;
   const assetMaxAgeSeconds = navigation?.assetMaxAgeSeconds ?? 3600;
@@ -152,8 +159,10 @@ export async function prepareSite(input: string, options: RenderOptions = {}): P
   const logo = await themeAssets(files, options.theme ?? 'symbiotic');
   const themeInit = await readFile(fileURLToPath(new URL('../themes/theme-init.js', import.meta.url)), 'utf8');
   const docs = new Map(corpus.files.map((file) => [file.path, parseDocument(file.markdown, 'Untitled chapter')]));
+  if (corpus.files.some(file => file.path === assets || file.path.startsWith(assets + '/'))) throw new Error('Input uses reserved directory: ' + assets);
+  const references = bundle ? await bundleReferences(corpus, docs, files, maxFileBytes) : undefined;
   // Only initial documents discover references. Parse all direct targets before URL validation.
-  for (const { path: file } of corpus.files) {
+  for (const { path: file } of references ? [] : corpus.files) {
     const doc = docs.get(file)!;
     const targets = new Set<string>();
     transformUrls(doc, (url, image) => {
@@ -205,6 +214,34 @@ export async function prepareSite(input: string, options: RenderOptions = {}): P
       if (target === 'index.html' || [...docs.keys()].some((source) => pagePath(source) === target)) {
         throw new Error(`Attachment collides with rendered page: ${target}`);
       }
+      if (!image && references) {
+        const reference = references.target(file, pathname);
+        if (reference.kind === 'missing') {
+          warnings.push(`${doc.displayPath ?? file}: external local reference ${reference.label}; missing file`);
+          return { url: '', remove: true };
+        }
+        if (reference.kind === 'directory') {
+          warnings.push(`${doc.displayPath ?? file}: external local reference ${reference.label}; directory not bundled`);
+          return { url: '', remove: true, suffix: ' (directory not bundled)' };
+        }
+        if (reference.kind === 'omitted') {
+          warnings.push(`${doc.displayPath ?? file}: ${reference.label} omitted: ${reference.size} bytes`);
+          return { url: '', remove: true, suffix: ` (omitted: ${reference.size} bytes)` };
+        }
+        if (reference.kind === 'binary') return { url: relativeUrl(file, reference.key!) + query + fragment, title: reference.label, download: path.basename(reference.key!) };
+        const destination = docs.get(reference.key!)!;
+        let id = decodeURIComponent(fragment.slice(1));
+        if (id && reference.kind === 'text') {
+          const line = /^L([1-9][0-9]*)(?:-L([1-9][0-9]*))?$/.exec(id);
+          if (!line || Number(line[1]) > destination.sourceLines! || line[2] && (Number(line[2]) < Number(line[1]) || Number(line[2]) > destination.sourceLines!)) {
+            throw new Error(`Invalid source line fragment: ${reference.label}#${id}`);
+          }
+          id = `L${line[1]}`;
+        }
+        if (id && !destination.anchors.has(id)) throw new Error(`Missing anchor: ${doc.displayPath ?? file} -> ${reference.label}#${id}`);
+        links++;
+        return { url: (pathname ? relativeUrl(file, pagePath(reference.key!)) : '') + query + (id ? '#' + encodeURIComponent(id) : ''), title: meanings.get(`${reference.key}#${id}`) ?? reference.label };
+      }
       if (!image && (outside || pathname && !docs.has(target))) {
         const message = `${file}: external local reference ${url}; ${outside ? 'outside selected input' : 'not a rendered document'}, open the original file`;
         warnings.push(message);
@@ -229,7 +266,10 @@ export async function prepareSite(input: string, options: RenderOptions = {}): P
     const bytes = await readSource(corpus.root, file);
     files.set(file, bytes);
   }
-  const bodies = await Promise.all([...docs.values()].map(doc => documentHtml(doc)));
+  const bodies = await Promise.all([...docs.values()].map(async doc => {
+    const html = await documentHtml(doc);
+    return bundle ? html.replace(/file:/gi, value => value.slice(0, -1) + '&#58;') : html;
+  }));
   const diagrams = await renderDiagrams(bodies, options.mermaid !== false);
   return { corpus, docs, bodies: diagrams.pages, files, logo, themeInit, cachePages, links, mermaid: diagrams.available, warnings };
 }
@@ -247,7 +287,7 @@ export async function writeSite(site: PreparedSite, output: string): Promise<Ren
   }
   const pages: string[] = [];
   for (const [index, file] of [...docs.keys()].entries()) {
-    if (file.startsWith(`${assets}/`)) throw new Error(`Input uses reserved directory: ${file}`);
+    if (file.startsWith(`${assets}/`) && !docs.get(file)!.displayPath) throw new Error(`Input uses reserved directory: ${file}`);
     const target = within(directory, pagePath(file));
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, page(corpus, docs, file, bodies[index]!, logo, themeInit, cachePages));
