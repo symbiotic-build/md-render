@@ -423,3 +423,33 @@ This case checks the page-change contract through executable behavior.
 **Expected:** HTML uses no-cache; assets use the configured max-age, defaulting to 3600 seconds.
 
 **Implementation:** [test/server.test.ts::revalidates HTML and caches session assets](../../../test/server.test.ts)
+
+<a id="test-single-file-output"></a>
+## Acceptance test: single-file output
+
+This case checks export destinations, embedded resources and existing-target preservation.
+
+**Method:** test.
+
+**Requirements:** [Export one self-contained document](requirements.md#req-single-file-export).
+
+**Inputs:** Two pages, images, themes, explicit and automatic destinations, and existing output.
+
+**Expected:** Standalone mode writes only one HTML file; combined modes retain folder output. All resources are embedded, authored external and original-file links retain their behavior, and existing targets are unchanged.
+
+**Implementation:** [test/single-file.test.ts::writes only the standalone file and reports its byte size](../../../test/single-file.test.ts), [test/single-file.test.ts::adds the named file to folder output and supports an explicit combined target](../../../test/single-file.test.ts), [test/single-file.test.ts::refuses existing single-file targets without changing them](../../../test/single-file.test.ts), [test/single-file.test.ts::embeds resources and preserves authored link behavior](../../../test/single-file.test.ts), [test/single-file.test.ts::preserves rendered diagrams and readable offline source in single files](../../../test/single-file.test.ts), [test/single-file.test.ts::refuses a single-file destination that collides with a folder page](../../../test/single-file.test.ts)
+
+<a id="test-single-file-reading"></a>
+## Acceptance test: single-file reading
+
+This case checks the portable document through the real browser fixture.
+
+**Method:** test.
+
+**Requirements:** [Export one self-contained document](requirements.md#req-single-file-export).
+
+**Inputs:** A file URL containing two pages with the same heading and a cross-page fragment link.
+
+**Expected:** Menu and previous/next change the visible page, cross-page fragments land on their heading, identifiers remain unique, themes work and browser find can reveal inactive content. No viewing resource references leave the file.
+
+**Implementation:** [test/single-file.test.ts::reads and navigates the standalone document through file URLs](../../../test/single-file.test.ts)

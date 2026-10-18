@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { cp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadCorpus, readSource, within, type Corpus } from './corpus.js';
@@ -27,11 +27,11 @@ function relativeUrl(from: string, to: string): string {
   return urlPath(path.posix.relative(path.posix.dirname(pagePath(from)), to));
 }
 
-async function themeAssets(directory: string, theme: string): Promise<string | undefined> {
+async function themeAssets(files: Map<string, Buffer>, theme: string): Promise<string | undefined> {
   const builtIn = theme === 'default' || theme === 'symbiotic';
   const source = builtIn ? fileURLToPath(new URL(`../themes/${theme}.css`, import.meta.url)) : path.resolve(theme);
   const css = await readFile(source, 'utf8');
-  await writeFile(path.join(directory, assets, 'theme.css'), css);
+  files.set(`${assets}/theme.css`, Buffer.from(css));
   // A theme's optional logo sits beside its CSS: example.css + example.logo.svg/png/webp.
   let logo: string | undefined;
   for (const extension of ['svg', 'png', 'webp']) {
@@ -39,7 +39,7 @@ async function themeAssets(directory: string, theme: string): Promise<string | u
     try {
       const bytes = await readFile(name);
       if (logo) throw new Error(`Theme has more than one logo: ${source}`);
-      await writeFile(path.join(directory, assets, `logo.${extension}`), bytes);
+      files.set(`${assets}/logo.${extension}`, bytes);
       logo = `logo.${extension}`;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -48,18 +48,19 @@ async function themeAssets(directory: string, theme: string): Promise<string | u
   return logo;
 }
 
-function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, body: string, logo: string | undefined, themeInit: string, cachePages: number): string {
+/** Builds the shared reading shell with either external or embedded resources. */
+export function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, body: string, logo: string | undefined, themeInit: string, cachePages: number, single?: SinglePage): string {
   const doc = docs.get(file)!;
-  const href = (target: string): string => escapeHtml(relativeUrl(file, target));
+  const href = (target: string): string => escapeHtml(single ? single.url(target) : relativeUrl(file, target));
   // Compare titles in menu order, including section links and group headings.
   let previousTitle: string | undefined;
   const outlineHtml = (entries: OutlineEntry[], chapter: string): string => entries.length ? `<ol>${entries.map((entry) => {
     previousTitle = entry.title;
-    return `<li><a href="${chapter === file ? '' : escapeHtml(relativeUrl(file, pagePath(chapter)))}#${encodeURIComponent(entry.id)}">${escapeHtml(entry.title)}</a>${outlineHtml(entry.children, chapter)}</li>`;
+    return `<li><a href="${single ? escapeHtml(single.url(pagePath(chapter), entry.id)) : `${chapter === file ? '' : escapeHtml(relativeUrl(file, pagePath(chapter)))}#${encodeURIComponent(entry.id)}`}">${escapeHtml(entry.title)}</a>${outlineHtml(entry.children, chapter)}</li>`;
   }).join('')}</ol>` : '';
   let chapterId = 0;
   const chapters = (paths: string[], groupTitle?: string, referenced = false): string => paths.map((chapter, index) => {
-    const target = relativeUrl(file, pagePath(chapter));
+    const target = single ? single.url(pagePath(chapter)) : relativeUrl(file, pagePath(chapter));
     const chapterDoc = docs.get(chapter)!;
     let label = paths.length === 1 && groupTitle ? groupTitle : chapterDoc.title;
     if (paths.length > 1 && index === 0 && label === groupTitle) {
@@ -86,16 +87,11 @@ function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, b
     previousTitle = 'Referenced files';
     sidebar += `<details class="document-group referenced"${references.includes(file) ? ' open' : ''}><summary>Referenced files</summary><ol>${chapters(references, undefined, true)}</ol></details>`;
   }
-  const index = corpus.files.findIndex((source) => source.path === file);
-  const adjacent = (offset: number, label: string): string => {
-    const source = index < 0 ? undefined : corpus.files[index + offset];
-    return source ? `<a href="${href(pagePath(source.path))}"><small>${label}</small>${escapeHtml(docs.get(source.path)!.title)}</a>` : '<span></span>';
-  };
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'sha256-${createHash('sha256').update(themeInit).digest('base64')}'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="${single ? single.policy : `default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'sha256-${createHash('sha256').update(themeInit).digest('base64')}'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'`}">
 <meta name="md-render-navigation" content="${escapeHtml(JSON.stringify({ version: 1, cachePages }))}">
-<script>${themeInit}</script><title>${escapeHtml(doc.title)}</title><link rel="stylesheet" href="${href(`${assets}/base.css`)}"><link rel="stylesheet" href="${href(`${assets}/theme.css`)}"></head>
+<script>${themeInit}</script><title>${escapeHtml(doc.title)}</title>${single ? `<style>${single.styles}</style>` : `<link rel="stylesheet" href="${href(`${assets}/base.css`)}"><link rel="stylesheet" href="${href(`${assets}/theme.css`)}">`}</head>
 <body><a class="skip-link" href="#md-render-content">Skip to document</a>
 <header class="menu-bar"><button id="menu-button" type="button" aria-expanded="true" aria-controls="document-menu">Menu</button><a class="site-title" href="${href(pagePath(corpus.files[0]!.path))}">${logo ? `<img src="${href(`${assets}/${logo}`)}" alt="Theme logo">` : ''}<span>Documentation</span></a></header>
 <aside class="sidebar" id="document-menu" aria-label="Documentation menu"><button id="menu-close" type="button">Close menu</button><nav aria-label="Document map">${sidebar}</nav><div class="theme-switch" role="group" aria-label="Appearance">${[
@@ -103,13 +99,46 @@ function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, b
   ['system', 'System', '<rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path>'],
   ['dark', 'Dark', '<path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"></path>'],
 ].map(([value, label, icon]) => `<button type="button" value="${value}" aria-label="${label}" title="${label}" aria-pressed="${value === 'system'}"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg></button>`).join('')}</div></aside>
-<main id="md-render-content"><header class="page-meta"><span>${escapeHtml(file)}</span><span>${index < 0 ? 'Referenced file' : `${index + 1} / ${corpus.files.length}`}</span></header><article class="sd-doc">${body}</article><nav class="adjacent" aria-label="Reading order">${adjacent(-1, 'Previous')}${adjacent(1, 'Next')}</nav></main>
-<script src="${href(`${assets}/navigation.js`)}" defer></script>
+<main id="md-render-content">${single ? single.content : pageContent(corpus, docs, file, body, href)}</main>
+${single ? `<script>${single.script}</script>` : `<script src="${href(`${assets}/navigation.js`)}" defer></script>`}
 </body></html>`;
 }
 
+/** Page shell inputs for an embedded export; all resources are already resolved. */
+export interface SinglePage {
+  url(target: string, fragment?: string): string;
+  content: string;
+  styles: string;
+  script: string;
+  policy: string;
+}
+
+/** Shared page metadata, article and reading-order controls. */
+export function pageContent(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, body: string, href: (target: string) => string): string {
+  const index = corpus.files.findIndex((source) => source.path === file);
+  const adjacent = (offset: number, label: string): string => {
+    const source = index < 0 ? undefined : corpus.files[index + offset];
+    return source ? `<a href="${href(pagePath(source.path))}"><small>${label}</small>${escapeHtml(docs.get(source.path)!.title)}</a>` : '<span></span>';
+  };
+  return `<header class="page-meta"><span>${escapeHtml(file)}</span><span>${index < 0 ? 'Referenced file' : `${index + 1} / ${corpus.files.length}`}</span></header><article class="sd-doc">${body}</article><nav class="adjacent" aria-label="Reading order">${adjacent(-1, 'Previous')}${adjacent(1, 'Next')}</nav>`;
+}
+
+/** Validated rendering snapshot shared by retained export formats. */
+export interface PreparedSite {
+  corpus: Corpus;
+  docs: Map<string, ParsedDocument>;
+  bodies: string[];
+  files: Map<string, Buffer>;
+  logo: string | undefined;
+  themeInit: string;
+  cachePages: number;
+  links: number;
+  mermaid: boolean;
+  warnings: string[];
+}
+
 /** Renders every source before writing pages. Links resolve against the same parsed snapshot. */
-export async function renderSite(input: string, output: string, options: RenderOptions = {}): Promise<RenderResult> {
+export async function prepareSite(input: string, options: RenderOptions = {}): Promise<PreparedSite> {
   const navigation = options.navigation;
   const cachePages = navigation?.cachePages ?? 6;
   const assetMaxAgeSeconds = navigation?.assetMaxAgeSeconds ?? 3600;
@@ -118,13 +147,9 @@ export async function renderSite(input: string, output: string, options: RenderO
     throw new Error('Invalid version-1 navigation configuration');
   }
   const corpus = await loadCorpus(input);
-  const directory = path.resolve(output);
-  await mkdir(directory, { recursive: true });
-  if ((await readdir(directory)).length) throw new Error(`Output directory must be empty: ${directory}`);
-  await mkdir(path.join(directory, assets));
-  await cp(fileURLToPath(new URL('../themes/base.css', import.meta.url)), path.join(directory, assets, 'base.css'));
-  await cp(fileURLToPath(new URL('../themes/navigation.js', import.meta.url)), path.join(directory, assets, 'navigation.js'));
-  const logo = await themeAssets(directory, options.theme ?? 'symbiotic');
+  const files = new Map<string, Buffer>();
+  for (const name of ['base.css', 'navigation.js']) files.set(`${assets}/${name}`, await readFile(fileURLToPath(new URL(`../themes/${name}`, import.meta.url))));
+  const logo = await themeAssets(files, options.theme ?? 'symbiotic');
   const themeInit = await readFile(fileURLToPath(new URL('../themes/theme-init.js', import.meta.url)), 'utf8');
   const docs = new Map(corpus.files.map((file) => [file.path, parseDocument(file.markdown, 'Untitled chapter')]));
   // Only initial documents discover references. Parse all direct targets before URL validation.
@@ -202,19 +227,30 @@ export async function renderSite(input: string, output: string, options: RenderO
   }
   for (const file of copiedAssets) {
     const bytes = await readSource(corpus.root, file);
+    files.set(file, bytes);
+  }
+  const bodies = await Promise.all([...docs.values()].map(doc => documentHtml(doc)));
+  const diagrams = await renderDiagrams(bodies, options.mermaid !== false);
+  return { corpus, docs, bodies: diagrams.pages, files, logo, themeInit, cachePages, links, mermaid: diagrams.available, warnings };
+}
+
+/** Writes the existing folder layout from one validated snapshot. */
+export async function writeSite(site: PreparedSite, output: string): Promise<RenderResult> {
+  const { corpus, docs, bodies, files, logo, themeInit, cachePages, links, mermaid, warnings } = site;
+  const directory = path.resolve(output);
+  await mkdir(directory, { recursive: true });
+  if ((await readdir(directory)).length) throw new Error(`Output directory must be empty: ${directory}`);
+  for (const [file, bytes] of files) {
     const target = within(directory, file);
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, bytes);
   }
-  const bodies = await Promise.all([...docs.values()].map(documentHtml));
-  const diagrams = await renderDiagrams(bodies, options.mermaid !== false);
-  const mermaid = diagrams.available;
   const pages: string[] = [];
   for (const [index, file] of [...docs.keys()].entries()) {
     if (file.startsWith(`${assets}/`)) throw new Error(`Input uses reserved directory: ${file}`);
     const target = within(directory, pagePath(file));
     await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, page(corpus, docs, file, diagrams.pages[index]!, logo, themeInit, cachePages));
+    await writeFile(target, page(corpus, docs, file, bodies[index]!, logo, themeInit, cachePages));
     pages.push(pagePath(file));
   }
   if (!pages.includes('index.html')) {
@@ -222,4 +258,9 @@ export async function renderSite(input: string, output: string, options: RenderO
     await writeFile(path.join(directory, 'index.html'), `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${first}"><title>Documentation</title><a href="${first}">Open documentation</a>`);
   }
   return { directory, pages, links, mermaid, warnings };
+}
+
+/** Renders a folder export; temporary viewers use this same folder-only API. */
+export async function renderSite(input: string, output: string, options: RenderOptions = {}): Promise<RenderResult> {
+  return writeSite(await prepareSite(input, options), output);
 }

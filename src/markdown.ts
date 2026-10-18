@@ -221,7 +221,7 @@ export function transformUrls(doc: ParsedDocument, transform: (url: string, imag
 }
 
 /** Produces sanitized HTML; table wrappers make wide fact tables keyboard-scrollable. */
-export async function documentHtml(doc: ParsedDocument): Promise<string> {
+export async function documentHtml(doc: ParsedDocument, transform?: (tree: HtmlRoot) => void): Promise<string> {
   const tree = await writer.run(doc.tree) as HtmlRoot;
   visit(tree, 'element', (node, index, parent) => {
     if (node.tagName === 'table' && parent && index !== undefined) {
@@ -231,5 +231,6 @@ export async function documentHtml(doc: ParsedDocument): Promise<string> {
       return SKIP;
     }
   });
+  transform?.(tree);
   return writer.stringify(tree);
 }

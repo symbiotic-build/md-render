@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
-import { renderSite } from './site.js';
+import { exportSite } from './single-file.js';
 import { startViewer } from './server.js';
 
 try {
   const { values, positionals } = parseArgs({ allowPositionals: true, options: {
-    out: { type: 'string' }, theme: { type: 'string', default: 'symbiotic' }, help: { type: 'boolean', short: 'h' },
+    out: { type: 'string' }, 'single-file': { type: 'string' }, theme: { type: 'string', default: 'symbiotic' }, help: { type: 'boolean', short: 'h' },
   } });
   if (values.help) {
-    console.log('Usage: md-render <Markdown file|folder|repository> [--out <empty directory>] [--theme <default|symbiotic|path.css>]');
+    console.log('Usage: md-render <Markdown file|folder|repository> [--out <empty directory>] [--single-file <path.html>] [--theme <default|symbiotic|path.css>]');
   } else {
     if (positionals.length !== 1) throw new Error('Usage: md-render <path> [--out <dir>] [--theme <name|path>]');
     const input = positionals[0]!;
-    if (values.out) {
-      const result = await renderSite(input, values.out, { theme: values.theme });
-      console.log(`Rendered ${result.pages.length} files; ${result.links} local document links checked.\nStatic output: ${result.directory}\nEntry page: ${result.pages[0]}`);
+    if (values.out || values['single-file']) {
+      const result = await exportSite(input, { out: values.out, singleFile: values['single-file'] }, { theme: values.theme });
+      console.log(`Rendered ${result.pages.length} files; ${result.links} local document links checked.${result.directory ? `\nStatic output: ${result.directory}\nEntry page: ${result.pages[0]}` : ''}\nSingle file: ${result.singleFile} (${result.bytes} bytes)`);
       for (const warning of result.warnings) console.error(`md-render: ${warning}`);
       if (!result.mermaid) console.log('Offline Mermaid unavailable; diagrams show readable source.');
     } else {

@@ -62,6 +62,7 @@ Use this map to choose the next explanation to read.
 - [Serving and export](serving-and-export.md#serving-and-export) — Choose temporary viewing or a retained static copy and recover from failure.
   - [Temporary viewer](serving-and-export.md#temporary-viewer)
   - [Static export](serving-and-export.md#static-export)
+  - [Single-file export](serving-and-export.md#single-file-export)
   - [Failure state: source input refused](serving-and-export.md#failure-source-input)
   - [Failure state: unresolved definition](serving-and-export.md#failure-definition)
   - [Failure state: content build refused](serving-and-export.md#failure-content-build)
@@ -81,6 +82,7 @@ Use this map to choose the next explanation to read.
   - [Requirement: refuse invalid selected input visibly](requirements.md#req-input-refusals)
   - [Requirement: retain static output without overwriting existing content](requirements.md#req-static-export)
   - [Requirement: change rendered pages without a full load](requirements.md#req-instant-navigation)
+  - [Requirement: export one self-contained document](requirements.md#req-single-file-export)
 - [Decisions and questions](decisions-and-questions.md#decisions-and-questions) — Review settled scope decisions and remaining implementation gaps.
   - [Rebuild from local sources](decisions-and-questions.md#derived-output-choice)
   - [Keep one reading menu](decisions-and-questions.md#navigation-choice)
@@ -103,6 +105,8 @@ Use this map to choose the next explanation to read.
   - [Acceptance test: adjacent equal authored titles](acceptance.md#test-adjacent-equal-titles)
   - [Acceptance test: instant navigation](acceptance.md#test-instant-navigation)
   - [Acceptance test: viewer caching](acceptance.md#test-viewer-caching)
+  - [Acceptance test: single-file output](acceptance.md#test-single-file-output)
+  - [Acceptance test: single-file reading](acceptance.md#test-single-file-reading)
 
 ## Entity index
 

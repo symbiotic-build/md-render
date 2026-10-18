@@ -2,7 +2,7 @@
 # Serving and export
 
 The command provides disposable local viewing by default and a retained export when an output directory is supplied.
-Both modes render before announcing success; errors reach the API caller or the command's diagnostic output.
+All modes render before announcing success; errors reach the API caller or the command's diagnostic output.
 
 <a id="temporary-viewer"></a>
 ## Temporary viewer
@@ -38,6 +38,56 @@ HTML pages, copied images, theme assets and any root redirect are derived output
 The renderer has no transactional export staging layer.
 A failure can leave a partially populated static destination; rerunning into that nonempty destination is refused.
 Recover by choosing a new empty directory or removing only the failed output after inspecting it.
+
+<a id="single-file-export"></a>
+## Single-file export
+
+A single-file export is one retained HTML document containing every rendered page and its reading controls.
+It opens directly through `file://` without a server or network access.
+The CLI adds it to every `--out` export; `--single-file <path.html>` alone writes only that file.
+Combining both options writes the folder and the explicitly named file, without an additional automatically named file.
+The [temporary viewer](#temporary-viewer) and the folder-only `renderSite` API retain their existing behavior.
+
+The automatic basename comes from the entry page title, normalized to NFC.
+Replace each run outside Unicode letters, marks, numbers, underscores and hyphens with a hyphen, then trim hyphens.
+Use `documentation` when the result is empty and prefix Windows device names with `documentation-`.
+
+Append `.html`; refuse a collision with a folder page or asset rather than overwrite it.
+Explicit paths must end in `.html`, ignoring case.
+Create missing parent directories, but create the target exclusively: existing files, directories and symlinks are refused.
+Failures reach the caller; an existing target remains unchanged.
+A write failure can leave a partial new target, which the caller must inspect before removing or choosing another path.
+
+Reuse source selection, link validation, sanitized Markdown, diagrams and the page shell from folder rendering.
+Render and validate before writing the single file.
+Inline styles and scripts; encode the logo, images and stylesheet resources as data URIs.
+Reject unavailable resources and remote stylesheet dependencies visibly without attempting network access.
+
+Retain rendered SVG diagrams or the existing readable offline source fallback.
+A restrictive content policy permits only inline hashed scripts and embedded resources; viewing performs no network requests.
+Authored external links remain clickable, and original-file links retain their label, icon and warning.
+
+Each source page occupies a section, in selected reading order followed by direct referenced pages.
+Namespace each page's Markdown identifiers with its zero-based rendered page index, including footnote identifiers and references.
+Rendered diagram identifiers use the existing document-wide diagram sequence, disjoint from page namespaces.
+Menu, article and previous/next links use those in-file targets; query strings do not affect document destinations.
+
+Use hash routing to show one page at a time while retaining every section in the DOM.
+Inactive sections use `hidden="until-found"`, so browser find can reveal them; `beforematch` selects the revealed page.
+This preserves separate-page reading while allowing document-wide find in supporting browsers.
+Without JavaScript all sections remain readable in order.
+The CLI reports the output path and exact UTF-8 byte size without imposing a size cap.
+
+**Procedure: share the fixture as one file**
+
+1. **Export the fixture:** run `md-render test/fixtures/corpus --out export` into an absent directory.
+   The folder pages remain available, and its entry title Home produces `export/Home.html`.
+2. **Open the file:** double-click `export/Home.html`, then use the menu to open Tour and its section links.
+   Previous returns to Home without leaving the document.
+3. **Choose a standalone destination:** run `md-render test/fixtures/corpus --single-file sharing/guide.html`.
+   Only `sharing/guide.html` is written; repeating the command refuses that existing target.
+
+**Verification:** [Single-file output](acceptance.md#test-single-file-output), [Single-file reading](acceptance.md#test-single-file-reading).
 
 <a id="failure-source-input"></a>
 ## Failure state: source input refused
@@ -96,7 +146,7 @@ An absent Mermaid package instead produces the explicit source-only figure descr
 
 This refusal protects an existing export and reports a viewer that could not start.
 
-**Trigger:** A nonempty output directory, filesystem write failure or loopback listen failure.
+**Trigger:** A nonempty output directory, existing single-file target, filesystem write failure or loopback listen failure.
 
 **Outcome:** The API rejects; the command prints the cause and exits with code 1 without announcing a working viewer.
 

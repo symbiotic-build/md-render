@@ -203,7 +203,7 @@ Lifecycle cleanup makes the default session disposable and confines its server t
 
 **Actor:** md-render.
 
-**Condition:** The command runs without an output directory or the API starts a viewer.
+**Condition:** The command runs without either export option or the API starts a viewer.
 
 **Result:** Serve only on loopback after rendering succeeds. Remove temporary output on close, normal exit, SIGINT, SIGTERM and startup failure. Release the listening port on close. Do not claim cleanup after SIGKILL or machine failure.
 
@@ -271,3 +271,22 @@ Page swaps avoid the browser overhead of loading a new document for each chapter
 **Status:** task-settled behavior; implementation details proposed for lead acceptance.
 
 **Basis:** [Page changes](reading-pages.md#page-changes).
+
+<a id="req-single-file-export"></a>
+## Requirement: export one self-contained document
+
+The standalone document makes the complete reading session portable without sibling files.
+
+**Actor:** md-render and the reader.
+
+**Condition:** The CLI receives `--out`, `--single-file`, or both.
+
+**Result:** Follow [Single-file export](serving-and-export.md#single-file-export): retain the requested outputs, refuse existing targets, report byte size, embed all resources, and resolve namespaced page and fragment links inside the file. Preserve reading controls and document-wide browser find without network requests.
+
+**Verification:** Export synthetic pages, open through file URLs, inspect resources and navigate rendered destinations.
+
+**Tests:** [Single-file output](acceptance.md#test-single-file-output), [Single-file reading](acceptance.md#test-single-file-reading).
+
+**Status:** task-settled behavior; naming and routing details proposed for lead acceptance.
+
+**Basis:** [Single-file export](serving-and-export.md#single-file-export).

@@ -13,18 +13,23 @@ Use Node.js 22 or later with the package dependencies already installed.
 SVG diagram builds also need the pinned Mermaid package and an installed Chromium browser; source-only display needs neither.
 
 ```sh
-node dist/cli.js <Markdown-file-or-folder-or-repository> [--out <empty-directory>] [--theme <name-or-css-path>]
+node dist/cli.js <Markdown-file-or-folder-or-repository> [--out <empty-directory>] [--single-file <path.html>] [--theme <name-or-css-path>]
 ```
 
 The command accepts exactly one positional input.
 `--help` or `-h` prints usage.
-`--out` selects retained export; its absence selects the [temporary viewer](serving-and-export.md#temporary-viewer).
+`--out` selects retained folder export plus a [single-file export](serving-and-export.md#single-file-export).
+`--single-file` selects an explicit HTML destination, alone or alongside `--out`.
+With neither option, the command starts the [temporary viewer](serving-and-export.md#temporary-viewer).
 `--theme` accepts `symbiotic`, `default` or a local CSS path.
+
 The optional environment variable `MD_RENDER_BROWSER` selects an installed Chromium executable for diagram builds.
 
-The package exports `loadCorpus`, `parseDocument`, `documentHtml`, `renderSite` and `startViewer` from [src/index.ts](../../../src/index.ts).
+The package exports `loadCorpus`, `parseDocument`, `documentHtml`, `renderSite`, `exportSite` and `startViewer` from [src/index.ts](../../../src/index.ts).
 `renderSite(input, output, options)` returns directory, pages, checked local-link count, Mermaid availability and warnings.
 Its options are `theme?: string` and `mermaid?: boolean`.
+`exportSite(input, { out?, singleFile? }, options)` writes the requested exports and returns the rendering summary plus `singleFile` and `bytes`.
+
 `startViewer(input, options)` adds a local URL and asynchronous `close()`.
 Both report failures by rejecting their promises.
 The CLI prints each warning and reports unavailable Mermaid explicitly.
