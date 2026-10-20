@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startViewer, type Viewer } from '../src/server.js';
+import { logoTheme } from './logo-theme.js';
 
 const fixture = fileURLToPath(new URL('./fixtures/corpus', import.meta.url));
 const origin = (viewer: Viewer): string => new URL(viewer.url).origin + '/';
@@ -103,9 +104,11 @@ it('opens the first manifest page even when index.md appears later', async () =>
 }, 90_000);
 
 it('revalidates HTML and caches session assets', async () => {
+  // A theme with a logo, so every kind of session asset is checked.
+  const themes = await mkdtemp(path.join(tmpdir(), 'md-render-theme-'));
+  const theme = await logoTheme(themes);
   for (const seconds of [undefined, 7200]) {
-    // The Symbiotic theme carries a logo asset, so every kind of session asset is checked.
-    const viewer = await startViewer(fixture, { mermaid: false, theme: 'symbiotic',
+    const viewer = await startViewer(fixture, { mermaid: false, theme,
       navigation: { version: 1, assetMaxAgeSeconds: seconds } });
     viewers.push(viewer);
     for (const method of ['GET', 'HEAD']) {
@@ -116,4 +119,5 @@ it('revalidates HTML and caches session assets', async () => {
       }
     }
   }
+  await rm(themes, { recursive: true, force: true });
 });
