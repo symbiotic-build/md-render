@@ -106,6 +106,7 @@ it('opens the first manifest page even when index.md appears later', async () =>
 it('revalidates HTML and caches session assets', async () => {
   // A theme with a logo, so every kind of session asset is checked.
   const themes = await mkdtemp(path.join(tmpdir(), 'md-render-theme-'));
+  directories.push(themes);
   const theme = await logoTheme(themes);
   for (const seconds of [undefined, 7200]) {
     const viewer = await startViewer(fixture, { mermaid: false, theme,
@@ -119,5 +120,4 @@ it('revalidates HTML and caches session assets', async () => {
       }
     }
   }
-  await rm(themes, { recursive: true, force: true });
 });
