@@ -143,9 +143,13 @@ function markCurrent(link) {
   revealCurrent();
 }
 function trackSection() {
+  // The reading line is one-third down the viewport. At the end of a scrolled page the last headings
+  // cannot reach it, so there the last heading on screen is current. Hash navigation selects in followHash.
+  const atEnd = scrollY > 0 && Math.ceil(scrollY + innerHeight) >= document.documentElement.scrollHeight;
+  const line = atEnd ? innerHeight : innerHeight / 3;
   let active;
   for (const section of sections) {
-    if (section.heading.getBoundingClientRect().top <= innerHeight / 3) active = section.link;
+    if (section.heading.getBoundingClientRect().top <= line) active = section.link;
   }
   if ((active || pageLink) !== currentLink) markCurrent(active);
 }
