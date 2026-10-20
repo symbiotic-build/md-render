@@ -104,7 +104,8 @@ it('opens the first manifest page even when index.md appears later', async () =>
 
 it('revalidates HTML and caches session assets', async () => {
   for (const seconds of [undefined, 7200]) {
-    const viewer = await startViewer(fixture, { mermaid: false,
+    // The Symbiotic theme carries a logo asset, so every kind of session asset is checked.
+    const viewer = await startViewer(fixture, { mermaid: false, theme: 'symbiotic',
       navigation: { version: 1, assetMaxAgeSeconds: seconds } });
     viewers.push(viewer);
     for (const method of ['GET', 'HEAD']) {

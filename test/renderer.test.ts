@@ -376,11 +376,11 @@ it('builds pinned offline Mermaid SVG without viewer scripts', async () => {
   for (const token of ['fill', 'ink', 'line', 'cluster', 'label']) expect(html).toContain(`var(--diagram-${token})`);
   expect(html).not.toMatch(/src="https?:/);
 });
-it('defaults to Symbiotic and keeps the neutral theme explicit', async () => {
+it('defaults to the neutral theme and keeps Symbiotic explicit', async () => {
   const neutral = await temp();
   const branded = await temp();
-  await renderSite(fixture, neutral, { mermaid: false, theme: 'default' });
-  await renderSite(fixture, branded, { mermaid: false });
+  await renderSite(fixture, neutral, { mermaid: false });
+  await renderSite(fixture, branded, { mermaid: false, theme: 'symbiotic' });
   expect(await readFile(path.join(neutral, 'index.html'), 'utf8')).not.toContain('logo.svg');
   expect(await readFile(path.join(branded, 'index.html'), 'utf8')).toContain('_md-render/logo.svg');
 });

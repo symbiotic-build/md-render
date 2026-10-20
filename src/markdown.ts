@@ -1,4 +1,4 @@
-// Adapted from @symbiotic/docs: unified/remark -> explicit AST transforms -> sanitized HTML.
+// unified/remark -> explicit AST transforms -> sanitized HTML.
 import type { Nodes, Root, RootContent } from 'mdast';
 import type { Root as HtmlRoot, Element } from 'hast';
 import { toString } from 'mdast-util-to-string';

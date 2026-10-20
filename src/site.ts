@@ -124,7 +124,7 @@ export async function renderSite(input: string, output: string, options: RenderO
   await mkdir(path.join(directory, assets));
   await cp(fileURLToPath(new URL('../themes/base.css', import.meta.url)), path.join(directory, assets, 'base.css'));
   await cp(fileURLToPath(new URL('../themes/navigation.js', import.meta.url)), path.join(directory, assets, 'navigation.js'));
-  const logo = await themeAssets(directory, options.theme ?? 'symbiotic');
+  const logo = await themeAssets(directory, options.theme ?? 'default');
   const themeInit = await readFile(fileURLToPath(new URL('../themes/theme-init.js', import.meta.url)), 'utf8');
   const docs = new Map(corpus.files.map((file) => [file.path, parseDocument(file.markdown, 'Untitled chapter')]));
   // Only initial documents discover references. Parse all direct targets before URL validation.
