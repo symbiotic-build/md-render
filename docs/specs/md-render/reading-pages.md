@@ -104,7 +104,7 @@ Storage failures produce console warnings and keep the selected mode usable for 
 They do not prevent reading.
 
 The theme option chooses the site's CSS, independently of the colour mode.
-Symbiotic is the default; default selects the neutral palette.
+The neutral `default` theme is the default; `symbiotic` selects the Symbiotic brand palette and logo.
 Custom CSS is copied as supplied, with one optional neighbouring SVG, PNG or WebP logo.
 Custom theme authors must keep extra resources inline to preserve offline use.
 They also own contrast in their custom CSS; the renderer’s contrast obligation covers its built-in themes and their diagram colours.

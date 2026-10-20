@@ -2,6 +2,7 @@
   "name": "md-render",
   "version": "0.1.0",
   "description": "Offline Markdown documentation renderer and temporary localhost viewer.",
+  "license": "Apache-2.0",
   "type": "module",
   "bin": { "md-render": "./dist/cli.js" },
   "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
