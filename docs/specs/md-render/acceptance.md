@@ -188,7 +188,7 @@ Selected Vitest names:
 
 **Inputs:** Multi-document navigation with single chapters, a repeated group title and a long current chapter.
 
-**Expected:** The menu has one current page, no redundant structural title and the last section above the reading line marked current.
+**Expected:** The menu has one current page, no redundant structural title and the last section above the reading line marked current; at the end of a scrolled page, the last section on screen is current.
 
 **Implementation:** [test/navigation.test.ts::flattens single-chapter documents to their document title with current sections](../../../test/navigation.test.ts), [test/navigation.test.ts::labels the first chapter by its heading, first level-two heading or Introduction without adjacent duplicate labels](../../../test/navigation.test.ts), [test/navigation.test.ts::tracks the last section above the reading line, handles hash navigation and reveals the current entry without scrolling the page](../../../test/navigation.test.ts)
 
