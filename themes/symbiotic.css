@@ -44,7 +44,7 @@
 .sd-doc li::marker{color:var(--sd-soft)}
 .sd-doc a{color:var(--sd-ink);text-decoration-thickness:1px;text-underline-offset:3px}
 .sd-doc a:hover{text-decoration-thickness:2px}
-.sd-doc a:focus-visible,.sd-doc [tabindex]:focus-visible{outline:2px solid var(--sd-soft);outline-offset:3px}
+.sd-doc a:focus-visible,.sd-doc [tabindex]:not([tabindex="-1"]):focus-visible{outline:2px solid var(--sd-soft);outline-offset:3px}
 .sd-doc strong{font-weight:700}
 .sd-doc blockquote{margin:1.6em 0;padding:4px 0 4px 20px;border-left:3px solid var(--sd-soft);color:var(--sd-muted);font-size:1.04em}
 .sd-doc blockquote>:last-child{margin-bottom:0}

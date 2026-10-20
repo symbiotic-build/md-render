@@ -71,6 +71,7 @@ it('swaps rendered pages with prefetch history and reading controls', async () =
     expect(await browser.evaluate(`calls.filter(url=>url.endsWith('/c0.html')).length`)).toBe(1);
     expect(await browser.evaluate(`scrollY`)).toBe(0);
     expect(await browser.evaluate(`document.activeElement.textContent`)).toBe('Chapter 2');
+    expect(await browser.evaluate(`getComputedStyle(document.activeElement).outlineStyle`)).toBe('none');
     expect(await browser.evaluate(`document.documentElement.dataset.theme`)).toBe('dark');
     expect(await browser.evaluate(`document.querySelector('.theme-switch button[value="dark"]').getAttribute('aria-pressed')`)).toBe('true');
     expect(await browser.evaluate(`document.querySelector('a[aria-current="page"]').previousElementSibling.getAttribute('aria-expanded')`)).toBe('true');
