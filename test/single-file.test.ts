@@ -67,7 +67,7 @@ it('embeds resources and preserves authored link behavior', async () => {
     await withBrowser(async browser => {
       await browser.navigate(pathToFileURL(file).href);
       expect(await browser.evaluate(`Array.from(document.querySelectorAll('[src],link[href],a[href]')).map(e=>e.getAttribute('src')||e.getAttribute('href')).filter(u=>!u.startsWith('#')&&!u.startsWith('data:'))`)).toEqual(['https://example.com/guide']);
-      expect(await browser.evaluate(`Array.from(document.images).map(i=>({loaded:i.complete&&i.naturalWidth>0,embedded:i.src.startsWith('data:')}))`)).toEqual([{ loaded: true, embedded: true }, { loaded: true, embedded: true }]);
+      expect(await browser.evaluate(`Array.from(document.images).map(i=>({loaded:i.complete&&i.naturalWidth>0,embedded:i.src.startsWith('data:')}))`)).toEqual(Array.from({ length: theme === custom ? 2 : 1 }, () => ({ loaded: true, embedded: true })));
       expect(await browser.evaluate(`(()=>{const a=Array.from(document.querySelectorAll('article a')).find(a=>a.textContent==='Attachment');return document.getElementById(a.hash.slice(1)).querySelector('code').textContent})()`)).toContain('Original attachment.');
       expect(await browser.evaluate(`({tables:document.querySelectorAll('article table').length,code:document.querySelector('article pre code').textContent.trim()})`)).toEqual({ tables: 1, code: 'const example = 1;' });
       if (theme === custom) expect(await browser.evaluate(`({imported:getComputedStyle(document.documentElement).getPropertyValue('--custom-import').trim(),background:getComputedStyle(document.querySelector('article')).backgroundImage})`)).toEqual({ imported: 'loaded', background: `url("data:image/png;base64,${png}")` });

@@ -1,14 +1,14 @@
 # md-render
 
 Render Markdown documentation as a readable, offline website. Each Markdown file gets a
-page, a chapter-and-section menu, and previous/next links. The default theme is
-Symbiotic. Tables scroll within the page; code, explicit HTML anchors, and file fragments
+page, a chapter-and-section menu, and previous/next links. The default theme is neutral;
+a Symbiotic brand theme is built in. Tables scroll within the page; code, explicit HTML anchors, and file fragments
 survive rendering.
 
-Requires Node.js 22 or later and pnpm 10.20.0. Install from the local pnpm store only:
+Requires Node.js 22 or later and pnpm 10.20.0:
 
 ```sh
-pnpm install --offline
+pnpm install
 pnpm build
 node dist/cli.js /path/to/spec
 ```
@@ -67,8 +67,8 @@ shows readable diagram source. A rendering failure stops the build with a diagno
 
 ## Themes
 
-`--theme default` selects the neutral theme. `--theme symbiotic` (the default) uses the portal's
-palette, document typography, and optional brand mark, with a system font.
+`--theme default` (the default) selects the neutral theme. `--theme symbiotic` uses the Symbiotic
+brand palette and document typography, with a system font; neither built-in theme has a logo.
 `--theme ./custom.css` accepts a small CSS file. Copy [default.css](themes/default.css)
 to start with the color and font tokens. A neighboring `custom.logo.svg`,
 `custom.logo.png`, or `custom.logo.webp` supplies an optional logo; choose one.
@@ -86,8 +86,8 @@ console.log(viewer.url);
 await viewer.close();
 ```
 
-The pipeline is adapted from `@symbiotic/docs`: unified, remark parsing, GitHub tables,
-frontmatter, remark-to-HTML, sanitization, and serialization, at the portal's exact pins.
+The pipeline is unified with remark parsing, GitHub tables, frontmatter, remark-to-HTML,
+sanitization, and serialization, at exact version pins.
 Each source is parsed once. Navigation, hover meanings, and link validation use that same
 in-memory tree. Rendered output is derived from the Markdown, metadata, and theme.
 
@@ -100,3 +100,7 @@ pnpm test test/renderer.test.ts test/server.test.ts
 Tests use a synthetic fixture corpus. Server tests need permission to bind localhost;
 all tests run without external network access. Build first because lifecycle tests launch
 the compiled command.
+
+## License
+
+Apache License 2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE).

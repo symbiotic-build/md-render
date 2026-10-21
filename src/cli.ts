@@ -5,7 +5,7 @@ import { startViewer } from './server.js';
 
 try {
   const { values, positionals } = parseArgs({ allowPositionals: true, options: {
-    out: { type: 'string' }, 'single-file': { type: 'string' }, 'max-linked-file-bytes': { type: 'string' }, theme: { type: 'string', default: 'symbiotic' }, help: { type: 'boolean', short: 'h' },
+    out: { type: 'string' }, 'single-file': { type: 'string' }, 'max-linked-file-bytes': { type: 'string' }, theme: { type: 'string', default: 'default' }, help: { type: 'boolean', short: 'h' },
   } });
   if (values.help) {
     console.log('Usage: md-render <Markdown file|folder|repository> [--out <empty directory>] [--single-file <path.html>] [--theme <default|symbiotic|path.css>] [--max-linked-file-bytes <bytes>]');

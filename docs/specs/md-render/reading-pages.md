@@ -69,6 +69,7 @@ Deeper headings remain in the article but do not enter this outline.
 
 Before the first section reaches the reading line, only the page entry is current.
 While scrolling, the last section at or above one-third of the viewport height is highlighted.
+At the end of a scrolled page the last headings cannot reach that line, so there the last section whose heading is on screen is highlighted.
 In both built-in themes and both colour modes, the current section uses a background tint and bold text without an inset bar.
 Hash navigation immediately selects its matching entry and expands the chapter as needed.
 Revealing a current entry scrolls only the menu list, not the article.
@@ -104,7 +105,7 @@ Storage failures produce console warnings and keep the selected mode usable for 
 They do not prevent reading.
 
 The theme option chooses the site's CSS, independently of the colour mode.
-Symbiotic is the default; default selects the neutral palette.
+The neutral `default` theme is the default; `symbiotic` selects the Symbiotic brand palette; neither built-in theme has a logo.
 Custom CSS is copied as supplied, with one optional neighbouring SVG, PNG or WebP logo.
 Custom theme authors must keep extra resources inline to preserve offline use.
 They also own contrast in their custom CSS; the renderer’s contrast obligation covers its built-in themes and their diagram colours.

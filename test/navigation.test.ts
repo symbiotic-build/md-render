@@ -123,6 +123,15 @@ it('tracks the last section above the reading line, handles hash navigation and 
     await settle(browser);
     expect(await browser.evaluate(`document.querySelector('#document-menu a[aria-current="location"]')?.hash`)).toBe('#section-4');
     expect(await browser.evaluate(`document.querySelector('#document-menu a[aria-current="location"]').getClientRects().length`)).toBeGreaterThan(0);
+    // At the end of the page the last section is current even though its heading stays below the reading line:
+    // a tall window leaves the short last section's heading in the lower two thirds.
+    await browser.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 2400, deviceScaleFactor: 1, mobile: false });
+    await browser.evaluate(`window.scrollTo(0, document.documentElement.scrollHeight)`);
+    await settle(browser);
+    const last = await browser.evaluate(`[...document.querySelectorAll('#document-menu a[href*="#"]')].map(a => a.hash).filter(hash => document.getElementById(decodeURIComponent(hash.slice(1)))).at(-1)`);
+    expect(await browser.evaluate(`document.getElementById(decodeURIComponent(${JSON.stringify(last)}.slice(1))).getBoundingClientRect().top > innerHeight / 3`)).toBe(true);
+    expect(await browser.evaluate(`document.querySelector('#document-menu a[aria-current="location"]')?.hash`)).toBe(last);
+    await browser.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 800, deviceScaleFactor: 1, mobile: false });
     // Observe a jump backwards across several headings, not just adjacent intersections.
     await browser.evaluate(`window.scrollTo(0,0)`);
     await settle(browser);

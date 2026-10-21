@@ -79,7 +79,7 @@ async function standalone(site: PreparedSite, options: RenderOptions): Promise<s
   })));
   const diagrams = await renderDiagrams(bodies, options.mermaid !== false);
   const content = paths.map((file, index) => `<section class="single-page" id="page-${index}" data-title="${escapeHtml(site.docs.get(file)!.title)}">${pageContent(site.corpus, site.docs, file, diagrams.pages[index]!.replace(/file:/gi, value => value.slice(0, -1) + '&#58;'), target => escapeHtml(url(target)))}</section>`).join('\n');
-  const theme = options.theme ?? 'symbiotic';
+  const theme = options.theme ?? 'default';
   const themePath = theme === 'default' || theme === 'symbiotic' ? fileURLToPath(new URL(`../themes/${theme}.css`, import.meta.url)) : path.resolve(theme);
   const styles = await inlineCss(fileURLToPath(new URL('../themes/base.css', import.meta.url))) + '\n' + await inlineCss(themePath) + '\n.single-page[hidden="until-found"]{display:block!important;content-visibility:hidden}@media print{.single-page[hidden="until-found"]{content-visibility:visible}}';
   const script = site.files.get('_md-render/navigation.js')!.toString('utf8');

@@ -376,13 +376,15 @@ it('builds pinned offline Mermaid SVG without viewer scripts', async () => {
   for (const token of ['fill', 'ink', 'line', 'cluster', 'label']) expect(html).toContain(`var(--diagram-${token})`);
   expect(html).not.toMatch(/src="https?:/);
 });
-it('defaults to Symbiotic and keeps the neutral theme explicit', async () => {
+it('defaults to the neutral theme and keeps Symbiotic explicit, neither with a logo', async () => {
   const neutral = await temp();
   const branded = await temp();
-  await renderSite(fixture, neutral, { mermaid: false, theme: 'default' });
-  await renderSite(fixture, branded, { mermaid: false });
-  expect(await readFile(path.join(neutral, 'index.html'), 'utf8')).not.toContain('logo.svg');
-  expect(await readFile(path.join(branded, 'index.html'), 'utf8')).toContain('_md-render/logo.svg');
+  await renderSite(fixture, neutral, { mermaid: false });
+  await renderSite(fixture, branded, { mermaid: false, theme: 'symbiotic' });
+  const themes = new URL('../themes/', import.meta.url);
+  expect(await readFile(path.join(neutral, '_md-render/theme.css'), 'utf8')).toBe(await readFile(new URL('default.css', themes), 'utf8'));
+  expect(await readFile(path.join(branded, '_md-render/theme.css'), 'utf8')).toBe(await readFile(new URL('symbiotic.css', themes), 'utf8'));
+  for (const output of [neutral, branded]) expect(await readFile(path.join(output, 'index.html'), 'utf8')).not.toContain('logo.');
 });
 it('accepts a custom CSS file and its optional neighboring logo', async () => {
   const theme = await temp();
@@ -391,6 +393,7 @@ it('accepts a custom CSS file and its optional neighboring logo', async () => {
   const output = await temp();
   await renderSite(fixture, output, { mermaid: false, theme: path.join(theme, 'custom.css') });
   expect(await readFile(path.join(output, '_md-render/theme.css'), 'utf8')).toContain('purple');
+  expect(await readFile(path.join(output, 'index.html'), 'utf8')).toContain('_md-render/logo.svg');
 });
 
 describe('visible input failures', () => {

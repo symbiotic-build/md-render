@@ -156,7 +156,7 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
   const corpus = await loadCorpus(input);
   const files = new Map<string, Buffer>();
   for (const name of ['base.css', 'navigation.js']) files.set(`${assets}/${name}`, await readFile(fileURLToPath(new URL(`../themes/${name}`, import.meta.url))));
-  const logo = await themeAssets(files, options.theme ?? 'symbiotic');
+  const logo = await themeAssets(files, options.theme ?? 'default');
   const themeInit = await readFile(fileURLToPath(new URL('../themes/theme-init.js', import.meta.url)), 'utf8');
   const docs = new Map(corpus.files.map((file) => [file.path, parseDocument(file.markdown, 'Untitled chapter')]));
   if (corpus.files.some(file => file.path === assets || file.path.startsWith(assets + '/'))) throw new Error('Input uses reserved directory: ' + assets);

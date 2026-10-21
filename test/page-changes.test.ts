@@ -1,4 +1,5 @@
 import { useBrowser } from './browser-fixture.js';
+import { logoTheme } from './logo-theme.js';
 import { afterAll, expect, it } from 'vitest';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -14,7 +15,8 @@ afterAll(async () => { await Promise.all(scratch.map(dir => rm(dir, { recursive:
 const settle = (browser: BrowserSession) => browser.evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
 
 const swapFixtures = new Map<string, Promise<Viewer>>();
-function swapFixture(diagrams = false, cachePages = 6, theme = 'symbiotic') {
+// Without a named built-in theme, the fixture uses a test theme with a logo, so the title logo is checked too.
+function swapFixture(diagrams = false, cachePages = 6, theme = 'logo') {
   const key = JSON.stringify([diagrams, cachePages, theme]);
   let fixture = swapFixtures.get(key);
   if (!fixture) { fixture = buildSwapFixture(diagrams, cachePages, theme); swapFixtures.set(key, fixture); }
@@ -23,6 +25,11 @@ function swapFixture(diagrams = false, cachePages = 6, theme = 'symbiotic') {
 async function buildSwapFixture(diagrams: boolean, cachePages: number, theme: string) {
   const source = await mkdtemp(path.join(tmpdir(), 'md-render-swaps-'));
   scratch.push(source);
+  if (theme === 'logo') {
+    const themes = await mkdtemp(path.join(tmpdir(), 'md-render-theme-'));
+    scratch.push(themes);
+    theme = await logoTheme(themes);
+  }
   await mkdir(path.join(source, 'docs'));
   await mkdir(path.join(source, 'nested'));
   const paths = ['a.md', 'nested/b.md', ...Array.from({ length: 8 }, (_, i) => `c${i}.md`)];
@@ -71,6 +78,7 @@ it('swaps rendered pages with prefetch history and reading controls', async () =
     expect(await browser.evaluate(`calls.filter(url=>url.endsWith('/c0.html')).length`)).toBe(1);
     expect(await browser.evaluate(`scrollY`)).toBe(0);
     expect(await browser.evaluate(`document.activeElement.textContent`)).toBe('Chapter 2');
+    expect(await browser.evaluate(`getComputedStyle(document.activeElement).outlineStyle`)).toBe('none');
     expect(await browser.evaluate(`document.documentElement.dataset.theme`)).toBe('dark');
     expect(await browser.evaluate(`document.querySelector('.theme-switch button[value="dark"]').getAttribute('aria-pressed')`)).toBe('true');
     expect(await browser.evaluate(`document.querySelector('a[aria-current="page"]').previousElementSibling.getAttribute('aria-expanded')`)).toBe('true');
