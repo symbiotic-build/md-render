@@ -53,7 +53,7 @@ Anchor preservation keeps existing inbound references usable after rendering.
 
 **Condition:** A page links to local Markdown or a fragment.
 
-**Result:** Rewrite rendered Markdown destinations to HTML, preserving query and fragment. Preserve every stacked empty anchor, use the last as its outline destination, retain generated heading targets and reject duplicates or broken targets.
+**Result:** Rewrite rendered Markdown destinations to HTML, preserving query and valid fragments. Preserve every stacked empty anchor, use the last as its outline destination and retain generated heading targets. Reject duplicates and broken targets, except for the retained-reference fragment fallback in [Bundled local references](serving-and-export.md#bundled-local-references).
 
 **Verification:** Follow every stacked anchor and inspect the last-anchor menu destination.
 
@@ -72,7 +72,7 @@ Reference discovery lets readers follow supporting files without changing the ma
 
 **Condition:** A selected page links to repository Markdown or a non-Markdown local file.
 
-**Result:** Render only repository Markdown linked directly from initially selected document pages. Deduplicate these references and list each once by title, without sections. Further-out Markdown links from referenced pages use the original-file treatment: keep labels, add a file icon and original-path hover, warn and link to originals without reading or copying them. Apply the same original-file treatment to non-Markdown links.
+**Result:** In temporary local-reading mode, render only repository Markdown linked directly from initially selected document pages. Deduplicate these references and list each once by title, without sections. Further-out Markdown links from referenced pages use the original-file treatment: keep labels, add a file icon and original-path hover, warn and link to originals without reading or copying them. Apply the same original-file treatment to non-Markdown links.
 
 **Verification:** Inspect one-hop selection, title-only reference entries, warning list and original-file hovers.
 
@@ -203,7 +203,7 @@ Lifecycle cleanup makes the default session disposable and confines its server t
 
 **Actor:** md-render.
 
-**Condition:** The command runs without an output directory or the API starts a viewer.
+**Condition:** The command runs without either export option or the API starts a viewer.
 
 **Result:** Serve only on loopback after rendering succeeds. Remove temporary output on close, normal exit, SIGINT, SIGTERM and startup failure. Release the listening port on close. Do not claim cleanup after SIGKILL or machine failure.
 
@@ -224,7 +224,7 @@ Visible refusal gives the author enough information to repair invalid input.
 
 **Condition:** Metadata, paths, links or homes cannot satisfy the supported input contract.
 
-**Result:** Refuse unknown versions, broken local anchors, missing selected homes and symlinked selected inputs. Report the cause with CLI exit 1 or an API rejection; leave original inputs intact and explain repair through the failure declarations.
+**Result:** Refuse unknown versions, broken local anchors authored in input pages, missing selected homes and symlinked selected inputs. Report the cause with CLI exit 1 or an API rejection; leave original inputs intact and explain repair through the failure declarations.
 
 **Verification:** Inspect each diagnostic and the absence of an announced viewer on refusal.
 
@@ -271,3 +271,41 @@ Page swaps avoid the browser overhead of loading a new document for each chapter
 **Status:** task-settled behavior; implementation details proposed for lead acceptance.
 
 **Basis:** [Page changes](reading-pages.md#page-changes).
+
+<a id="req-single-file-export"></a>
+## Requirement: export one self-contained document
+
+The standalone document makes the complete reading session portable without sibling files.
+
+**Actor:** md-render and the reader.
+
+**Condition:** The CLI receives `--out`, `--single-file`, or both.
+
+**Result:** Follow [Single-file export](serving-and-export.md#single-file-export): retain the requested outputs, refuse existing targets, report byte size, embed all resources, and resolve namespaced page and fragment links inside the file. Preserve reading controls and document-wide browser find without network requests.
+
+**Verification:** Export synthetic pages, open through file URLs, inspect resources and navigate rendered destinations.
+
+**Tests:** [Single-file output](acceptance.md#test-single-file-output), [Single-file reading](acceptance.md#test-single-file-reading).
+
+**Status:** task-settled behavior; naming and routing details proposed for lead acceptance.
+
+**Basis:** [Single-file export](serving-and-export.md#single-file-export).
+
+<a id="req-bundled-references"></a>
+## Requirement: bundle portable local references
+
+Bundling makes the input pages’ direct local references usable on another machine.
+
+**Actor:** md-render.
+
+**Condition:** The caller requests a retained folder or single-file export.
+
+**Result:** Follow [Bundled local references](serving-and-export.md#bundled-local-references): render directly linked Markdown regardless of inventory kind or root, render UTF-8 text as numbered code pages, and embed binary downloads. Mark further local targets as not bundled with portable paths and one warning per target. Preserve labels and valid fragments. Refuse broken fragments in input pages; warn and link to the destination top for broken fragments in bundled references. Display portable paths, including local Git commit labels, without absolute input/home paths or original-machine URLs. Warn for missing files and leave their labels as non-link text. Visibly omit linked files above the configured byte limit with their exact size.
+
+**Verification:** Open both exports through file URLs, navigate chapter and source-line links, compare binary bytes, inspect labels and omission messages.
+
+**Tests:** [Portable references](acceptance.md#test-bundled-references), [Bundle omissions](acceptance.md#test-bundle-omissions).
+
+**Status:** operator-settled bundling; line-fragment and policy details proposed for lead acceptance.
+
+**Basis:** [Bundle local files for sharing](decisions-and-questions.md#bundle-local-files-choice).

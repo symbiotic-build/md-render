@@ -88,6 +88,7 @@ it('keeps static output after the CLI exits', async () => {
   children.push(child);
   expect((await once(child, 'exit'))[0]).toBe(0);
   expect(await readFile(path.join(output, 'chapters/start.html'), 'utf8')).toContain('<h1 id="tour-1">Tour</h1>');
+  expect(await readFile(path.join(output, 'index.html'), 'utf8')).toContain('templates (directory not bundled)');
 });
 it('returns a visible error for invalid input and cleans startup resources', async () => {
   const before = process.listenerCount('exit');

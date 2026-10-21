@@ -1,5 +1,5 @@
 // unified/remark -> explicit AST transforms -> sanitized HTML.
-import type { Nodes, Root, RootContent } from 'mdast';
+import type { Definition, Nodes, Root, RootContent } from 'mdast';
 import type { Root as HtmlRoot, Element } from 'hast';
 import { toString } from 'mdast-util-to-string';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
@@ -20,7 +20,7 @@ const writer = unified().use(remarkRehype).use(rehypeSanitize, {
   clobberPrefix: '',
   protocols: { ...defaultSchema.protocols, href: ['http', 'https', 'mailto', 'tel', 'file'] },
   attributes: { ...defaultSchema.attributes, figure: ['className'], figcaption: [],
-    a: [...(defaultSchema.attributes?.a ?? []).filter((attribute) => !Array.isArray(attribute) || attribute[0] !== 'className'), ['className', 'local-file']],
+    a: ['download', ...(defaultSchema.attributes?.a ?? []).filter((attribute) => !Array.isArray(attribute) || attribute[0] !== 'className'), ['className', 'local-file']],
     code: [['className', /^language-./]], div: ['className', 'role', 'ariaLabel', 'tabIndex'] },
   tagNames: [...(defaultSchema.tagNames ?? []), 'figure', 'figcaption'],
 }).use(rehypeStringify);
@@ -28,6 +28,10 @@ const writer = unified().use(remarkRehype).use(rehypeSanitize, {
 /** Parsed document, reused for links, entity meanings and HTML generation. */
 export interface ParsedDocument {
   title: string;
+  /** Portable source label used by retained exports. */
+  displayPath?: string;
+  /** Number of source lines when this is a read-only text page. */
+  sourceLines?: number;
   tree: Root;
   anchors: Set<string>;
   headings: { id: string; title: string; depth: number }[];
@@ -202,21 +206,50 @@ export function documentOutline(doc: ParsedDocument): OutlineEntry[] {
   return outline;
 }
 
+/** Builds a read-only source page without interpreting the source as Markdown. */
+export function textDocument(text: string, label: string): ParsedDocument {
+  const lines = text.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n');
+  const doc = parseDocument('', label);
+  doc.sourceLines = lines.length;
+  for (let index = 0; index < lines.length; index++) doc.anchors.add(`L${index + 1}`);
+  doc.tree.children = [
+    { type: 'heading', depth: 1, children: [{ type: 'text', value: label }] },
+    { type: 'code', value: lines.join('\n') },
+  ];
+  return doc;
+}
+
+/** A URL rewrite, attachment download, or visible non-link replacement. */
+export interface UrlTransform { url: string; title?: string; download?: string; remove?: boolean; suffix?: string }
+
 /** Visits native Markdown links, definitions, and images before HTML sanitization. */
-export function transformUrls(doc: ParsedDocument, transform: (url: string, image: boolean) => { url: string; title?: string }): void {
-  const imageReferences = new Set<string>();
-  visit(doc.tree, 'imageReference', (node) => { imageReferences.add(node.identifier); });
-  const localDefinitions = new Set<string>();
-  visit(doc.tree, (node) => {
-    if (node.type !== 'link' && node.type !== 'definition' && node.type !== 'image') return;
-    const result = transform(node.url, node.type === 'image' || (node.type === 'definition' && imageReferences.has(node.identifier)));
-    node.url = result.url;
-    if (result.title) node.title = result.title;
-    if (node.type === 'definition' && result.url.startsWith('file:')) localDefinitions.add(node.identifier);
-    if (result.url.startsWith('file:') && node.type !== 'image') node.data = { ...node.data, hProperties: { className: ['local-file'] } };
+export function transformUrls(doc: ParsedDocument, transform: (url: string, image: boolean) => UrlTransform): void {
+  const definitions = new Map<string, Definition>();
+  visit(doc.tree, 'definition', node => {
+    // Markdown resolves duplicate identifiers to their first definition.
+    if (!definitions.has(node.identifier)) definitions.set(node.identifier, node);
   });
-  visit(doc.tree, 'linkReference', (node) => {
-    if (localDefinitions.has(node.identifier)) node.data = { ...node.data, hProperties: { className: ['local-file'] } };
+  visit(doc.tree, (node, index, parent) => {
+    if ((node.type === 'linkReference' || node.type === 'imageReference') && parent && index !== undefined) {
+      const definition = definitions.get(node.identifier);
+      if (!definition) return;
+      // Each occurrence owns its image/link semantics, even with a shared definition.
+      node = node.type === 'imageReference'
+        ? { type: 'image', url: definition.url, title: definition.title, alt: node.alt, data: node.data }
+        : { type: 'link', url: definition.url, title: definition.title, children: node.children, data: node.data };
+      parent.children[index] = node as never;
+    }
+    if (node.type !== 'link' && node.type !== 'image') return;
+    const result = transform(node.url, node.type === 'image');
+    if (node.type !== 'image' && result.remove && parent && index !== undefined) {
+      parent.children.splice(index, 1, ...node.children, ...(result.suffix ? [{ type: 'text' as const, value: result.suffix }] : []));
+      return index + node.children.length + (result.suffix ? 1 : 0);
+    }
+    node.url = result.url;
+    if ('title' in node && result.title) node.title = result.title;
+    if (node.type !== 'image' && (result.url.startsWith('file:') || result.download)) {
+      node.data = { ...node.data, hProperties: { className: ['local-file'], ...(result.download ? { download: result.download } : {}) } };
+    }
   });
 }
 
@@ -224,6 +257,19 @@ export function transformUrls(doc: ParsedDocument, transform: (url: string, imag
 export async function documentHtml(doc: ParsedDocument): Promise<string> {
   const tree = await writer.run(doc.tree) as HtmlRoot;
   visit(tree, 'element', (node, index, parent) => {
+    if (doc.sourceLines !== undefined && node.tagName === 'pre') {
+      const code = node.children[0];
+      if (code?.type !== 'element') throw new Error('Source page is missing its code block');
+      const text = code.children.map(child => child.type === 'text' ? child.value : '').join('').replace(/\n$/, '');
+      node.properties.className = ['source-code'];
+      code.children = text.split('\n').flatMap((line, index): Element['children'] => {
+        const id = `L${index + 1}`;
+        return [{ type: 'element', tagName: 'span', properties: { id, className: ['source-line'] }, children: [
+          { type: 'element', tagName: 'a', properties: { href: `#${id}`, className: ['line-number'], ariaLabel: `Line ${index + 1}` }, children: [{ type: 'text', value: String(index + 1) }] },
+          { type: 'text', value: line },
+        ] }];
+      });
+    }
     if (node.tagName === 'table' && parent && index !== undefined) {
       parent.children[index] = { type: 'element', tagName: 'div', properties: {
         className: ['table-scroll'], role: 'region', ariaLabel: 'Table', tabIndex: 0,

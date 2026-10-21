@@ -93,7 +93,7 @@ Selected Vitest names:
 <a id="test-reference-pages"></a>
 ### Acceptance test: referenced files
 
-This case checks referenced-page discovery and the original-file treatment of native sources.
+This case checks temporary local-reading discovery and the original-file treatment of native sources.
 
 Selected Vitest names:
 
@@ -347,9 +347,9 @@ Selected Vitest names:
 
 **Inputs:** An empty destination, a nonempty destination and a successful static CLI invocation.
 
-**Expected:** Success retains a static site; the nonempty check preserves existing files; failures return visibly rather than claiming atomic export.
+**Expected:** Success retains a static site; the nonempty check preserves existing files; failures return visibly rather than claiming atomic export. Concurrent writers into an empty folder produce exactly one success; the refused writer leaves every admitted file unchanged.
 
-**Implementation:** [test/renderer.test.ts::visible input failures \> does not overwrite existing static output](../../../test/renderer.test.ts), [test/server.test.ts::keeps static output after the CLI exits](../../../test/server.test.ts)
+**Implementation:** [test/renderer.test.ts::visible input failures \> does not overwrite existing static output](../../../test/renderer.test.ts), [test/server.test.ts::keeps static output after the CLI exits](../../../test/server.test.ts), [test/export-review.test.ts::allows exactly one concurrent folder export and preserves all of its files](../../../test/export-review.test.ts)
 
 Source inspection completed on 2026-10-16 at `4305d3e`:
 [src/site.ts::renderSite](../../../src/site.ts) checks destination emptiness before copying assets and writing pages directly into that destination.
@@ -423,3 +423,63 @@ This case checks the page-change contract through executable behavior.
 **Expected:** HTML uses no-cache; assets use the configured max-age, defaulting to 3600 seconds.
 
 **Implementation:** [test/server.test.ts::revalidates HTML and caches session assets](../../../test/server.test.ts)
+
+<a id="test-single-file-output"></a>
+## Acceptance test: single-file output
+
+This case checks export destinations, embedded resources and existing-target preservation.
+
+**Method:** test.
+
+**Requirements:** [Export one self-contained document](requirements.md#req-single-file-export).
+
+**Inputs:** Two pages, images, themes, explicit and automatic destinations, and existing output.
+
+**Expected:** Standalone mode writes only one HTML file; combined modes retain folder output. All resources are embedded, authored external links retain their behavior and local text links resolve internally, and existing targets are unchanged. CSS comments, ordinary strings, hash tokens and non-URL identifiers never load resources. Decoded escapes identify URL functions and imports. Unquoted URLs preserve comment-shaped filename characters. Imports preserve dollar sequences. Duplicate generated page destinations refuse both exports before writing output.
+
+**Implementation:** [test/single-file.test.ts::writes only the standalone file and reports its byte size](../../../test/single-file.test.ts), [test/single-file.test.ts::adds the named file to folder output and supports an explicit combined target](../../../test/single-file.test.ts), [test/single-file.test.ts::refuses existing single-file targets without changing them](../../../test/single-file.test.ts), [test/single-file.test.ts::embeds resources and preserves authored link behavior](../../../test/single-file.test.ts), [test/single-file.test.ts::preserves rendered diagrams and readable offline source in single files](../../../test/single-file.test.ts), [test/single-file.test.ts::refuses a single-file destination that collides with a folder page](../../../test/single-file.test.ts), [test/export-review.test.ts::leaves an existing private file named only in a CSS comment unembedded](../../../test/export-review.test.ts), [test/export-review.test.ts::ignores missing CSS resources in inert text: /* url(missing.txt) @import "missing.css"; */](../../../test/export-review.test.ts), [test/export-review.test.ts::embeds real CSS imports and URLs: "import.css"](../../../test/export-review.test.ts), [test/export-review.test.ts::preserves dollar sequences in imported stylesheet text](../../../test/export-review.test.ts), [test/export-review.test.ts::refuses real unavailable CSS resources: missing.png](../../../test/export-review.test.ts), [test/export-review.test.ts::refuses duplicate generated page destinations before writing: combined](../../../test/export-review.test.ts), [test/export-review.test.ts::does not read an existing private file in a non-resource CSS token: #url(private.txt)](../../../test/export-review.test.ts), [test/export-review.test.ts::embeds CSS resources using decoded escapes: u\\72l("pixel.svg")](../../../test/export-review.test.ts), [test/export-review.test.ts::embeds CSS imports using decoded names: @\\69mport "import.css";](../../../test/export-review.test.ts), [test/export-review.test.ts::preserves comment-shaped characters inside an unquoted CSS URL](../../../test/export-review.test.ts)
+
+<a id="test-single-file-reading"></a>
+## Acceptance test: single-file reading
+
+This case checks the portable document through the real browser fixture.
+
+**Method:** test.
+
+**Requirements:** [Export one self-contained document](requirements.md#req-single-file-export).
+
+**Inputs:** A file URL containing two pages with the same heading and a cross-page fragment link.
+
+**Expected:** Menu and previous/next change the visible page, cross-page fragments land on their heading, identifiers remain unique, themes work and browser find can reveal inactive content. No viewing resource references leave the file.
+
+**Implementation:** [test/single-file.test.ts::reads and navigates the standalone document through file URLs](../../../test/single-file.test.ts)
+
+<a id="test-bundled-references"></a>
+## Acceptance test: portable references
+
+This case follows portable chapter, source and binary destinations through the real browser fixture.
+
+**Method:** test.
+
+**Requirements:** [Bundle portable local references](requirements.md#req-bundled-references).
+
+**Inputs:** External Markdown with another linked chapter and a cycle, inventory-classified other Markdown, a Git source file with line fragments, UTF-8 text and binary bytes.
+
+**Expected:** Both retained formats opened through file URLs resolve chapter and line destinations internally, expose matching binary bytes, and show portable Git labels. No absolute input/home paths or original-machine URLs appear in generated HTML, text or Markdown-derived content. Theme stylesheet text, embedded resources and opaque binary attachments are exempt from path removal and retain their content. Directly referenced pages appear once under Referenced files. Further targets remain plain text with “not bundled”, portable paths and one warning per target. Broken fragments in bundled references warn and land at the destination top; input-page broken fragments still refuse export. Regression cases also cover published text fields, overlapping path replacements, classification before Markdown parsing, shared and duplicate definitions, source bytes in previews and attachments, refusal of machine paths in authored anchors and external URLs, preservation of other external URLs, validation of original fragments, and reference links to included images.
+
+**Implementation:** [test/bundled-files.test.ts::bundles Chapter links for both file URL exports](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::bundles Source links for both file URL exports](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::bundles Range links for both file URL exports](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::bundles Binary links for both file URL exports](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::keeps direct and inventory references portable without machine paths](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::marks further local targets as not bundled once per target in both exports](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::warns once and lands at the page top for broken fragments in bundled references](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::refuses broken fragments authored in input pages](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::keeps diagram text portable after SVG rendering in both exports](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::removes input and home paths from Mermaid source before rendering (mermaid=false)](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::removes input and home paths from Mermaid source before rendering (mermaid=true)](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::resolves images in external Markdown from the original source directory](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::reuses the prepared diagram SVG unchanged in the standalone export](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::preserves opaque attachment bytes containing input and home paths in both exports](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::removes machine paths from published image descriptions after loading resources](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::removes machine paths from published manifest titles after loading resources](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::refuses an originally missing fragment without changing authored identifiers](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::refuses authored anchors containing input or home paths and names the page and identifier](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::preserves author stylesheet bytes including path comments and embedded resources in both exports](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::replaces original path occurrences without rewriting inserted portable labels](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::classifies an unselected .md directory before Markdown parsing](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::classifies an unselected .md invalid UTF-8 before Markdown parsing](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::keeps a shared image definition usable as both preview and named download](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::keeps the first duplicate definition as the rendered link destination](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::preserves source bytes in both the preview and attachment in both exports](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::keeps reference-page links to images already included through previews](../../../test/bundled-files.test.ts), [test/export-review.test.ts::refuses an external URL containing an absolute input path before writing](../../../test/export-review.test.ts), [test/export-review.test.ts::refuses an external URL containing an absolute home path before writing](../../../test/export-review.test.ts), [test/export-review.test.ts::preserves external URLs without machine paths in both exports](../../../test/export-review.test.ts)
+
+<a id="test-bundle-omissions"></a>
+## Acceptance test: bundle omissions
+
+This case checks explicit exceptions to bundling without broken local links.
+
+**Method:** test.
+
+**Requirements:** [Bundle portable local references](requirements.md#req-bundled-references).
+
+**Inputs:** A missing file, linked files at and above a configured byte limit, invalid policy or source-line fragments, and an in-root symlink.
+
+**Expected:** Missing labels remain non-link text with warnings. Oversized files visibly show omission and size; files at the limit are bundled. Invalid policy, line destinations and in-root symlinks reject visibly.
+
+**Implementation:** [test/bundled-files.test.ts::lists oversized files and missing labels visibly without local URLs](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::rejects invalid bundle policies](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::rejects unsupported source line fragments](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::refuses linked symlinks inside the input root](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::omits oversized additional Markdown before parsing while exempting selected pages](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::visibly omits a linked file that grows beyond the read budget after stat](../../../test/bundled-files.test.ts)

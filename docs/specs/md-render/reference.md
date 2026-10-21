@@ -8,23 +8,32 @@ A separate authoring checker validates the complete specification format; render
 <a id="command-reference"></a>
 ## Command and API
 
-These entry points produce the same rendered site in either output mode.
+These entry points share source parsing and rendering; local-reference behavior depends on the API or command options.
 Use Node.js 22 or later with the package dependencies already installed.
 SVG diagram builds also need the pinned Mermaid package and an installed Chromium browser; source-only display needs neither.
 
 ```sh
-node dist/cli.js <Markdown-file-or-folder-or-repository> [--out <empty-directory>] [--theme <name-or-css-path>]
+node dist/cli.js <Markdown-file-or-folder-or-repository> [--out <empty-directory>] [--single-file <path.html>] [--theme <name-or-css-path>] [--max-linked-file-bytes <bytes>]
 ```
 
 The command accepts exactly one positional input.
 `--help` or `-h` prints usage.
-`--out` selects retained export; its absence selects the [temporary viewer](serving-and-export.md#temporary-viewer).
+`--out` selects retained folder export plus a [single-file export](serving-and-export.md#single-file-export).
+`--single-file` selects an explicit HTML destination, alone or alongside `--out`.
+With neither option, the command starts the [temporary viewer](serving-and-export.md#temporary-viewer).
 `--theme` accepts `symbiotic`, `default` or a local CSS path.
+
 The optional environment variable `MD_RENDER_BROWSER` selects an installed Chromium executable for diagram builds.
 
-The package exports `loadCorpus`, `parseDocument`, `documentHtml`, `renderSite` and `startViewer` from [src/index.ts](../../../src/index.ts).
+The package exports `loadCorpus`, `parseDocument`, `documentHtml`, `renderSite`, `exportSite` and `startViewer` from [src/index.ts](../../../src/index.ts).
 `renderSite(input, output, options)` returns directory, pages, checked local-link count, Mermaid availability and warnings.
-Its options are `theme?: string` and `mermaid?: boolean`.
+It retains [local-reading behavior](serving-and-export.md#single-file-export), including links to original local files.
+Its options include `theme?: string` and `mermaid?: boolean`.
+Retained exports additionally accept the versioned [bundle policy](#bundle-reference).
+
+`exportSite(input, { out?, singleFile? }, options)` writes the requested exports and returns the rendering summary plus `singleFile` and `bytes`.
+It produces portable retained output with [bundled local references](serving-and-export.md#bundled-local-references).
+
 `startViewer(input, options)` adds a local URL and asynchronous `close()`.
 Both report failures by rejecting their promises.
 The CLI prints each warning and reports unavailable Mermaid explicitly.
@@ -264,5 +273,34 @@ This lookup points each failure family to its complete retained-state and recove
 | `Build-time Mermaid needs` | [Content refusal](serving-and-export.md#failure-content-build) |
 | `must be empty` | [Output refusal](serving-and-export.md#failure-output-startup) |
 
-An external local reference is a warning with an original-file URL, not a copied attachment or a validated destination.
+In temporary local-reading mode, an external local reference warns and links to the original file.
+Retained exports instead follow [Bundled local references](serving-and-export.md#bundled-local-references).
 A browser-storage failure is a console warning with a current-page preference, not a build refusal.
+
+<a id="bundle-reference"></a>
+## Bundle policy and source-line fragments
+
+The retained-export policy bounds each additional linked file before reading its bytes.
+It does not cap initially selected documents or the total export size.
+
+| Surface | Field | Default | Valid values |
+|---|---|---|---|
+| API `options.bundle` | `version` | `1` | `1` |
+| API `options.bundle` | `maxFileBytes` | `5000000` | Nonnegative safe integer |
+| CLI | `--max-linked-file-bytes` | API default | Decimal byte count |
+
+The default is 5 MB in decimal bytes. A file exactly at the limit is bundled; a larger file is visibly omitted with its exact size.
+Invalid configuration rejects before output is written.
+The [retained export](serving-and-export.md#bundled-local-references) uses this same policy for both destinations.
+
+Code-page fragments accept `#L42` and `#L10-L20`, with positive decimal line numbers and no leading zeros.
+The ending line must be at least the starting line, and both must exist.
+A range URL resolves to the first line's anchor, such as `#L10`.
+CRLF and CR normalize to LF; a terminal newline does not create an additional numbered line.
+An empty text file has one empty line.
+
+Unsupported or out-of-range fragments authored in input pages reject visibly.
+In bundled references, invalid fragments instead warn and link to the destination top, following [reference fragment validation](decisions-and-questions.md#bundle-fragment-choice).
+
+Other byte sequences become binary downloads; the single file uses `application/octet-stream` for unknown types.
+Generated reference destinations live beneath the reserved `_md-render/references/` output directory and never contain absolute source paths.

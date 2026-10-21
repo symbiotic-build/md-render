@@ -100,11 +100,52 @@ for (const control of appearanceButtons) {
 // Source order defines the reading order. The last heading at or above the
 // viewport's one-third line is current, including jumps past several sections.
 const navigation = menu.querySelector('nav');
+const singlePages = [...document.querySelectorAll('.single-page')];
+function selectSinglePage(target, scroll = true) {
+  const selected = target?.closest('.single-page') || singlePages[0];
+  if (!selected) return;
+  for (const section of singlePages) {
+    if (section === selected) section.removeAttribute('hidden');
+    else section.setAttribute('hidden', 'until-found');
+  }
+  document.title = selected.dataset.title;
+  for (const link of navigation.querySelectorAll('.chapter-row a')) {
+    if (decodeURIComponent(link.hash.slice(1)) === selected.id) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  }
+  for (const link of navigation.querySelectorAll('a[aria-current="location"]')) link.removeAttribute('aria-current');
+  bindSections();
+  expandChapter(pageLink);
+  if (scroll) {
+    const heading = selected.querySelector('h1,h2,h3,h4,h5,h6') || selected;
+    heading.setAttribute('tabindex', '-1');
+    heading.focus({ preventScroll: true });
+    (target || selected).scrollIntoView();
+  }
+}
+function routeSinglePage() {
+  if (!singlePages.length) return;
+  const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+  if (target && !target.closest('.single-page')) return;
+  selectSinglePage(target);
+  observeSections();
+}
+for (const section of singlePages) section.addEventListener('beforematch', event => {
+  selectSinglePage(event.target, false);
+  // Preserve an incoming fragment; find-in-page has no incoming hash to retain.
+  requestAnimationFrame(() => {
+    const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (target?.closest('.single-page') !== section) history.replaceState(null, '', '#' + encodeURIComponent(section.id));
+  });
+  observeSections();
+});
+addEventListener('hashchange', routeSinglePage);
+
 let pageLink;
 let sections;
 function bindSections() {
   pageLink = navigation.querySelector('a[aria-current="page"]');
-  sections = [...navigation.querySelectorAll('a[href^="#"]')].map((link) => {
+  sections = [...navigation.querySelectorAll('a[href^="#"]')].filter(link => !singlePages.length || decodeURIComponent(link.hash.slice(1)).startsWith(decodeURIComponent(pageLink.hash.slice(1)) + '--')).map((link) => {
     const target = document.getElementById(decodeURIComponent(link.hash.slice(1)));
     // Explicit anchors can sit in an empty paragraph before the actual heading.
     const next = target?.closest('p')?.nextElementSibling ?? target?.nextElementSibling;
@@ -114,7 +155,8 @@ function bindSections() {
   currentLink = pageLink;
 }
 let currentLink;
-bindSections();
+if (singlePages.length) selectSinglePage(document.getElementById(decodeURIComponent(location.hash.slice(1))), false);
+else bindSections();
 function revealCurrent() {
   if (!currentLink || menu.hidden || !currentLink.getClientRects().length) return;
   const link = currentLink.getBoundingClientRect();
@@ -183,6 +225,7 @@ followHash();
 document.fonts.ready.then(() => { trackSection(); revealCurrent(); });
 
 
+if (!singlePages.length) {
 // Rendered output is immutable during a viewer session. The cache is transient;
 // insertion order evicts the oldest request, including unfinished prefetches.
 // Resolve shell assets before pushState changes the base for relative URLs.
@@ -362,4 +405,6 @@ if (/^https?:$/.test(location.protocol)) {
     } else changePage(url, position, false, nextKey);
   });
   prefetchAdjacent();
+}
+
 }

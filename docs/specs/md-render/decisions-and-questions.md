@@ -124,6 +124,49 @@ Each answer defines scope; an implementation gap does not reopen the decision.
 
 **Rejected alternatives:** Checking ancestors above the source root broadens the settled boundary. Checking only the final filename misses symlinked parent directories inside it.
 
+<a id="bundle-local-files-choice"></a>
+## Bundle local files for sharing
+
+**Choice:** Bundle local files linked by the input’s own rendered pages in both retained export formats, including Markdown outside the input root.
+
+**Authority:** Operator decision, 2026-10-18: “no they should get bundled in”. This supersedes original-file links in retained exports.
+
+**Reason:** An export must work on another machine. Machine-local destinations do not satisfy that purpose.
+The [bundling procedure](serving-and-export.md#bundled-local-references) defines portable destinations and visible exceptions.
+
+**Rejected alternatives:** Retaining original-file URLs requires the author's filesystem. Dropping local links loses requested material.
+
+**Implementation proposal:** Render text with line numbers and use a versioned per-file byte limit.
+Keep the viewer's existing local-reading behavior and expose portable retained output through `exportSite`.
+The [reference](reference.md#bundle-reference) defines the configurable bound and accepted line-fragment forms for lead acceptance.
+
+<a id="bundle-depth-choice"></a>
+## Bundle one level of local references
+
+**Choice:** Bundle local files linked directly from the input’s own rendered pages, including registered documents and directly rendered in-root Markdown pages.
+Do not discover further files through bundled references.
+Further local links retain their authored label as plain text, followed by “not bundled” and the portable path label.
+Warn once per unbundled target; never show an absolute path or original-machine URL.
+
+**Authority:** Lead decision, 2026-10-18, refining the operator’s “bundle them in” decision.
+
+**Reason:** Recursive discovery expanded 45 direct references into 365 Markdown and 120 text pages, mostly unrelated notes, according to the lead’s export evidence.
+
+**Rejected alternatives:** Recursive inclusion adds unrelated material. Silent omission hides the boundary from readers.
+
+<a id="bundle-fragment-choice"></a>
+## Warn for broken fragments in bundled references
+
+**Choice:** Keep fragment validation strict for links authored in the input’s own pages; a broken fragment refuses export.
+In a bundled reference page, a missing destination fragment links to that page’s top and produces a visible warning.
+The export continues.
+
+**Authority:** Lead decision, 2026-10-18, refining the operator’s “bundle them in” decision.
+
+**Reason:** Supporting files can contain stale fragments without preventing readers from sharing the selected document.
+
+**Rejected alternatives:** Relaxing selected-page validation hides input defects. Refusing stale reference fragments prevents the requested export.
+
 <a id="open-questions"></a>
 ## Open questions and implementation evidence
 

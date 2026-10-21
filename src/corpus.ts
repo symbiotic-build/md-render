@@ -1,4 +1,4 @@
-import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
+import { lstat, open, readdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 /** A Markdown source and its location relative to the selected source root. */
@@ -33,10 +33,31 @@ export function within(root: string, relative: string): string {
 /** Reads regular UTF-8 inputs; symbolic links and malformed encoding fail visibly. */
 export async function readSource(root: string, relative: string): Promise<Buffer> {
   const absolute = within(root, relative);
-  if (!(await lstat(absolute)).isFile() || await realpath(absolute) !== absolute) {
+  const info = await lstat(absolute);
+  if (!info.isFile() || await realpath(absolute) !== absolute) {
     throw new Error(`Input must be a regular file without symlinks: ${relative}`);
   }
   return readFile(absolute);
+}
+
+/** Reads at most the limit plus one detection byte; an oversized snapshot returns its observed size. */
+export async function readLimitedFile(absolute: string, maxFileBytes: number): Promise<Buffer | number> {
+  const handle = await open(absolute, 'r');
+  try {
+    const chunks: Buffer[] = [];
+    let length = 0;
+    while (length <= maxFileBytes) {
+      const buffer = Buffer.alloc(Math.min(64 * 1024, maxFileBytes - length + 1));
+      const { bytesRead } = await handle.read(buffer);
+      if (!bytesRead) break;
+      chunks.push(buffer.subarray(0, bytesRead));
+      length += bytesRead;
+    }
+    if (length > maxFileBytes) return Math.max(length, (await handle.stat()).size);
+    return Buffer.concat(chunks, length);
+  } finally {
+    await handle.close();
+  }
 }
 
 async function optionalJson(root: string, relative: string): Promise<unknown | undefined> {
