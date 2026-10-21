@@ -99,3 +99,7 @@ the compiled command.
 ## License
 
 Apache License 2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+## About
+
+md-render is built by [Symbiotic Labs](https://symbiotic.build).
