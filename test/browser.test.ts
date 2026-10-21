@@ -18,6 +18,7 @@ it('checks rendered menu, theme controls, storage failure and diagram contrast i
       const output = path.join(source, theme);
       await renderSite(path.join(source, 'index.md'), output, { theme });
       await withBrowser(async (browser) => {
+        await browser.send('Emulation.setCPUThrottlingRate', { rate: 6 });
         await browser.send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 800, deviceScaleFactor: 1, mobile: false });
         const url = pathToFileURL(path.join(output, 'index.html')).href;
         await browser.navigate(url);
@@ -78,8 +79,10 @@ it('checks rendered menu, theme controls, storage failure and diagram contrast i
           console.log(`${theme} ${mode}: minimum diagram contrast ${Math.min(...contrast).toFixed(2)}:1 (${contrast.length} pairs)`);
         }
         await browser.navigate(url);
-        expect(await browser.evaluate(`document.documentElement.dataset.theme`)).toBe('dark');
-        expect(await browser.evaluate(`[...document.querySelectorAll('.theme-switch button[aria-pressed="true"]')].map(b=>b.value)`)).toEqual(['dark']);
+        await expect.poll(() => browser.evaluate(`({
+          theme: document.documentElement.dataset.theme,
+          selected: [...document.querySelectorAll('.theme-switch button[aria-pressed="true"]')].map(button => button.value),
+        })`), { timeout: 5_000 }).toEqual({ theme: 'dark', selected: ['dark'] });
         await browser.evaluate(`document.querySelector('.theme-switch button[value="system"]').click()`);
         expect(await browser.evaluate(`[...document.querySelectorAll('.theme-switch button[aria-pressed="true"]')].map(b=>b.value)`)).toEqual(['system']);
         expect(await browser.evaluate(`document.documentElement.hasAttribute('data-theme')`)).toBe(false);
