@@ -62,8 +62,12 @@ A write failure can leave a partial new target, which the caller must inspect be
 
 Reuse source selection, link validation, sanitized Markdown, diagrams and the page shell from folder rendering.
 Serialize sanitized bodies and render diagrams once; derive standalone URLs and page identifiers from that prepared output, preserving diagram identifiers.
+During shared preparation, refuse distinct source pages that map to the same generated page destination before writing any output.
+
 Render and validate before writing the single file.
 Inline styles and scripts; encode the logo, images and stylesheet resources as data URIs.
+Discover stylesheet `url(...)` and `@import` resources only outside comments and quoted strings, respecting backslash escapes in strings.
+Preserve literal dollar sequences when inserting imported stylesheet text.
 Reject unavailable resources and remote stylesheet dependencies visibly without attempting network access.
 
 Retain rendered SVG diagrams or the existing readable offline source fallback.
@@ -138,6 +142,9 @@ Also convert absolute input/home paths appearing in visible prose or code.
 Keep authored anchor identifiers and validate fragments against their original identifiers.
 If an authored identifier contains an absolute input-root or home path, refuse export with a diagnostic naming the page and identifier.
 The author must rename the identifier before rebuilding.
+If an external URL contains an absolute input-root or home path, refuse export with a diagnostic naming the page and URL.
+The author must remove the machine path before rebuilding; other external URLs stay unchanged.
+
 Replace occurrences by their original text offsets, so inserted labels cannot consume a later original occurrence.
 
 Retained exports remove original-machine URLs and absolute input/home paths from generated HTML, text and Markdown-derived content, with these exceptions for author files.

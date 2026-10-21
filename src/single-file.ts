@@ -10,6 +10,84 @@ function dataUri(file: string, bytes: Buffer): string {
   return `data:${mime ?? 'application/octet-stream'};base64,${bytes.toString('base64')}`;
 }
 
+interface CssResource { start: number; end: number; value: string; condition?: string }
+
+function cssResources(css: string): CssResource[] {
+  const resources: CssResource[] = [];
+  let i = 0;
+  const comment = (): boolean => {
+    if (!css.startsWith('/*', i)) return false;
+    const end = css.indexOf('*/', i + 2);
+    i = end < 0 ? css.length : end + 2;
+    return true;
+  };
+  const space = (): void => {
+    while (i < css.length) {
+      if (/\s/.test(css[i]!)) i++;
+      else if (!comment()) break;
+    }
+  };
+  const quoted = (): string => {
+    const quote = css[i++]!;
+    const start = i;
+    while (i < css.length) {
+      if (css[i] === '\\') i += 2;
+      else if (css[i++] === quote) return css.slice(start, i - 1);
+    }
+    return css.slice(start);
+  };
+  const url = (): string => {
+    i++; // Opening parenthesis of the url() function.
+    space();
+    let value = '';
+    if (css[i] === '"' || css[i] === "'") value = quoted();
+    else {
+      while (i < css.length && css[i] !== ')') {
+        if (comment()) continue;
+        if (css[i] === '\\') value += css[i++]!;
+        value += css[i++] ?? '';
+      }
+    }
+    space();
+    if (css[i++] !== ')') throw new Error('Unsupported stylesheet url()');
+    return value.trim();
+  };
+  while (i < css.length) {
+    if (comment()) continue;
+    if (css[i] === '"' || css[i] === "'") { quoted(); continue; }
+    if (css[i] === '\\') { i += 2; continue; }
+    const start = i;
+    const imported = css[i] === '@';
+    if (imported) i++;
+    const word = i;
+    while (i < css.length && /[\w-]/.test(css[i]!)) i++;
+    const name = css.slice(word, i).toLowerCase();
+    if (imported && name === 'import') {
+      space();
+      let value: string;
+      if (css[i] === '"' || css[i] === "'") value = quoted();
+      else if (css.slice(i, i + 4).toLowerCase() === 'url(') { i += 3; value = url(); }
+      else throw new Error('Unsupported stylesheet import');
+      const conditionStart = i;
+      let depth = 0;
+      while (i < css.length) {
+        if (comment()) continue;
+        if (css[i] === '"' || css[i] === "'") { quoted(); continue; }
+        if (css[i] === ';' && depth === 0) break;
+        if (css[i] === '(') depth++;
+        if (css[i] === ')') depth--;
+        i++;
+      }
+      if (css[i++] !== ';') throw new Error('Unsupported stylesheet import');
+      resources.push({ start, end: i, value, condition: css.slice(conditionStart, i - 1).trim() });
+    } else if (!imported && name === 'url' && css[i] === '(') {
+      const value = url();
+      resources.push({ start, end: i, value });
+    } else if (i === start) i++;
+  }
+  return resources;
+}
+
 async function inlineCss(source: string, active = new Set<string>()): Promise<string> {
   if (active.has(source)) throw new Error(`Cyclic stylesheet import: ${source}`);
   active.add(source);
@@ -19,20 +97,23 @@ async function inlineCss(source: string, active = new Set<string>()): Promise<st
     if (value.includes('\\')) throw new Error(`Cannot embed escaped stylesheet resource: ${value}`);
     return path.resolve(path.dirname(source), decodeURIComponent(value.split(/[?#]/)[0]!));
   };
-  // Expand local imports before URLs so each stylesheet keeps its own resource base.
-  for (const match of [...css.matchAll(/@import\s+(?:url\(\s*(['"]?)(.*?)\1\s*\)|(['"])(.*?)\3)\s*([^;]*);/gi)]) {
-    const imported = await inlineCss(local((match[2] ?? match[4])!), new Set(active));
-    const condition = match[5]!.trim();
-    if (/\b(?:layer|supports)\b/i.test(condition)) throw new Error(`Unsupported stylesheet import condition: ${condition}`);
-    css = css.replace(match[0], condition ? `@media ${condition}{${imported}}` : imported);
-  }
-  if (/@import\b/i.test(css)) throw new Error(`Unsupported stylesheet import: ${source}`);
-  for (const match of [...css.matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/gi)]) {
-    const url = match[2]!.trim();
-    if (url.startsWith('#') || url.startsWith('data:')) continue;
-    const file = local(url);
-    const fragment = url.includes('#') ? url.slice(url.indexOf('#')) : '';
-    css = css.replace(match[0], `url("${dataUri(file, await readFile(file))}${fragment}")`);
+  // Replace from right to left so scanner offsets still refer to the original text.
+  // Each imported stylesheet resolves its own resources before insertion.
+  for (const resource of cssResources(css).reverse()) {
+    let replacement: string;
+    if (resource.condition !== undefined) {
+      const imported = await inlineCss(local(resource.value), new Set(active));
+      const condition = resource.condition;
+      if (/\b(?:layer|supports)\b/i.test(condition)) throw new Error(`Unsupported stylesheet import condition: ${condition}`);
+      replacement = condition ? `@media ${condition}{${imported}}` : imported;
+    } else {
+      const url = resource.value;
+      if (url.startsWith('#') || url.startsWith('data:')) continue;
+      const file = local(url);
+      const fragment = url.includes('#') ? url.slice(url.indexOf('#')) : '';
+      replacement = `url("${dataUri(file, await readFile(file))}${fragment}")`;
+    }
+    css = css.slice(0, resource.start) + css.slice(resource.start).replace(css.slice(resource.start, resource.end), () => replacement);
   }
   return css.replace(/<\/style/gi, '\\3c /style');
 }

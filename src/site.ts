@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadCorpus, readSource, within, type Corpus } from './corpus.js';
 import { bundleReferences, type ReferenceTarget } from './references.js';
@@ -189,6 +190,13 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
     }
   }
   const references = bundle ? await bundleReferences(corpus, docs, files, maxFileBytes) : undefined;
+  const destinations = new Map<string, string>();
+  for (const file of docs.keys()) {
+    const destination = path.posix.normalize(pagePath(file));
+    const previous = destinations.get(destination);
+    if (previous !== undefined) throw new Error(`Duplicate generated page destination: ${destination} (${previous}, ${file})`);
+    destinations.set(destination, file);
+  }
   const meanings = new Map<string, string>();
   for (const home of corpus.entities) {
     const meaning = docs.get(home.path)?.meanings.get(home.anchor);
@@ -206,6 +214,9 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
     }
     transformUrls(doc, (url, image) => {
       if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(url)) {
+        if (bundle && (url.includes(corpus.root) || url.includes(homedir()))) {
+          throw new Error(`External URL contains an absolute input or home path: ${file} -> ${url}`);
+        }
         if (image && !/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(url)) throw new Error(`Remote or unsupported image in ${file}: ${url}`);
         if (!image && !/^(?:https?:|mailto:|tel:|\/\/)/i.test(url)) throw new Error(`Unsupported link in ${file}: ${url}`);
         return { url };
