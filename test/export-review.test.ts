@@ -58,6 +58,38 @@ it('preserves dollar sequences in imported stylesheet text', async () => {
   expect(output).toContain(imported);
 });
 
+it.each([
+  [String.raw`\22`, String.raw`\"`],
+  [String.raw`\5c`, String.raw`\\`],
+  [String.raw`line\a break`, String.raw`line\a break`],
+  [String.raw`line\d break`, String.raw`line\d break`],
+  [String.raw`line\c break`, String.raw`line\c break`],
+  [String.raw`control\1 f`, String.raw`control\1 f`],
+  [String.raw`control\9 f`, String.raw`control\9 f`],
+  [String.raw`control\1f f`, String.raw`control\1f f`],
+  [String.raw`control\7f f`, String.raw`control\7f f`],
+])('serializes embedded CSS URL fragments without changing their meaning: %s', async (fragment, serialized) => {
+  const output = await stylesheet(`.sd-doc{background:url("pixel.svg#${fragment}")}`, { 'pixel.svg': '<svg/>' });
+  expect(output).toContain(`.sd-doc{background:url("data:image/svg+xml;base64,PHN2Zy8+#${serialized}")}`);
+});
+
+it.each([
+  ['pixel.svg ', ''], [' pixel.svg', ''], ['\t pixel.svg \t', ''], [' pixel.svg#paint ', '#paint'],
+])('excludes surrounding CSS URL whitespace from embedded local references: %s', async (reference, fragment) => {
+  const output = await stylesheet(`.sd-doc{background:url("${reference}")}`, { 'pixel.svg': '<svg/>' });
+  expect(output).toContain(`.sd-doc{background:url("data:image/svg+xml;base64,PHN2Zy8+${fragment}")}`);
+});
+
+it('treats a decoded backslash as a file-URL path separator on POSIX', async () => {
+  const output = await stylesheet(String.raw`.sd-doc{background:url("icons\\pixel.svg")}`, { 'icons/pixel.svg': '<svg/>' });
+  expect(output).toContain('.sd-doc{background:url("data:image/svg+xml;base64,PHN2Zy8+")}');
+});
+
+it('resolves CSS imports after excluding surrounding URL whitespace', async () => {
+  const output = await stylesheet('@import " import.css ";', { 'import.css': ':root{--imported:yes}' });
+  expect(output).toContain(':root{--imported:yes}');
+});
+
 it.each(['missing.png', 'https://example.com/pixel.png'])('refuses real unavailable CSS resources: %s', async resource => {
   await expect(stylesheet(`.sd-doc{background:url("${resource}")}`)).rejects.toThrow(resource.startsWith('https:') ? 'Cannot embed remote stylesheet resource' : 'ENOENT');
 });

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { escapeHtml, page, pageContent, prepareSite, writeSite, type PreparedSite, type RenderOptions } from './site.js';
 
 const mimeTypes: Record<string, string> = { '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf' };
@@ -170,23 +170,25 @@ async function inlineCss(source: string, active = new Set<string>()): Promise<st
   let css = await readFile(source, 'utf8');
   const local = (value: string): string => {
     if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(value)) throw new Error(`Cannot embed remote stylesheet resource: ${value}`);
-    return path.resolve(path.dirname(source), decodeURIComponent(value.split(/[?#]/)[0]!));
+    return fileURLToPath(new URL(value, pathToFileURL(source)));
   };
   // Replace from right to left so scanner offsets still refer to the original text.
   // Each imported stylesheet resolves its own resources before insertion.
   for (const resource of cssResources(css).reverse()) {
+    const url = resource.value.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/g, '');
     let replacement: string;
     if (resource.condition !== undefined) {
-      const imported = await inlineCss(local(resource.value), new Set(active));
+      const imported = await inlineCss(local(url), new Set(active));
       const condition = resource.condition;
       if (/\b(?:layer|supports)\b/i.test(condition)) throw new Error(`Unsupported stylesheet import condition: ${condition}`);
       replacement = condition ? `@media ${condition}{${imported}}` : imported;
     } else {
-      const url = resource.value;
       if (url.startsWith('#') || url.startsWith('data:')) continue;
       const file = local(url);
       const fragment = url.includes('#') ? url.slice(url.indexOf('#')) : '';
-      replacement = `url("${dataUri(file, await readFile(file))}${fragment}")`;
+      const embedded = (dataUri(file, await readFile(file)) + fragment).replace(/["\\\x00-\x1f\x7f]/g, character =>
+        character === '"' || character === '\\' ? '\\' + character : '\\' + character.charCodeAt(0).toString(16) + ' ');
+      replacement = `url("${embedded}")`;
     }
     css = css.slice(0, resource.start) + css.slice(resource.start).replace(css.slice(resource.start, resource.end), () => replacement);
   }
