@@ -77,23 +77,20 @@ it('checks rendered menu, theme controls, storage failure and diagram contrast i
           expect(Math.min(...contrast)).toBeGreaterThanOrEqual(4.5);
           console.log(`${theme} ${mode}: minimum diagram contrast ${Math.min(...contrast).toFixed(2)}:1 (${contrast.length} pairs)`);
         }
-        await browser.send('DOMStorage.enable');
-        const { frameTree: { frame } } = await browser.send('Page.getFrameTree');
-        const { storageKey } = await browser.send('Storage.getStorageKeyForFrame', { frameId: frame.id });
+        // Chromium applies localStorage writes asynchronously, so a document loaded right
+        // after the click may still read the old value. Reload until the saved theme is
+        // restored; a restore defect never gets there and fails at the deadline.
         await expect.poll(async () => {
-          const { entries } = await browser.send('DOMStorage.getDOMStorageItems', {
-            storageId: { storageKey, isLocalStorage: true },
-          });
-          return entries;
+          await browser.navigate(url);
+          return browser.evaluate(`({
+            theme: document.documentElement.dataset.theme,
+            selected: [...document.querySelectorAll('.theme-switch button[aria-pressed="true"]')].map(button => button.value),
+          })`);
         }, {
           timeout: 5_000,
-          message: 'Before reload, browser storage must hold md-render-theme=dark; last DOMStorage items',
-        }).toContainEqual(['md-render-theme', 'dark']);
-        await browser.navigate(url);
-        expect(await browser.evaluate(`({
-          theme: document.documentElement.dataset.theme,
-          selected: [...document.querySelectorAll('.theme-switch button[aria-pressed="true"]')].map(button => button.value),
-        })`)).toEqual({ theme: 'dark', selected: ['dark'] });
+          interval: 100,
+          message: 'After reloading, the saved dark theme must be restored',
+        }).toEqual({ theme: 'dark', selected: ['dark'] });
         await browser.evaluate(`document.querySelector('.theme-switch button[value="system"]').click()`);
         expect(await browser.evaluate(`[...document.querySelectorAll('.theme-switch button[aria-pressed="true"]')].map(b=>b.value)`)).toEqual(['system']);
         expect(await browser.evaluate(`document.documentElement.hasAttribute('data-theme')`)).toBe(false);
