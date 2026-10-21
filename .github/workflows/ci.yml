@@ -22,7 +22,7 @@ jobs:
       - run: pnpm test:report < /dev/null
       - uses: actions/checkout@v7
         with:
-          repository: symbiotic-sh/house-rules
+          repository: symbiotic-build/house-rules
           ref: e8a17db0a3af83b597f1d313e0d9a2b4f688edd3
           path: .tmp/house-rules
       - uses: actions/setup-python@v6
