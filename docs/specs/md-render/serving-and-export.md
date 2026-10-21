@@ -36,6 +36,10 @@ Unlike temporary viewing, these files remain after process exit.
 The [source corpus](selecting-sources.md#source-corpus) is not modified.
 HTML pages, copied images, bundled linked files, theme assets and any root redirect are derived output.
 Both retained formats follow [Bundled local references](#bundled-local-references).
+
+Before writing any folder files, exclusively create the reserved asset directory to admit one writer.
+Concurrent exports into the same empty destination cannot both succeed; the refused export leaves the admitted writer's files unchanged.
+
 The renderer has no transactional export staging layer.
 A failure can leave a partially populated static destination; rerunning into that nonempty destination is refused.
 Recover by choosing a new empty directory or removing only the failed output after inspecting it.
@@ -66,7 +70,14 @@ During shared preparation, refuse distinct source pages that map to the same gen
 
 Render and validate before writing the single file.
 Inline styles and scripts; encode the logo, images and stylesheet resources as data URIs.
-Discover stylesheet `url(...)` and `@import` resources only outside comments and quoted strings, respecting backslash escapes in strings.
+
+Discover resources with the [CSS Syntax Module Level 3 tokenizer, §4.3](https://www.w3.org/TR/css-syntax-3/#tokenization).
+Consume complete comments, strings, hash tokens, at-keyword tokens and ident-like tokens, including non-ASCII code points and decoded escapes (§4.3.7).
+A resource is a url-token, or a function token named `url` followed by a string token.
+An at-keyword named `import` followed by a string or URL supplies a stylesheet import; names match without ASCII case distinctions.
+Unquoted url-tokens retain comment-shaped text as literal URL characters (§4.3.6).
+Hash tokens and other identifier names never load files merely because they contain `url`.
+
 Preserve literal dollar sequences when inserting imported stylesheet text.
 Reject unavailable resources and remote stylesheet dependencies visibly without attempting network access.
 

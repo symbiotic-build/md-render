@@ -13,77 +13,153 @@ function dataUri(file: string, bytes: Buffer): string {
 interface CssResource { start: number; end: number; value: string; condition?: string }
 
 function cssResources(css: string): CssResource[] {
-  const resources: CssResource[] = [];
+  // CSS Syntax Level 3 §4.3: consume whole tokens before recognizing resources.
+  // Offsets stay in the authored text; code points are preprocessed as in §3.3.
   let i = 0;
-  const comment = (): boolean => {
-    if (!css.startsWith('/*', i)) return false;
-    const end = css.indexOf('*/', i + 2);
-    i = end < 0 ? css.length : end + 2;
-    return true;
+  const point = (at = i): string => {
+    const value = css.codePointAt(at);
+    if (value === undefined) return '';
+    if (value === 13 || value === 12) return '\n';
+    return value === 0 || value >= 0xd800 && value <= 0xdfff ? '\ufffd' : String.fromCodePoint(value);
   };
-  const space = (): void => {
-    while (i < css.length) {
-      if (/\s/.test(css[i]!)) i++;
-      else if (!comment()) break;
-    }
+  const consume = (): string => {
+    const value = point();
+    if (css[i] === '\r' && css[i + 1] === '\n') i += 2;
+    else i += value.length || 1;
+    return value;
   };
-  const quoted = (): string => {
-    const quote = css[i++]!;
+  const whitespace = (value: string): boolean => value === ' ' || value === '\n' || value === '\t';
+  const identStart = (value: string): boolean => /[a-zA-Z_]/.test(value) || (value.codePointAt(0) ?? 0) >= 0x80;
+  const identPoint = (value: string): boolean => identStart(value) || /[0-9-]/.test(value);
+  const validEscape = (at = i): boolean => point(at) === '\\' && point(at + 1) !== '\n';
+  const startsIdent = (): boolean => identStart(point()) || validEscape() ||
+    point() === '-' && (identStart(point(i + 1)) || point(i + 1) === '-' || validEscape(i + 1));
+  const spaces = (): void => { while (whitespace(point())) consume(); };
+  const escaped = (): string => {
+    consume(); // Backslash.
     const start = i;
-    while (i < css.length) {
-      if (css[i] === '\\') i += 2;
-      else if (css[i++] === quote) return css.slice(start, i - 1);
-    }
-    return css.slice(start);
+    while (i - start < 6 && /[0-9a-fA-F]/.test(point()) && point()) consume();
+    if (i === start) return i < css.length ? consume() : '\ufffd';
+    const value = parseInt(css.slice(start, i), 16);
+    if (whitespace(point())) consume();
+    return value === 0 || value >= 0xd800 && value <= 0xdfff || value > 0x10ffff ? '\ufffd' : String.fromCodePoint(value);
   };
-  const url = (): string => {
-    i++; // Opening parenthesis of the url() function.
-    space();
+  const ident = (): string => {
     let value = '';
-    if (css[i] === '"' || css[i] === "'") value = quoted();
-    else {
-      while (i < css.length && css[i] !== ')') {
-        if (comment()) continue;
-        if (css[i] === '\\') value += css[i++]!;
-        value += css[i++] ?? '';
-      }
+    while (i < css.length) {
+      if (identPoint(point())) value += consume();
+      else if (validEscape()) value += escaped();
+      else break;
     }
-    space();
-    if (css[i++] !== ')') throw new Error('Unsupported stylesheet url()');
-    return value.trim();
+    return value;
   };
-  while (i < css.length) {
-    if (comment()) continue;
-    if (css[i] === '"' || css[i] === "'") { quoted(); continue; }
-    if (css[i] === '\\') { i += 2; continue; }
+  type Token = { kind: string; value: string; start: number; end: number };
+  const token = (): Token => {
+    while (css.startsWith('/*', i)) {
+      const end = css.indexOf('*/', i + 2);
+      i = end < 0 ? css.length : end + 2;
+    }
     const start = i;
-    const imported = css[i] === '@';
-    if (imported) i++;
-    const word = i;
-    while (i < css.length && /[\w-]/.test(css[i]!)) i++;
-    const name = css.slice(word, i).toLowerCase();
-    if (imported && name === 'import') {
-      space();
-      let value: string;
-      if (css[i] === '"' || css[i] === "'") value = quoted();
-      else if (css.slice(i, i + 4).toLowerCase() === 'url(') { i += 3; value = url(); }
-      else throw new Error('Unsupported stylesheet import');
+    const result = (kind: string, value = ''): Token => ({ kind, value, start, end: i });
+    if (i >= css.length) return result('eof');
+    if (whitespace(point())) { spaces(); return result('space'); }
+    if (point() === '"' || point() === "'") {
+      const quote = consume();
+      let value = '';
+      while (i < css.length) {
+        if (point() === quote) { consume(); break; }
+        if (point() === '\n') return result('bad-string');
+        if (point() !== '\\') value += consume();
+        else if (point(i + 1) === '\n') { consume(); consume(); }
+        else if (i + 1 === css.length) consume();
+        else value += escaped();
+      }
+      return result('string', value);
+    }
+    if (point() === '#') {
+      consume();
+      return identPoint(point()) || validEscape() ? result('hash', ident()) : result('delim', '#');
+    }
+    if (point() === '@') {
+      consume();
+      return startsIdent() ? result('at-keyword', ident()) : result('delim', '@');
+    }
+    // Numeric tokens consume their dimension's ident sequence, never a URL function.
+    const number = /^[+-]?(?:[0-9]*\.[0-9]+|[0-9]+)(?:[eE][+-]?[0-9]+)?/.exec(css.slice(i));
+    if (number) {
+      i += number[0].length;
+      if (startsIdent()) ident();
+      else if (point() === '%') consume();
+      return result('numeric');
+    }
+    if (startsIdent()) {
+      const name = ident();
+      if (point() !== '(') return result('ident', name);
+      consume();
+      if (name.toLowerCase() !== 'url') return result('function', name);
+      spaces();
+      if (point() === '"' || point() === "'") return result('function', name);
+      let value = '';
+      while (i < css.length) {
+        if (point() === ')') { consume(); return result('url', value); }
+        if (whitespace(point())) {
+          spaces();
+          if (point() === ')' || i >= css.length) {
+            if (point() === ')') consume();
+            return result('url', value);
+          }
+          break;
+        }
+        if (point() === '"' || point() === "'" || point() === '(' || /[\x00-\x08\x0b\x0e-\x1f\x7f]/.test(point())) break;
+        if (point() === '\\') {
+          if (!validEscape()) break;
+          value += escaped();
+        } else value += consume(); // Comment-shaped text is literal inside a url-token.
+      }
+      if (i >= css.length) return result('url', value);
+      // §4.3.15: consume a bad URL through its first unescaped closing parenthesis.
+      while (i < css.length) {
+        if (point() === ')') { consume(); break; }
+        if (validEscape()) escaped();
+        else consume();
+      }
+      return result('bad-url');
+    }
+    return result('delim', consume());
+  };
+  const next = (): Token => {
+    let value = token();
+    while (value.kind === 'space') value = token();
+    return value;
+  };
+  const resourceValue = (first: Token): string | undefined => {
+    if (first.kind === 'url') return first.value;
+    if (first.kind !== 'function' || first.value.toLowerCase() !== 'url') return undefined;
+    const value = next();
+    const closing = next();
+    if (value.kind !== 'string' || closing.kind !== 'delim' || closing.value !== ')') throw new Error('Unsupported stylesheet url()');
+    return value.value;
+  };
+  const resources: CssResource[] = [];
+  for (let current = next(); current.kind !== 'eof'; current = next()) {
+    if (current.kind === 'at-keyword' && current.value.toLowerCase() === 'import') {
+      const first = next();
+      const value = first.kind === 'string' ? first.value : resourceValue(first);
+      if (value === undefined) throw new Error('Unsupported stylesheet import');
       const conditionStart = i;
       let depth = 0;
-      while (i < css.length) {
-        if (comment()) continue;
-        if (css[i] === '"' || css[i] === "'") { quoted(); continue; }
-        if (css[i] === ';' && depth === 0) break;
-        if (css[i] === '(') depth++;
-        if (css[i] === ')') depth--;
-        i++;
+      let end = next();
+      while (end.kind !== 'eof' && !(end.kind === 'delim' && end.value === ';' && depth === 0)) {
+        if (end.kind === 'function' || end.kind === 'delim' && ['(', '[', '{'].includes(end.value)) depth++;
+        if (end.kind === 'delim' && [')', ']', '}'].includes(end.value)) depth--;
+        end = next();
       }
-      if (css[i++] !== ';') throw new Error('Unsupported stylesheet import');
-      resources.push({ start, end: i, value, condition: css.slice(conditionStart, i - 1).trim() });
-    } else if (!imported && name === 'url' && css[i] === '(') {
-      const value = url();
-      resources.push({ start, end: i, value });
-    } else if (i === start) i++;
+      if (end.kind === 'eof') throw new Error('Unsupported stylesheet import');
+      resources.push({ start: current.start, end: end.end, value, condition: css.slice(conditionStart, end.start).trim() });
+    } else {
+      const value = resourceValue(current);
+      if (value !== undefined) resources.push({ start: current.start, end: i, value });
+    }
   }
   return resources;
 }
@@ -94,7 +170,6 @@ async function inlineCss(source: string, active = new Set<string>()): Promise<st
   let css = await readFile(source, 'utf8');
   const local = (value: string): string => {
     if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(value)) throw new Error(`Cannot embed remote stylesheet resource: ${value}`);
-    if (value.includes('\\')) throw new Error(`Cannot embed escaped stylesheet resource: ${value}`);
     return path.resolve(path.dirname(source), decodeURIComponent(value.split(/[?#]/)[0]!));
   };
   // Replace from right to left so scanner offsets still refer to the original text.

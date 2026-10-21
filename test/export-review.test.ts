@@ -1,9 +1,9 @@
 import { afterEach, expect, it } from 'vitest';
-import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { exportSite } from '../src/single-file.js';
-import { renderSite } from '../src/site.js';
+import { prepareSite, renderSite, writeSite } from '../src/site.js';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -18,7 +18,11 @@ async function fixture() {
 async function stylesheet(css: string, resources: Record<string, string> = {}) {
   const setup = await fixture();
   await writeFile(setup.theme, css);
-  for (const [name, text] of Object.entries(resources)) await writeFile(path.join(setup.root, name), text);
+  for (const [name, text] of Object.entries(resources)) {
+    const file = path.join(setup.root, name);
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, text);
+  }
   await exportSite(setup.input, { singleFile: setup.singleFile }, { theme: setup.theme, mermaid: false });
   return (await readFile(setup.singleFile, 'utf8')).match(/<style>([\s\S]*?)<\/style>/)![1]!;
 }
@@ -92,4 +96,70 @@ it('preserves external URLs without machine paths in both exports', async () => 
   for (const file of [singleFile, path.join(out, 'index.html')]) {
     expect((await readFile(file, 'utf8')).replaceAll('&#x26;', '&amp;').match(/<a href="[^"]*">External<\/a>/g)).toEqual(urls.map(url => `<a href="${url.replaceAll('&', '&amp;')}">External</a>`));
   }
+});
+
+it.each(['#url(private.txt)', 'éurl("private.txt")', String.raw`#u\72l(private.txt)`, '😀url("private.txt")', '1url("private.txt")', '@url("private.txt")'])(
+  'does not read an existing private file in a non-resource CSS token: %s', async css => {
+    const { root, input, singleFile, theme } = await fixture();
+    await writeFile(theme, css);
+    const privateFile = path.join(root, 'private.txt');
+    await writeFile(privateFile, 'Synthetic private bytes');
+    // A successful export also proves the scanner never tried to read this file.
+    await chmod(privateFile, 0);
+    await exportSite(input, { singleFile }, { theme, mermaid: false });
+    const output = (await readFile(singleFile, 'utf8')).match(/<style>([\s\S]*?)<\/style>/)![1]!;
+    expect({ token: output.includes(css), embedded: output.includes(Buffer.from('Synthetic private bytes').toString('base64')) })
+      .toEqual({ token: true, embedded: false });
+  },
+);
+
+it.each([
+  String.raw`u\72l("pixel.svg")`, String.raw`\75\000072 l(pixel.svg)`,
+  String.raw`URL("p\69xel.svg")`, String.raw`url(p\69xel.svg)`,
+  'url(\t\r\n"pi\\\r\nxel.svg")', String.raw`url("pixel\0.svg")`,
+  String.raw`url("pixel\d800.svg")`, String.raw`url("pixel\110000.svg")`,
+])('embeds CSS resources using decoded escapes: %s', async css => {
+  const output = await stylesheet(`.sd-doc{background:${css}}`, { 'pixel.svg': '<svg/>', 'pixel�.svg': '<svg/>' });
+  expect(output).toContain('.sd-doc{background:url("data:image/svg+xml;base64,PHN2Zy8+")}');
+});
+
+it.each([String.raw`@\69mport "import.css";`, String.raw`@IMPORT u\72l("import.css");`])(
+  'embeds CSS imports using decoded names: %s', async css => {
+    const output = await stylesheet(css, { 'import.css': ':root{--imported:yes}' });
+    expect(output).toContain(':root{--imported:yes}');
+    expect(output).not.toContain(css);
+  },
+);
+
+it('preserves comment-shaped characters inside an unquoted CSS URL', async () => {
+  const output = await stylesheet('.sd-doc{background:url(a/*b*/c.svg)}', {
+    'a/*b*/c.svg': '<svg/>', 'ac.svg': 'Wrong file',
+  });
+  expect(output).toContain('.sd-doc{background:url("data:image/svg+xml;base64,PHN2Zy8+")}');
+});
+
+it('allows exactly one concurrent folder export and preserves all of its files', async () => {
+  const { root, input } = await fixture();
+  const other = path.join(root, 'other');
+  await mkdir(other);
+  await writeFile(path.join(input, 'first.md'), '# First export');
+  await writeFile(path.join(other, 'second.md'), '# Second export');
+  const sites = await Promise.all([
+    prepareSite(input, { mermaid: false }),
+    prepareSite(other, { mermaid: false, theme: 'symbiotic' }),
+  ]);
+  const out = path.join(root, 'folder');
+  await mkdir(out);
+  // Both snapshots are ready before either writer attempts admission to the empty folder.
+  const results = await Promise.allSettled(sites.map(site => writeSite(site, out)));
+  expect(results.map(result => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+  const winner = results.findIndex(result => result.status === 'fulfilled');
+  const baseline = path.join(root, 'baseline');
+  await writeSite(sites[winner]!, baseline);
+  const contents = async (directory: string) => {
+    const names = (await readdir(directory, { recursive: true, withFileTypes: true }))
+      .filter(entry => entry.isFile()).map(entry => path.relative(directory, path.join(entry.parentPath, entry.name))).sort();
+    return Promise.all(names.map(async name => [name, (await readFile(path.join(directory, name))).toString('base64')]));
+  };
+  expect(await contents(out)).toEqual(await contents(baseline));
 });

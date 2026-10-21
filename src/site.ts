@@ -314,6 +314,7 @@ export async function writeSite(site: PreparedSite, output: string): Promise<Ren
   const directory = path.resolve(output);
   await mkdir(directory, { recursive: true });
   if ((await readdir(directory)).length) throw new Error(`Output directory must be empty: ${directory}`);
+  await mkdir(path.join(directory, assets));
   for (const [file, bytes] of files) {
     const target = within(directory, file);
     await mkdir(path.dirname(target), { recursive: true });
