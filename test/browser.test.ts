@@ -77,23 +77,14 @@ it('checks rendered menu, theme controls, storage failure and diagram contrast i
           expect(Math.min(...contrast)).toBeGreaterThanOrEqual(4.5);
           console.log(`${theme} ${mode}: minimum diagram contrast ${Math.min(...contrast).toFixed(2)}:1 (${contrast.length} pairs)`);
         }
-        const beforeTimeOrigin = await browser.evaluate<number>(`performance.timeOrigin`);
-        await browser.navigate(url);
-        try {
-          await expect.poll(() => browser.evaluate(`({
-            theme: document.documentElement.dataset.theme,
-            selected: [...document.querySelectorAll('.theme-switch button[aria-pressed="true"]')].map(button => button.value),
-          })`), { timeout: 5_000 }).toEqual({ theme: 'dark', selected: ['dark'] });
-        } catch (error) {
-          const evidence = await browser.evaluate(`({
-            storedTheme: localStorage.getItem('md-render-theme'),
-            href: location.href,
-            readyState: document.readyState,
-            navigationType: performance.getEntriesByType('navigation')[0]?.type ?? null,
-            timeOrigin: performance.timeOrigin,
-          })`);
-          throw new Error(`Reload theme poll failed: ${JSON.stringify({ beforeTimeOrigin, afterReload: evidence })}`, { cause: error });
-        }
+        // Reload the page the way a reader does. Page.navigate to the same URL is a new
+        // navigation that Chromium may move to another browsing instance, whose renderer can
+        // read storage before this page's write arrives; a reload keeps the browsing instance.
+        await browser.waitForNavigation(() => browser.send('Page.reload'));
+        expect(await browser.evaluate(`({
+          theme: document.documentElement.dataset.theme,
+          selected: [...document.querySelectorAll('.theme-switch button[aria-pressed="true"]')].map(button => button.value),
+        })`)).toEqual({ theme: 'dark', selected: ['dark'] });
         await browser.evaluate(`document.querySelector('.theme-switch button[value="system"]').click()`);
         expect(await browser.evaluate(`[...document.querySelectorAll('.theme-switch button[aria-pressed="true"]')].map(b=>b.value)`)).toEqual(['system']);
         expect(await browser.evaluate(`document.documentElement.hasAttribute('data-theme')`)).toBe(false);
