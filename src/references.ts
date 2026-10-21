@@ -1,10 +1,12 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { lstat, readFile, realpath, stat } from 'node:fs/promises';
+import { lstat, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { visit } from 'unist-util-visit';
-import type { Corpus } from './corpus.js';
+import { readLimitedFile, type Corpus } from './corpus.js';
+import type { Nodes as MarkdownNodes } from 'mdast';
+import type { Nodes as HtmlNodes } from 'hast';
 import { parseDocument, textDocument, transformUrls, type ParsedDocument } from './markdown.js';
 
 const run = promisify(execFile);
@@ -40,6 +42,7 @@ export interface ReferenceTarget {
 /** Resolves original source paths separately from their portable output destinations. */
 export interface BundledReferences {
   target(file: string, pathname: string): ReferenceTarget;
+  resolve(file: string, pathname: string): string;
 }
 
 /** Bundles direct input links before URL rewriting, reusing the shared parsed documents. */
@@ -84,10 +87,9 @@ export async function bundleReferences(corpus: Corpus, docs: Map<string, ParsedD
         targets.set(absolute, { label, kind: 'omitted', size: info.size });
         continue;
       }
-      const bytes = await readFile(absolute);
-      // Check the actual snapshot too, in case the file grew after stat.
-      if (bytes.length > maxFileBytes) {
-        targets.set(absolute, { label, kind: 'omitted', size: bytes.length });
+      const bytes = await readLimitedFile(absolute, maxFileBytes);
+      if (typeof bytes === 'number') {
+        targets.set(absolute, { label, kind: 'omitted', size: bytes });
         continue;
       }
       let text: string | undefined;
@@ -114,11 +116,19 @@ export async function bundleReferences(corpus: Corpus, docs: Map<string, ParsedD
   const escaped = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const absolutePaths = new RegExp(`(?:${[corpus.root, homedir()].map(escaped).join('|')})(?:/[^\\s<>"'\x60)\\],;]+)?`, 'g');
   for (const doc of docs.values()) {
+    // Mermaid and generated source blocks keep their text in HTML children.
+    const transformText = (transform: (value: string) => string): void => {
+      const apply = (node: MarkdownNodes | HtmlNodes): void => {
+        if ('value' in node && typeof node.value === 'string') node.value = transform(node.value);
+        if ('title' in node && typeof node.title === 'string') node.title = transform(node.title);
+      };
+      visit(doc.tree, node => {
+        apply(node);
+        for (const child of node.data?.hChildren ?? []) visit(child, apply);
+      });
+    };
     const values = new Set<string>([doc.title, ...doc.headings.map(heading => heading.title), ...doc.meanings.values()]);
-    visit(doc.tree, node => {
-      if ('value' in node && typeof node.value === 'string') values.add(node.value);
-      if ('title' in node && typeof node.title === 'string') values.add(node.title);
-    });
+    transformText(value => { values.add(value); return value; });
     const replacements = new Map<string, string>();
     for (const value of values) {
       let result = value;
@@ -128,13 +138,10 @@ export async function bundleReferences(corpus: Corpus, docs: Map<string, ParsedD
       }
       replacements.set(value, result);
     }
-    visit(doc.tree, node => {
-      if ('value' in node && typeof node.value === 'string') node.value = replacements.get(node.value) ?? node.value;
-      if ('title' in node && typeof node.title === 'string') node.title = replacements.get(node.title) ?? node.title;
-    });
+    transformText(value => replacements.get(value) ?? value);
     doc.title = replacements.get(doc.title) ?? doc.title;
     for (const heading of doc.headings) heading.title = replacements.get(heading.title) ?? heading.title;
     for (const [anchor, meaning] of doc.meanings) doc.meanings.set(anchor, replacements.get(meaning) ?? meaning);
   }
-  return { target: (file, pathname) => targets.get(pathname ? resolve(file, pathname) : sources.get(file)!)! };
+  return { resolve, target: (file, pathname) => targets.get(pathname ? resolve(file, pathname) : sources.get(file)!)! };
 }

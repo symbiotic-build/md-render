@@ -17,8 +17,8 @@ beforeAll(async () => {
   root = await realpath(await mkdtemp(path.join(tmpdir(), 'md-render-single-')));
   source = path.join(root, 'input');
   await mkdir(path.join(source, 'nested'), { recursive: true });
-  await writeFile(path.join(source, 'index.md'), '# My / Guide: café\n\n## Shared\n\n[Destination](nested/b.md?view=1#shared)\n\n[External](https://example.com/guide)\n\n[Attachment](notes.txt)\n\n![Pixel](pixel.png)\n\nNote[^a].\n\n[^a]: First footnote.\n\n| Key | Value |\n| --- | --- |\n| a | b |\n\n```js\nconst example = 1;\n```');
-  await writeFile(path.join(source, 'nested/b.md'), '# Second\n\n## Shared\n\nUnique searchable sentence.\n\n[Home](../index.md#shared)\n\nNote[^a].\n\n[^a]: Second footnote.');
+  await writeFile(path.join(source, 'index.md'), '# My / Guide: café\n\n## Shared\n\n[Destination](nested/b.md?view=1#shared)\n\n[Escaped destination](nested/b.md#shared%26caf%C3%A9)\n\n[External](https://example.com/guide)\n\n[Attachment](notes.txt)\n\n![Pixel](pixel.png)\n\nNote[^a].\n\n[^a]: First footnote.\n\n| Key | Value |\n| --- | --- |\n| a | b |\n\n```js\nconst example = 1;\n```');
+  await writeFile(path.join(source, 'nested/b.md'), '# Second\n\n<a id="shared&café"></a>\n\n## Shared\n\nUnique searchable sentence.\n\n[Home](../index.md#shared)\n\nNote[^a].\n\n[^a]: Second footnote.' + '\n\n' + Array.from({ length: 16 }, () => 'Additional reading paragraph.').join('\n\n'));
   await writeFile(path.join(source, 'pixel.png'), Buffer.from(png, 'base64'));
   await writeFile(path.join(source, 'notes.txt'), 'Original attachment.');
 });

@@ -176,7 +176,11 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
     });
     for (const target of targets) {
       let bytes: Buffer;
-      try { bytes = await readSource(corpus.root, target); }
+      try {
+        const snapshot = bundle ? await readSource(corpus.root, target, maxFileBytes) : await readSource(corpus.root, target);
+        if (typeof snapshot === 'number') continue; // Bundling records the visible omission without parsing.
+        bytes = snapshot;
+      }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
           if (bundle) continue; // Retained exports report missing references during URL rewriting.
@@ -213,7 +217,9 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
       const pathname = decodeURIComponent(match[1]!);
       const query = match[2] ?? '';
       const fragment = match[3] ?? '';
-      const target = pathname ? path.posix.normalize(pathname.startsWith('/') ? pathname.slice(1) : path.posix.join(path.posix.dirname(file), pathname)) : file;
+      const target = pathname ? image && references
+        ? path.relative(corpus.root, references.resolve(file, pathname)).split(path.sep).join('/')
+        : path.posix.normalize(pathname.startsWith('/') ? pathname.slice(1) : path.posix.join(path.posix.dirname(file), pathname)) : file;
       const absolute = path.resolve(corpus.root, target);
       const outside = path.relative(corpus.root, absolute).startsWith(`..${path.sep}`) || path.relative(corpus.root, absolute) === '..';
       if (target === 'index.html' || [...docs.keys()].some((source) => pagePath(source) === target)) {

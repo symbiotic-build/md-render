@@ -8,7 +8,7 @@ A separate authoring checker validates the complete specification format; render
 <a id="command-reference"></a>
 ## Command and API
 
-These entry points produce the same rendered site in either output mode.
+These entry points share source parsing and rendering; local-reference behavior depends on the API or command options.
 Use Node.js 22 or later with the package dependencies already installed.
 SVG diagram builds also need the pinned Mermaid package and an installed Chromium browser; source-only display needs neither.
 
@@ -27,9 +27,12 @@ The optional environment variable `MD_RENDER_BROWSER` selects an installed Chrom
 
 The package exports `loadCorpus`, `parseDocument`, `documentHtml`, `renderSite`, `exportSite` and `startViewer` from [src/index.ts](../../../src/index.ts).
 `renderSite(input, output, options)` returns directory, pages, checked local-link count, Mermaid availability and warnings.
+It retains [local-reading behavior](serving-and-export.md#single-file-export), including links to original local files.
 Its options include `theme?: string` and `mermaid?: boolean`.
 Retained exports additionally accept the versioned [bundle policy](#bundle-reference).
+
 `exportSite(input, { out?, singleFile? }, options)` writes the requested exports and returns the rendering summary plus `singleFile` and `bytes`.
+It produces portable retained output with [bundled local references](serving-and-export.md#bundled-local-references).
 
 `startViewer(input, options)` adds a local URL and asynchronous `close()`.
 Both report failures by rejecting their promises.

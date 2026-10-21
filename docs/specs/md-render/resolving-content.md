@@ -19,7 +19,8 @@ The [source corpus](selecting-sources.md#source-corpus) provides initial files; 
 2. **Discover repository Markdown links:** inspect only initially selected pages, including reference-style links, and add their direct Markdown targets once.
    If selected A links to B and B links to C, render A and B; C remains an original-file link unless another initially selected page links to C directly.
 3. **Resolve definitions and validate targets:** read selected entity meanings and check manifest anchors and fragments for rendered destinations.
-   A broken anchor authored in an input page refuses the build. Retained reference pages use the documented fragment fallback; missing files warn and become non-link text.
+   A broken anchor authored in an input page refuses the build. Retained reference pages use the documented fragment fallback.
+   In retained exports, missing files warn and become non-link text. In the temporary viewer, a missing Markdown target refuses startup.
 4. **Serialize sanitized bodies:** rewrite URLs, copy referenced images and wrap wide tables.
    HTML comments and YAML metadata disappear from body text.
 5. **Render diagrams:** replace supported source figures with static SVG before page files are written.

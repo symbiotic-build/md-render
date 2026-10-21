@@ -2,9 +2,6 @@ import { createHash } from 'node:crypto';
 import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { visit } from 'unist-util-visit';
-import { documentHtml } from './markdown.js';
-import { renderDiagrams } from './diagrams.js';
 import { escapeHtml, page, pageContent, prepareSite, writeSite, type PreparedSite, type RenderOptions } from './site.js';
 
 const mimeTypes: Record<string, string> = { '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf' };
@@ -58,27 +55,34 @@ async function standalone(site: PreparedSite, options: RenderOptions): Promise<s
     }
     return '#' + encodeURIComponent(id + (fragment ? '--' + fragment : ''));
   };
-  const bodies = await Promise.all(paths.map((file, index) => documentHtml(site.docs.get(file)!, tree => {
+  const bodies = site.bodies.map((body, index) => {
+    const file = paths[index]!;
     const prefix = `page-${index}--`;
-    visit(tree, 'element', node => {
-      const props = node.properties;
-      if (typeof props.id === 'string') props.id = prefix + props.id;
-      for (const key of ['ariaDescribedBy', 'ariaLabelledBy']) {
-        const value = props[key];
-        if (Array.isArray(value)) props[key] = value.map(id => prefix + id);
-        else if (typeof value === 'string') props[key] = value.split(/\s+/).map(id => prefix + id).join(' ');
-      }
-      for (const key of ['href', 'src']) {
-        const value = props[key];
-        if (typeof value !== 'string' || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(value)) continue;
-        const match = /^([^?#]*)(?:\?[^#]*)?(?:#(.*))?$/.exec(value)!;
-        const target = match[1] ? path.posix.normalize(path.posix.join(path.posix.dirname(file), decodeURIComponent(match[1]))) : file.replace(/\.md$/i, '.html');
-        props[key] = url(target, match[2] ? decodeURIComponent(match[2]) : undefined);
-      }
+    // Bodies are already sanitized and rendered. Rewrite only HTML attributes;
+    // SVG owns its document-wide IDs and all of their references, including CSS.
+    let svgDepth = 0;
+    return body.replace(/<(\/?)([a-z][\w:-]*)\b((?:[^"'<>]|"[^"]*"|'[^']*')*)>/gi, (tag, closing: string, name: string) => {
+      if (name.toLowerCase() === 'svg') svgDepth += closing ? -1 : 1;
+      if (svgDepth || name.toLowerCase() === 'svg') return tag;
+      return tag.replace(/\s(id|aria-describedby|aria-labelledby|href|src)="([^"]*)"/gi, (_attribute: string, key: string, encoded: string) => {
+        const value = encoded.replace(/&(#x[0-9a-f]+|#[0-9]+|amp|lt|gt|quot|apos);/gi, (_entity: string, code: string) => {
+          if (code[0] === '#') return String.fromCodePoint(parseInt(code.slice(code[1]?.toLowerCase() === 'x' ? 2 : 1), code[1]?.toLowerCase() === 'x' ? 16 : 10));
+          return ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" } as Record<string, string>)[code.toLowerCase()]!;
+        });
+        let rewritten: string;
+        if (key === 'id') rewritten = prefix + value;
+        else if (key.startsWith('aria-')) rewritten = value.split(/\s+/).map(id => prefix + id).join(' ');
+        else {
+          if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(value)) return _attribute;
+          const match = /^([^?#]*)(?:\?[^#]*)?(?:#(.*))?$/.exec(value)!;
+          const target = match[1] ? path.posix.normalize(path.posix.join(path.posix.dirname(file), decodeURIComponent(match[1]))) : file.replace(/\.md$/i, '.html');
+          rewritten = url(target, match[2] ? decodeURIComponent(match[2]) : undefined);
+        }
+        return ` ${key}="${escapeHtml(rewritten)}"`;
+      });
     });
-  })));
-  const diagrams = await renderDiagrams(bodies, options.mermaid !== false);
-  const content = paths.map((file, index) => `<section class="single-page" id="page-${index}" data-title="${escapeHtml(site.docs.get(file)!.title)}">${pageContent(site.corpus, site.docs, file, diagrams.pages[index]!.replace(/file:/gi, value => value.slice(0, -1) + '&#58;'), target => escapeHtml(url(target)))}</section>`).join('\n');
+  });
+  const content = paths.map((file, index) => `<section class="single-page" id="page-${index}" data-title="${escapeHtml(site.docs.get(file)!.title)}">${pageContent(site.corpus, site.docs, file, bodies[index]!, target => escapeHtml(url(target)))}</section>`).join('\n');
   const theme = options.theme ?? 'default';
   const themePath = theme === 'default' || theme === 'symbiotic' ? fileURLToPath(new URL(`../themes/${theme}.css`, import.meta.url)) : path.resolve(theme);
   const styles = await inlineCss(fileURLToPath(new URL('../themes/base.css', import.meta.url))) + '\n' + await inlineCss(themePath) + '\n.single-page[hidden="until-found"]{display:block!important;content-visibility:hidden}@media print{.single-page[hidden="until-found"]{content-visibility:visible}}';

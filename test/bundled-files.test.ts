@@ -205,3 +205,107 @@ it('keeps diagram text portable after SVG rendering in both exports', async () =
     });
   }
 });
+
+it('omits oversized additional Markdown before parsing while exempting selected pages', async () => {
+  const source = path.join(root, 'markdown-limit');
+  await mkdir(source);
+  await writeFile(path.join(source, 'index.md'), '# Selected\n\n[Large](large.md) [Exact](exact.md)');
+  // Duplicate anchors must never be parsed when this additional file is omitted.
+  const large = '<a id="same"></a>\n\n<a id="same"></a>\n';
+  await writeFile(path.join(source, 'large.md'), large);
+  await writeFile(path.join(source, 'exact.md'), '# Exact');
+  const result = await exportSite(path.join(source, 'index.md'), { out: path.join(root, 'markdown-limit-out') }, { mermaid: false, bundle: { version: 1, maxFileBytes: 7 } });
+  expect({ pages: result.pages, warnings: result.warnings }).toEqual({ pages: ['index.html', 'exact.html'], warnings: [`index.md: large.md omitted: ${Buffer.byteLength(large)} bytes`] });
+  for (const file of [path.join(result.directory!, 'index.html'), result.singleFile]) {
+    await withBrowser(async browser => {
+      await browser.navigate(pathToFileURL(file).href);
+      expect(await browser.evaluate(`(()=>{const a=document.querySelector('article');return {text:a.textContent.trim(),links:Array.from(a.querySelectorAll('a')).map(e=>e.textContent)}})()`)).toEqual({ text: `Selected\nLarge (omitted: ${Buffer.byteLength(large)} bytes) Exact`, links: ['Exact'] });
+    });
+  }
+});
+
+it.each([false, true])('removes input and home paths from Mermaid source before rendering (mermaid=%s)', async mermaid => {
+  const source = path.join(root, `mermaid-private-${mermaid}.md`);
+  await writeFile(source, `# Paths\n\n\`\`\`mermaid\nflowchart TD\nA["${root}/private.md"] --> B["${homedir()}/secret.txt"]\n\`\`\``);
+  const result = await exportSite(source, { out: path.join(root, `mermaid-private-${mermaid}-out`) }, { mermaid });
+  for (const file of [path.join(result.directory!, `mermaid-private-${mermaid}.html`), result.singleFile]) {
+    const html = await readFile(file, 'utf8');
+    expect({ inputPath: html.includes(root), homePath: html.includes(homedir()) }).toEqual({ inputPath: false, homePath: false });
+    await withBrowser(async browser => {
+      await browser.navigate(pathToFileURL(file).href);
+      expect(await browser.evaluate(`Array.from(document.querySelectorAll('figure code')).map(e=>e.textContent)`)).toEqual(['flowchart TD\nA["private.md"] --> B["secret.txt"]']);
+    });
+  }
+});
+
+it('resolves images in external Markdown from the original source directory', async () => {
+  const source = path.join(root, 'external-image');
+  await mkdir(source);
+  await writeFile(path.join(source, 'index.md'), '# Input\n\n[Chapter](../image-chapter.md)');
+  await writeFile(path.join(root, 'image-chapter.md'), '# Chapter\n\n![Pixel](external-image/pixel.png)');
+  const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j/pkAAAAASUVORK5CYII=', 'base64');
+  await writeFile(path.join(source, 'pixel.png'), pixel);
+  const result = await exportSite(path.join(source, 'index.md'), { out: path.join(root, 'external-image-out') }, { mermaid: false });
+  for (const file of [path.join(result.directory!, result.pages[1]!), result.singleFile]) {
+    await withBrowser(async browser => {
+      await browser.navigate(pathToFileURL(file).href);
+      if (file === result.singleFile) await browser.evaluate(`Array.from(document.querySelectorAll('article a')).find(a=>a.textContent==='Chapter').click()`);
+      expect(await browser.evaluate(`Array.from(document.querySelectorAll('article img')).map(i=>({alt:i.alt,loaded:i.complete&&i.naturalWidth>0,visible:i.checkVisibility()}))`)).toEqual([{ alt: 'Pixel', loaded: true, visible: true }]);
+    });
+  }
+  expect(await readFile(path.join(result.directory!, 'pixel.png'))).toEqual(pixel);
+});
+
+it('reuses the prepared diagram SVG unchanged in the standalone export', async () => {
+  const source = path.join(root, 'prepared-diagrams');
+  await mkdir(source);
+  // Git graphs generate commit labels; a fresh render changes the prepared drawing.
+  await writeFile(path.join(source, 'index.md'), '# History\n\n```mermaid\ngitGraph\ncommit\ncommit\n```');
+  const result = await exportSite(source, { out: path.join(root, 'prepared-diagrams-out') });
+  const drawings: string[][] = [];
+  for (const file of [path.join(result.directory!, 'index.html'), result.singleFile]) {
+    await withBrowser(async browser => {
+      await browser.navigate(pathToFileURL(file).href);
+      drawings.push(await browser.evaluate(`Array.from(document.querySelectorAll('figure svg')).map(svg=>svg.outerHTML)`));
+    });
+  }
+  expect(drawings[0]).toEqual([expect.stringContaining('main')]);
+  expect(drawings[1]).toEqual(drawings[0]);
+});
+
+it('visibly omits a linked file that grows beyond the read budget after stat', async () => {
+  const source = path.join(root, 'growing-file');
+  await mkdir(source);
+  await writeFile(path.join(source, 'index.md'), '# Growth\n\n[Growing](growing.bin)');
+  const linked = path.join(source, 'growing.bin');
+  await writeFile(linked, Buffer.from([0]));
+  const grownSize = 2 ** 32 + 1;
+  const preload = path.join(root, 'grow-after-stat.mjs');
+  // Inject only the nondeterministic filesystem race, in a separate CLI process.
+  // The input and sparse growth are real files; no owned module is replaced.
+  await writeFile(preload, `import fs from 'node:fs';\nimport { syncBuiltinESMExports } from 'node:module';\nconst lstat = fs.promises.lstat;\nfs.promises.lstat = async (...args) => {\n  const info = await lstat(...args);\n  if (String(args[0]) === ${JSON.stringify(linked)} && info.size === 1) await fs.promises.truncate(args[0], ${grownSize});\n  return info;\n};\nsyncBuiltinESMExports();\n`);
+  const singleFile = path.join(root, 'growing-file.html');
+  const result = await run(process.execPath, ['--import', preload, new URL('../dist/cli.js', import.meta.url).pathname, path.join(source, 'index.md'), '--single-file', singleFile, '--max-linked-file-bytes', '10']);
+  expect(result.stderr).toBe(`md-render: index.md: growing.bin omitted: ${grownSize} bytes\n`);
+  await withBrowser(async browser => {
+    await browser.navigate(pathToFileURL(singleFile).href);
+    expect(await browser.evaluate(`(()=>{const a=document.querySelector('article');return {text:a.textContent.trim(),links:Array.from(a.querySelectorAll('a')).map(e=>e.textContent)}})()`)).toEqual({ text: `Growth\nGrowing (omitted: ${grownSize} bytes)`, links: [] });
+  });
+});
+
+it('preserves opaque attachment bytes containing input and home paths in both exports', async () => {
+  const source = path.join(root, 'opaque-paths');
+  await mkdir(source);
+  await writeFile(path.join(source, 'index.md'), '# Opaque\n\n[Attachment](attachment.bin)');
+  const original = Buffer.from(`\0${source}/private.bin\n${homedir()}/private.bin\n`, 'utf8');
+  await writeFile(path.join(source, 'attachment.bin'), original);
+  const result = await exportSite(path.join(source, 'index.md'), { out: path.join(root, 'opaque-paths-out') }, { mermaid: false });
+  for (const file of [path.join(result.directory!, 'index.html'), result.singleFile]) {
+    await withBrowser(async browser => {
+      await browser.navigate(pathToFileURL(file).href);
+      const href = await browser.evaluate<string>(`Array.from(document.querySelectorAll('article a')).find(a=>a.textContent==='Attachment').getAttribute('href')`);
+      const bytes = href.startsWith('data:') ? Buffer.from(href.split(',')[1]!, 'base64') : await readFile(new URL(href, pathToFileURL(file)));
+      expect(bytes).toEqual(original);
+    });
+  }
+});

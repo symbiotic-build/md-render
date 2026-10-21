@@ -61,6 +61,7 @@ Failures reach the caller; an existing target remains unchanged.
 A write failure can leave a partial new target, which the caller must inspect before removing or choosing another path.
 
 Reuse source selection, link validation, sanitized Markdown, diagrams and the page shell from folder rendering.
+Serialize sanitized bodies and render diagrams once; derive standalone URLs and page identifiers from that prepared output, preserving diagram identifiers.
 Render and validate before writing the single file.
 Inline styles and scripts; encode the logo, images and stylesheet resources as data URIs.
 Reject unavailable resources and remote stylesheet dependencies visibly without attempting network access.
@@ -122,6 +123,7 @@ This follows [reference fragment validation](decisions-and-questions.md#bundle-f
 Code pages show their portable file label and monospaced, escaped source with numbered lines.
 They require no syntax highlighting. A line range lands on its first line; no range selection is required.
 Binary download links use the original basename as their download filename and preserve the file bytes.
+Opaque binary attachments are exempt from path removal; do not scan, reject or rewrite their bytes for containing paths.
 
 Displayed local paths use source-root-relative paths for files inside the input root.
 For files in another Git repository, read local Git metadata and display `<repository folder name> @ <short commit>: <path inside that repository>`.
@@ -129,7 +131,8 @@ Other files show only their basename.
 
 Repository labels identify the checked-out commit; exported bytes are the current local file bytes.
 Apply these labels to reference metadata, path hovers, and absolute input/home paths appearing in visible prose or code.
-A retained export contains no original-machine URLs or absolute input/home paths.
+A retained export's generated HTML, text and Markdown-derived content contain no original-machine URLs or absolute input/home paths.
+Opaque binary attachment bytes are exempt from this guarantee and remain unchanged.
 Literal colon characters in ordinary text may use HTML character references without changing the reader's text.
 
 A missing linked file produces an external-local-reference warning and leaves its authored label as non-link text.
