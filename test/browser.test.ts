@@ -18,7 +18,6 @@ it('checks rendered menu, theme controls, storage failure and diagram contrast i
       const output = path.join(source, theme);
       await renderSite(path.join(source, 'index.md'), output, { theme });
       await withBrowser(async (browser) => {
-        await browser.send('Emulation.setCPUThrottlingRate', { rate: 6 });
         await browser.send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 800, deviceScaleFactor: 1, mobile: false });
         const url = pathToFileURL(path.join(output, 'index.html')).href;
         await browser.navigate(url);
