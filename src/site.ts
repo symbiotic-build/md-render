@@ -246,9 +246,7 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
         if (reference.kind === 'binary') return { url: relativeUrl(file, reference.key!) + query + fragment, title: reference.label, download: path.basename(reference.key!) };
         const destination = docs.get(reference.key!)!;
         let id = decodeURIComponent(fragment.slice(1));
-        const portableId = references.anchor(reference.key!, id);
-        let valid = !id || portableId !== undefined;
-        if (portableId !== undefined) id = portableId;
+        let valid = !id || destination.anchors.has(id);
         if (id && reference.kind === 'text') {
           const line = /^L([1-9][0-9]*)(?:-L([1-9][0-9]*))?$/.exec(id);
           valid = !!line && Number(line[1]) <= destination.sourceLines! &&

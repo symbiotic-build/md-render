@@ -75,7 +75,7 @@ to start with the color and font tokens. A neighboring `custom.logo.svg`,
 `custom.logo.png`, or `custom.logo.webp` supplies an optional logo; choose one.
 Folder output copies theme CSS; keep additional resources inline so that output stays offline.
 Single-file output embeds local stylesheet imports and resources and refuses remote dependencies.
-Retained exports replace absolute input and home paths in published stylesheet text with portable labels after resource loading.
+Theme stylesheet text and embedded resources are exempt from path removal and retain their content, as specified in [Bundled local references](docs/specs/md-render/serving-and-export.md#bundled-local-references).
 Base layout and print styles remain available to every theme.
 
 ## Package API and checks

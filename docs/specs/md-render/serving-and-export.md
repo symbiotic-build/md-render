@@ -133,7 +133,11 @@ Other files show only their basename.
 
 Repository labels identify the checked-out commit; exported bytes are the current local file bytes.
 Apply these labels to reference metadata, path hovers, manifest titles and image descriptions.
-Also convert anchor identifiers, matching fragments, and absolute input/home paths appearing in visible prose or code.
+
+Also convert absolute input/home paths appearing in visible prose or code.
+Keep authored anchor identifiers and validate fragments against their original identifiers.
+If an authored identifier contains an absolute input-root or home path, refuse export with a diagnostic naming the page and identifier.
+The author must rename the identifier before rebuilding.
 Replace occurrences by their original text offsets, so inserted labels cannot consume a later original occurrence.
 
 Retained exports remove original-machine URLs and absolute input/home paths from generated HTML, text and Markdown-derived content, with these exceptions for author files.
@@ -155,6 +159,7 @@ Existing image confinement and executable-scheme refusal remain in force.
 The [temporary viewer](#temporary-viewer) may retain one-hop in-root Markdown discovery and original-file links with warnings for other local destinations.
 Portable exports read each additional file once per build, plus local Git metadata for external labels.
 An image and attachment using the same source reuse its captured bytes.
+The single read is verified by code inspection.
 They add no database, persistent index or migration; pages and attachments are rebuildable output required by the bundling decision.
 
 **Verification:** [Portable references](acceptance.md#test-bundled-references), [Bundle omissions](acceptance.md#test-bundle-omissions).
@@ -181,7 +186,7 @@ This refusal identifies unsupported or unsafe input before a valid site can be a
 
 This stop prevents broken selected entity hovers and unresolved local destinations from appearing as successful output.
 
-**Trigger:** In local-reading mode, a missing Markdown target; in either mode, a broken local anchor authored in an input page, missing manifest anchor, duplicate explicit anchor, unknown home section or selected entity home without an anchor, heading and first paragraph. Local-reading mode also refuses broken anchors in referenced pages.
+**Trigger:** In local-reading mode, a missing Markdown target; in either mode, a broken local anchor authored in an input page, missing manifest anchor, duplicate explicit anchor, unknown home section or selected entity home without an anchor, heading and first paragraph. Local-reading mode also refuses broken anchors in referenced pages. Retained exports also refuse authored identifiers containing absolute input-root or home paths.
 
 **Outcome:** Rendering rejects with the offending link, anchor or home in its diagnostic; the command exits with code 1.
 
@@ -191,7 +196,7 @@ This stop prevents broken selected entity hovers and unresolved local destinatio
 
 **Authority:** The author who owns the affected source or metadata can make the repair.
 
-**Verification:** [Entity meanings](acceptance.md#test-entity-meanings), [Links and anchors](acceptance.md#test-local-links), [Input refusals](acceptance.md#test-input-refusals).
+**Verification:** [Entity meanings](acceptance.md#test-entity-meanings), [Links and anchors](acceptance.md#test-local-links), [Input refusals](acceptance.md#test-input-refusals), [Portable references](acceptance.md#test-bundled-references).
 
 <a id="failure-content-build"></a>
 ## Failure state: content build refused

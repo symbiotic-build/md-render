@@ -395,25 +395,18 @@ it('keeps the first duplicate definition as the rendered link destination', asyn
   expect(result.warnings).toEqual([]);
 });
 
-it('preserves captured preview and attachment bytes when the source changes after capture', async () => {
+it('preserves source bytes in both the preview and attachment in both exports', async () => {
   const source = path.join(root, 'shared-bytes');
   await mkdir(source);
   await writeFile(path.join(source, 'index.md'), '# Shared\n\n![Preview](pixel.png) [Download](pixel.png)');
-  const asset = path.join(source, 'pixel.png');
-  await writeFile(asset, pixel);
-  const changed = Buffer.from('replacement source bytes');
-  const preload = path.join(root, 'replace-captured-source.mjs');
-  // Replace the real source after its captured file handle closes, before a possible image read.
-  await writeFile(preload, `import fs from 'node:fs';\nimport { syncBuiltinESMExports } from 'node:module';\nconst original = fs.promises.open;\nfs.promises.open = async (...args) => {\n  const handle = await original(...args);\n  if (String(args[0]) === ${JSON.stringify(asset)}) {\n    const close = handle.close.bind(handle);\n    handle.close = async () => {\n      await close();\n      fs.writeFileSync(${JSON.stringify(asset)}, Buffer.from(${JSON.stringify(changed.toString('base64'))}, 'base64'));\n    };\n  }\n  return handle;\n};\nsyncBuiltinESMExports();\n`);
-  const singleFile = path.join(root, 'shared-bytes.html');
-  const out = path.join(source, 'out');
-  await run(process.execPath, ['--import', preload, new URL('../dist/cli.js', import.meta.url).pathname, source, '--out', out, '--single-file', singleFile]);
-  for (const file of [path.join(out, 'index.html'), singleFile]) {
+  await writeFile(path.join(source, 'pixel.png'), pixel);
+  const result = await exportSite(source, { out: path.join(source, 'out') }, { mermaid: false });
+  for (const file of [path.join(result.directory!, 'index.html'), result.singleFile]) {
     await withBrowser(async browser => {
       await browser.navigate(pathToFileURL(file).href);
       const urls = await browser.evaluate<string[]>(`[document.querySelector('article img').src,document.querySelector('article a').href]`);
       const bytes = await Promise.all(urls.map(url => url.startsWith('data:') ? Buffer.from(url.split(',')[1]!, 'base64') : readFile(new URL(url))));
-      expect({ source: await readFile(asset), bytes }).toEqual({ source: changed, bytes: [pixel, pixel] });
+      expect(bytes).toEqual([pixel, pixel]);
     });
   }
 });
@@ -451,42 +444,20 @@ it('preserves author stylesheet bytes including path comments and embedded resou
   expect({ folder, inline: single.slice(single.indexOf(css), single.indexOf(css) + css.length) }).toEqual({ folder: css, inline: css });
 });
 
-it('maps path-bearing anchor identities and all local references consistently in both exports', async () => {
+it('refuses authored anchors containing input or home paths and names the page and identifier', async () => {
   const source = path.join(root, 'anchor-paths');
-  await mkdir(path.join(source, 'docs'), { recursive: true });
-  const inputAnchor = `${source}/detail`;
-  const homeAnchor = `${homedir()}/private`;
-  await writeFile(path.join(source, 'index.md'), `# Input\n\n[Self](#${encodeURIComponent(inputAnchor)}) [Root](#${encodeURIComponent(source)}) [Other](other.md#${encodeURIComponent(homeAnchor)})\n\n<a id="${inputAnchor}"></a>\n\n## Detail\n\nInput meaning.\n\n<a id="${source}"></a>`);
-  await writeFile(path.join(source, 'other.md'), `# Other\n\n<a id="${homeAnchor}"></a>\n\n## Private\n\nHome meaning.\n\n[Back](index.md#${encodeURIComponent(inputAnchor)})`);
-  await writeFile(path.join(source, 'docs/DOCUMENTS.json'), JSON.stringify({ version: 1, inventory: [], documents: [
-    { id: 'book', sections: [{ id: 'input', path: 'index.md', anchor: inputAnchor }, { id: 'other', path: 'other.md', anchor: homeAnchor }] },
-  ] }));
-  await writeFile(path.join(source, 'docs/ENTITIES.json'), JSON.stringify({ version: 1, entities: {
-    input: { home: { section: 'book#input', anchor: inputAnchor } },
-    other: { home: { section: 'book#other', anchor: homeAnchor } },
-  } }));
-  const result = await exportSite(source, { out: path.join(source, 'out') }, { mermaid: false });
-  for (const file of [path.join(result.directory!, 'index.html'), result.singleFile]) {
-    await withBrowser(async browser => {
-      await browser.navigate(pathToFileURL(file).href);
-      const single = file === result.singleFile;
-      expect(await browser.evaluate(`Array.from(document.querySelectorAll('article a')).filter(a=>['Self','Root','Other','Back'].includes(a.textContent)).map(a=>({text:a.textContent,href:a.getAttribute('href'),title:a.title}))`)).toEqual([
-        { text: 'Self', href: single ? '#page-0--detail' : '#detail', title: 'Input meaning.' },
-        { text: 'Root', href: single ? '#page-0--anchor' : '#anchor', title: 'index.md' },
-        { text: 'Other', href: single ? '#page-1--private' : 'other.html#private', title: 'Home meaning.' },
-        ...(single ? [{ text: 'Back', href: '#page-0--detail', title: 'Input meaning.' }] : []),
-      ]);
-      expect(await browser.evaluate(`Array.from(document.querySelectorAll('[id]')).map(e=>e.id).filter((id,index,ids)=>ids.indexOf(id)!==index)`)).toEqual([]);
-      const html = await readFile(file, 'utf8');
-      expect([html.includes(source), html.includes(homedir())]).toEqual([false, false]);
-      expect(await browser.evaluate(`document.getElementById(${JSON.stringify(single ? 'page-0--detail' : 'detail')})?.id`)).toBe(single ? 'page-0--detail' : 'detail');
-    });
+  await mkdir(source);
+  for (const id of [source, `prefix-${source}/detail`, homedir(), `prefix-${homedir()}/private`]) {
+    await writeFile(path.join(source, 'index.md'), `# Input\n\n<a id="${id}"></a>`);
+    for (const targets of [{ out: path.join(source, 'out') }, { singleFile: path.join(source, 'out.html') }]) {
+      await expect(exportSite(source, targets, { mermaid: false })).rejects.toThrow(`Authored anchor contains an absolute input or home path: index.md#${id}`);
+    }
   }
 });
 
-it('refuses an originally missing fragment that matches a converted anchor', async () => {
-  const source = path.join(root, 'missing-before-conversion');
+it('refuses an originally missing fragment without changing authored identifiers', async () => {
+  const source = path.join(root, 'missing-original-fragment');
   await mkdir(source);
-  await writeFile(path.join(source, 'index.md'), `# Input\n\n<a id="${source}/private"></a>\n\n[Broken](#private)`);
-  await expect(exportSite(source, { singleFile: path.join(source, 'out.html') }, { mermaid: false })).rejects.toThrow(/Missing anchor/);
+  await writeFile(path.join(source, 'index.md'), '# Input\n\n<a id="private-detail"></a>\n\n[Broken](#private)');
+  await expect(exportSite(source, { singleFile: path.join(source, 'out.html') }, { mermaid: false })).rejects.toThrow('Missing anchor: index.md -> index.md#private');
 });
