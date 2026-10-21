@@ -170,7 +170,10 @@ async function inlineCss(source: string, active = new Set<string>()): Promise<st
   let css = await readFile(source, 'utf8');
   const local = (value: string): string => {
     if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(value)) throw new Error(`Cannot embed remote stylesheet resource: ${value}`);
-    return fileURLToPath(new URL(value, pathToFileURL(source)));
+    // Decide on the parsed URL that becomes the path: parsing drops characters the text check sees.
+    const url = new URL(value, pathToFileURL(source));
+    if (url.protocol !== 'file:' || url.host !== '') throw new Error(`Cannot embed remote stylesheet resource: ${value}`);
+    return fileURLToPath(url);
   };
   // Replace from right to left so scanner offsets still refer to the original text.
   // Each imported stylesheet resolves its own resources before insertion.

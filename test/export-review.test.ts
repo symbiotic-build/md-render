@@ -94,6 +94,10 @@ it.each(['missing.png', 'https://example.com/pixel.png'])('refuses real unavaila
   await expect(stylesheet(`.sd-doc{background:url("${resource}")}`)).rejects.toThrow(resource.startsWith('https:') ? 'Cannot embed remote stylesheet resource' : 'ENOENT');
 });
 
+it.each([String.raw`\1 file://server/share/pixel.png`, String.raw`\1 //server/share/pixel.png`])('refuses a CSS resource that parses to a network host: %s', async resource => {
+  await expect(stylesheet(`.sd-doc{background:url("${resource}")}`)).rejects.toThrow('Cannot embed remote stylesheet resource');
+});
+
 it.each(['combined', 'folder'])('refuses duplicate generated page destinations before writing: %s', async mode => {
   const { root, input, singleFile } = await fixture();
   await mkdir(path.join(input, 'docs'));
