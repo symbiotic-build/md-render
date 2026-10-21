@@ -3,6 +3,7 @@ import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { escapeHtml, page, pageContent, prepareSite, writeSite, type PreparedSite, type RenderOptions } from './site.js';
+import { portableText } from './references.js';
 
 const mimeTypes: Record<string, string> = { '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf' };
 function dataUri(file: string, bytes: Buffer): string {
@@ -85,7 +86,7 @@ async function standalone(site: PreparedSite, options: RenderOptions): Promise<s
   const content = paths.map((file, index) => `<section class="single-page" id="page-${index}" data-title="${escapeHtml(site.docs.get(file)!.title)}">${pageContent(site.corpus, site.docs, file, bodies[index]!, target => escapeHtml(url(target)))}</section>`).join('\n');
   const theme = options.theme ?? 'default';
   const themePath = theme === 'default' || theme === 'symbiotic' ? fileURLToPath(new URL(`../themes/${theme}.css`, import.meta.url)) : path.resolve(theme);
-  const styles = await inlineCss(fileURLToPath(new URL('../themes/base.css', import.meta.url))) + '\n' + await inlineCss(themePath) + '\n.single-page[hidden="until-found"]{display:block!important;content-visibility:hidden}@media print{.single-page[hidden="until-found"]{content-visibility:visible}}';
+  const styles = await portableText(site.corpus.root, await inlineCss(fileURLToPath(new URL('../themes/base.css', import.meta.url))) + '\n' + await inlineCss(themePath)) + '\n.single-page[hidden="until-found"]{display:block!important;content-visibility:hidden}@media print{.single-page[hidden="until-found"]{content-visibility:visible}}';
   const script = site.files.get('_md-render/navigation.js')!.toString('utf8');
   const hash = (value: string) => `'sha256-${createHash('sha256').update(value).digest('base64')}'`;
   const policy = `default-src 'none'; style-src 'unsafe-inline' data:; script-src ${hash(site.themeInit)} ${hash(script)}; img-src data:; font-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'`;

@@ -48,8 +48,9 @@ excluded. A selected `docs` folder uses repository-relative metadata paths.
 
 `docs/ENTITIES.json` homes resolve through the manifest's section identities. Hover text
 comes from the first paragraph after each home heading. No separate meanings registry
-is stored. Missing targets, duplicate anchors, invalid metadata, and unreadable inputs
-fail with a diagnostic. Explicit empty `<a id="…"></a>` anchors render as HTML; other
+is stored. Missing selected inputs, duplicate anchors, invalid metadata, and unreadable inputs
+fail with a diagnostic. Missing linked files in retained exports instead warn and retain non-link labels.
+The temporary viewer refuses missing Markdown targets. Explicit empty `<a id="…"></a>` anchors render as HTML; other
 raw HTML appears as escaped text. HTML comments and YAML metadata do not appear as body
 text. Unsupported executable link schemes fail.
 
@@ -72,8 +73,10 @@ brand palette and document typography, with a system font; neither built-in them
 `--theme ./custom.css` accepts a small CSS file. Copy [default.css](themes/default.css)
 to start with the color and font tokens. A neighboring `custom.logo.svg`,
 `custom.logo.png`, or `custom.logo.webp` supplies an optional logo; choose one.
-Theme CSS is copied as supplied; keep additional resources inline so static output stays
-offline. Base layout and print styles remain available to every theme.
+Folder output copies theme CSS; keep additional resources inline so that output stays offline.
+Single-file output embeds local stylesheet imports and resources and refuses remote dependencies.
+Retained exports replace absolute input and home paths in published stylesheet text with portable labels after resource loading.
+Base layout and print styles remain available to every theme.
 
 ## Package API and checks
 

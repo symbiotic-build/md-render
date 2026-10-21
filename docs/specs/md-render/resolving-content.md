@@ -38,6 +38,8 @@ The tour's `nested/home.md#writer` becomes `nested/home.html#writer`.
 For example, `nested/home.md?mode=read#default` becomes `nested/home.html?mode=read#default`.
 Encoded filenames retain their URL meaning.
 Root-relative local paths resolve beneath the source root.
+Reference-style links and images use the first definition for each identifier.
+When an image and a link share that definition, each use keeps its own image or download behavior.
 
 Empty HTML anchors remain real HTML targets.
 Several stacked empty anchors before one heading all remain valid, share its meaning and map to that heading.

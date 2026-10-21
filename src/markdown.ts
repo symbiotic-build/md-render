@@ -1,5 +1,5 @@
 // unified/remark -> explicit AST transforms -> sanitized HTML.
-import type { Nodes, Root, RootContent } from 'mdast';
+import type { Definition, Nodes, Root, RootContent } from 'mdast';
 import type { Root as HtmlRoot, Element } from 'hast';
 import { toString } from 'mdast-util-to-string';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
@@ -224,24 +224,28 @@ export interface UrlTransform { url: string; title?: string; download?: string; 
 
 /** Visits native Markdown links, definitions, and images before HTML sanitization. */
 export function transformUrls(doc: ParsedDocument, transform: (url: string, image: boolean) => UrlTransform): void {
-  const imageReferences = new Set<string>();
-  visit(doc.tree, 'imageReference', (node) => { imageReferences.add(node.identifier); });
-  const definitions = new Map<string, UrlTransform>();
+  const definitions = new Map<string, Definition>();
   visit(doc.tree, 'definition', node => {
-    const result = transform(node.url, imageReferences.has(node.identifier));
-    definitions.set(node.identifier, result);
-    node.url = result.url;
-    if (result.title) node.title = result.title;
+    // Markdown resolves duplicate identifiers to their first definition.
+    if (!definitions.has(node.identifier)) definitions.set(node.identifier, node);
   });
   visit(doc.tree, (node, index, parent) => {
-    if (node.type !== 'link' && node.type !== 'linkReference' && node.type !== 'image') return;
-    const result = node.type === 'linkReference' ? definitions.get(node.identifier) : transform(node.url, node.type === 'image');
-    if (!result) return;
+    if ((node.type === 'linkReference' || node.type === 'imageReference') && parent && index !== undefined) {
+      const definition = definitions.get(node.identifier);
+      if (!definition) return;
+      // Each occurrence owns its image/link semantics, even with a shared definition.
+      node = node.type === 'imageReference'
+        ? { type: 'image', url: definition.url, title: definition.title, alt: node.alt, data: node.data }
+        : { type: 'link', url: definition.url, title: definition.title, children: node.children, data: node.data };
+      parent.children[index] = node as never;
+    }
+    if (node.type !== 'link' && node.type !== 'image') return;
+    const result = transform(node.url, node.type === 'image');
     if (node.type !== 'image' && result.remove && parent && index !== undefined) {
       parent.children.splice(index, 1, ...node.children, ...(result.suffix ? [{ type: 'text' as const, value: result.suffix }] : []));
       return index + node.children.length + (result.suffix ? 1 : 0);
     }
-    if (node.type !== 'linkReference') node.url = result.url;
+    node.url = result.url;
     if ('title' in node && result.title) node.title = result.title;
     if (node.type !== 'image' && (result.url.startsWith('file:') || result.download)) {
       node.data = { ...node.data, hProperties: { className: ['local-file'], ...(result.download ? { download: result.download } : {}) } };
@@ -250,7 +254,7 @@ export function transformUrls(doc: ParsedDocument, transform: (url: string, imag
 }
 
 /** Produces sanitized HTML; table wrappers make wide fact tables keyboard-scrollable. */
-export async function documentHtml(doc: ParsedDocument, transform?: (tree: HtmlRoot) => void): Promise<string> {
+export async function documentHtml(doc: ParsedDocument): Promise<string> {
   const tree = await writer.run(doc.tree) as HtmlRoot;
   visit(tree, 'element', (node, index, parent) => {
     if (doc.sourceLines !== undefined && node.tagName === 'pre') {
@@ -273,6 +277,5 @@ export async function documentHtml(doc: ParsedDocument, transform?: (tree: HtmlR
       return SKIP;
     }
   });
-  transform?.(tree);
   return writer.stringify(tree);
 }

@@ -64,7 +64,10 @@ Invalid metadata refuses selection before these branches; it never acts as absen
 The loader reads each initial Markdown file as UTF-8 and keeps its text in memory.
 The parser creates one reusable tree for each page.
 There is no stored parse registry, search index or database.
-Local images are copied only when referenced; other local files stay at their original paths.
+Local images are copied only when referenced.
+In the temporary viewer, other local files stay at their original paths.
+Retained exports instead use [bundled local references](serving-and-export.md#bundled-local-references), including warnings for missing linked files.
+Missing selected inputs still refuse loading.
 
 <a id="document-manifest"></a>
 ## Document manifest

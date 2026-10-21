@@ -99,6 +99,7 @@ A retained export includes local files linked directly by the input’s own rend
 This follows the [operator's bundling decision](decisions-and-questions.md#bundle-local-files-choice).
 Initial selection still follows the manifest; inventory classifications do not exclude linked references.
 Prepare the input’s existing rendered pages first, including directly linked in-root Markdown, before bundling their outgoing local files.
+Classify each additional target before parsing, including targets whose names end in `.md`.
 
 **Procedure: prepare portable references**
 
@@ -114,6 +115,7 @@ Prepare the input’s existing rendered pages first, including directly linked i
 Local links from bundled references to further files remain plain text with their authored label, “not bundled” and the portable path label.
 Warn once per unbundled target, without reading that file’s contents.
 Links to pages or files already included remain usable.
+Register included image destinations before classifying links from bundled references.
 This follows [one-level bundling](decisions-and-questions.md#bundle-depth-choice).
 
 A broken fragment authored in an input page refuses export.
@@ -130,7 +132,9 @@ For files in another Git repository, read local Git metadata and display `<repos
 Other files show only their basename.
 
 Repository labels identify the checked-out commit; exported bytes are the current local file bytes.
-Apply these labels to reference metadata, path hovers, and absolute input/home paths appearing in visible prose or code.
+Apply these labels to reference metadata, path hovers, manifest titles, image descriptions, and absolute input/home paths appearing in visible prose or code.
+Apply the same conversion to published stylesheet text after loading its resources.
+Replace occurrences by their original text offsets, so inserted labels cannot consume a later original occurrence.
 A retained export's generated HTML, text and Markdown-derived content contain no original-machine URLs or absolute input/home paths.
 Opaque binary attachment bytes are exempt from this guarantee and remain unchanged.
 Literal colon characters in ordinary text may use HTML character references without changing the reader's text.
@@ -147,6 +151,7 @@ Existing image confinement and executable-scheme refusal remain in force.
 
 The [temporary viewer](#temporary-viewer) may retain one-hop in-root Markdown discovery and original-file links with warnings for other local destinations.
 Portable exports read each additional file once per build, plus local Git metadata for external labels.
+An image and attachment using the same source reuse its captured bytes.
 They add no database, persistent index or migration; pages and attachments are rebuildable output required by the bundling decision.
 
 **Verification:** [Portable references](acceptance.md#test-bundled-references), [Bundle omissions](acceptance.md#test-bundle-omissions).

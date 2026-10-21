@@ -14,6 +14,7 @@ let root: string;
 let input: string;
 let commit: string;
 const binary = Buffer.from([0, 1, 42]);
+const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j/pkAAAAASUVORK5CYII=', 'base64');
 beforeAll(async () => {
   root = await realpath(await mkdtemp(path.join(tmpdir(), 'md-render-bundle-')));
   input = path.join(root, 'input');
@@ -308,4 +309,132 @@ it('preserves opaque attachment bytes containing input and home paths in both ex
       expect(bytes).toEqual(original);
     });
   }
+});
+
+it.each(['image descriptions', 'manifest titles', 'stylesheet comments'])('removes machine paths from published %s after loading resources', async field => {
+  const source = path.join(root, `published-${field.replaceAll(' ', '-')}`);
+  await mkdir(path.join(source, 'docs'), { recursive: true });
+  await writeFile(path.join(source, 'index.md'), `# Published\n\n![${source}/private.txt](pixel.png)`);
+  await writeFile(path.join(source, 'pixel.png'), pixel);
+  await writeFile(path.join(source, 'docs/DOCUMENTS.json'), JSON.stringify({ version: 1, inventory: [], documents: [
+    { id: 'book', title: `${homedir()}/secret.txt`, sections: [{ id: 'published', path: 'index.md', anchor: 'published' }] },
+  ] }));
+  const theme = path.join(source, 'custom.css');
+  const imported = path.join(source, 'imported.css');
+  await writeFile(theme, `/* ${source}/private.txt */\n@import "${imported}";`);
+  await writeFile(imported, `/* ${homedir()}/secret.txt */\n.sd-doc{background-image:url("${source}/pixel.png")}`);
+  const result = await exportSite(source, { out: path.join(source, 'out') }, { mermaid: false, theme });
+  for (const file of [path.join(result.directory!, 'index.html'), result.singleFile]) {
+    await withBrowser(async browser => {
+      await browser.navigate(pathToFileURL(file).href);
+      const actual = field === 'image descriptions'
+        ? await browser.evaluate(`Array.from(document.querySelectorAll('article img')).map(i=>i.alt)`)
+        : field === 'manifest titles'
+          ? await browser.evaluate(`Array.from(document.querySelectorAll('.chapter-row a')).map(a=>a.textContent)`)
+          : (file === result.singleFile ? await readFile(file, 'utf8') : await readFile(path.join(result.directory!, '_md-render/theme.css'), 'utf8')).match(/\/\* .*? \*\//g);
+      expect(actual).toEqual(field === 'image descriptions' ? ['private.txt'] : field === 'manifest titles' ? ['secret.txt'] :
+        file === result.singleFile ? expect.arrayContaining(['/* private.txt */', '/* secret.txt */']) : ['/* private.txt */']);
+    });
+  }
+});
+
+it('replaces original path occurrences without rewriting inserted portable labels', async () => {
+  const source = path.join(root, 'overlapping-paths');
+  await mkdir(source);
+  await writeFile(path.join(source, 'index.md'), `# Paths\n\n\`\`\`text\n${source}/nested${homedir()}/second.txt ${homedir()}/second.txt\n\`\`\``);
+  const result = await exportSite(source, { out: path.join(source, 'out') }, { mermaid: false });
+  for (const file of [path.join(result.directory!, 'index.html'), result.singleFile]) {
+    await withBrowser(async browser => {
+      await browser.navigate(pathToFileURL(file).href);
+      expect(await browser.evaluate(`Array.from(document.querySelectorAll('article pre code')).map(e=>e.textContent.trim())`)).toEqual([`nested${homedir()}/second.txt second.txt`]);
+    });
+  }
+});
+
+it.each(['directory', 'invalid UTF-8'])('classifies an unselected .md %s before Markdown parsing', async kind => {
+  const source = path.join(root, `classify-${kind.replaceAll(' ', '-')}`);
+  await mkdir(source);
+  await writeFile(path.join(source, 'index.md'), '# Input\n\n[Target](target.md)');
+  if (kind === 'directory') await mkdir(path.join(source, 'target.md'));
+  else await writeFile(path.join(source, 'target.md'), Buffer.from([0xff, 0xfe, 0xfd]));
+  const result = await exportSite(path.join(source, 'index.md'), { out: path.join(source, 'out') }, { mermaid: false });
+  expect(result.warnings).toEqual(kind === 'directory' ? ['index.md: external local reference target.md; directory not bundled'] : []);
+  for (const file of [path.join(result.directory!, 'index.html'), result.singleFile]) {
+    await withBrowser(async browser => {
+      await browser.navigate(pathToFileURL(file).href);
+      const actual = await browser.evaluate<{ text: string; downloads: { name: string; href: string }[] }>(`(()=>{const a=document.querySelector('article');return {text:a.textContent.trim(),downloads:Array.from(a.querySelectorAll('a')).map(e=>({name:e.download,href:e.getAttribute('href')}))}})()`);
+      const downloads = await Promise.all(actual.downloads.map(async ({ name, href }) => ({ name,
+        bytes: href.startsWith('data:') ? Buffer.from(href.split(',')[1]!, 'base64') : await readFile(new URL(href, pathToFileURL(file))),
+      })));
+      expect({ text: actual.text, downloads }).toEqual({
+        text: kind === 'directory' ? 'Input\nTarget (directory not bundled)' : 'Input\nTarget', downloads: kind === 'directory' ? [] : [{ name: 'target.md', bytes: Buffer.from([0xff, 0xfe, 0xfd]) }],
+      });
+    });
+  }
+});
+
+it('keeps a shared image definition usable as both preview and named download', async () => {
+  const source = path.join(root, 'shared-definition');
+  await mkdir(source);
+  await writeFile(path.join(source, 'index.md'), '# Shared\n\n![Preview][asset] [Download][asset]\n\n[asset]: pixel.png');
+  await writeFile(path.join(source, 'pixel.png'), pixel);
+  const result = await exportSite(source, { out: path.join(source, 'out') }, { mermaid: false });
+  for (const file of [path.join(result.directory!, 'index.html'), result.singleFile]) {
+    await withBrowser(async browser => {
+      await browser.navigate(pathToFileURL(file).href);
+      expect(await browser.evaluate(`({images:Array.from(document.querySelectorAll('article img')).map(i=>({alt:i.alt,loaded:i.complete&&i.naturalWidth>0})),downloads:Array.from(document.querySelectorAll('article a')).map(a=>({text:a.textContent,name:a.download}))})`)).toEqual({ images: [{ alt: 'Preview', loaded: true }], downloads: [{ text: 'Download', name: 'pixel.png' }] });
+    });
+  }
+});
+
+it('keeps the first duplicate definition as the rendered link destination', async () => {
+  const source = path.join(root, 'duplicate-definition');
+  await mkdir(source);
+  await writeFile(path.join(source, 'index.md'), '# Input\n\n[Chapter][chapter]\n\n[chapter]: chapter.md\n[chapter]: missing.md');
+  await writeFile(path.join(source, 'chapter.md'), '# Chapter');
+  const result = await exportSite(path.join(source, 'index.md'), { out: path.join(source, 'out') }, { mermaid: false });
+  for (const file of [path.join(result.directory!, 'index.html'), result.singleFile]) {
+    await withBrowser(async browser => {
+      await browser.navigate(pathToFileURL(file).href);
+      expect(await browser.evaluate(`Array.from(document.querySelectorAll('article a')).map(a=>({text:a.textContent,destination:a.getAttribute('href')}))`)).toEqual([{ text: 'Chapter', destination: file === result.singleFile ? '#page-1' : 'chapter.html' }]);
+    });
+  }
+  expect(result.warnings).toEqual([]);
+});
+
+it('reads a preview and attachment source once and preserves both exported byte sequences', async () => {
+  const source = path.join(root, 'shared-bytes');
+  await mkdir(source);
+  await writeFile(path.join(source, 'index.md'), '# Shared\n\n![Preview](pixel.png) [Download](pixel.png)');
+  const asset = path.join(source, 'pixel.png');
+  await writeFile(asset, pixel);
+  const reads = path.join(root, 'shared-byte-reads.json');
+  const preload = path.join(root, 'count-source-reads.mjs');
+  // Observe content reads at the filesystem process boundary; owned code and files are real.
+  await writeFile(preload, `import fs from 'node:fs';\nimport { syncBuiltinESMExports } from 'node:module';\nlet reads = 0;\nfor (const name of ['open', 'readFile']) {\n  const original = fs.promises[name];\n  fs.promises[name] = async (...args) => {\n    if (String(args[0]) === ${JSON.stringify(asset)}) reads++;\n    return original(...args);\n  };\n}\nsyncBuiltinESMExports();\nprocess.on('exit', () => fs.writeFileSync(${JSON.stringify(reads)}, JSON.stringify(reads)));\n`);
+  const singleFile = path.join(root, 'shared-bytes.html');
+  await run(process.execPath, ['--import', preload, new URL('../dist/cli.js', import.meta.url).pathname, source, '--single-file', singleFile]);
+  await withBrowser(async browser => {
+    await browser.navigate(pathToFileURL(singleFile).href);
+    const urls = await browser.evaluate<string[]>(`[document.querySelector('article img').src,document.querySelector('article a').href]`);
+    expect({ reads: JSON.parse(await readFile(reads, 'utf8')), bytes: urls.map(url=>Buffer.from(url.split(',')[1]!, 'base64')) }).toEqual({ reads: 1, bytes: [pixel, pixel] });
+  });
+});
+
+it('keeps reference-page links to images already included through previews', async () => {
+  const source = path.join(root, 'included-image');
+  await mkdir(source);
+  await writeFile(path.join(source, 'index.md'), '# Input\n\n![Preview](pixel.png) [Reference](../image-reference.md)');
+  await writeFile(path.join(source, 'pixel.png'), pixel);
+  await writeFile(path.join(root, 'image-reference.md'), '# Reference\n\n[Download](included-image/pixel.png)');
+  const result = await exportSite(path.join(source, 'index.md'), { out: path.join(source, 'out') }, { mermaid: false });
+  for (const file of [path.join(result.directory!, result.pages[1]!), result.singleFile]) {
+    await withBrowser(async browser => {
+      await browser.navigate(pathToFileURL(file).href);
+      const href = await browser.evaluate<string | null>(`Array.from(document.querySelectorAll('article a')).find(a=>a.textContent==='Download')?.getAttribute('href') ?? null`);
+      const bytes = href === null ? null : href.startsWith('data:') ? Buffer.from(href.split(',')[1]!, 'base64') : await readFile(new URL(href, pathToFileURL(file)));
+      expect(bytes).toEqual(pixel);
+    });
+  }
+  expect(result.warnings).toEqual([]);
 });

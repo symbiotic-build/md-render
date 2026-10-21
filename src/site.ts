@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadCorpus, readSource, within, type Corpus } from './corpus.js';
-import { bundleReferences, type ReferenceTarget } from './references.js';
+import { bundleReferences, portableText, type ReferenceTarget } from './references.js';
 import { renderDiagrams } from './diagrams.js';
 import { documentHtml, documentOutline, parseDocument, transformUrls, type OutlineEntry, type ParsedDocument } from './markdown.js';
 
@@ -161,7 +161,7 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
   const docs = new Map(corpus.files.map((file) => [file.path, parseDocument(file.markdown, 'Untitled chapter')]));
   if (corpus.files.some(file => file.path === assets || file.path.startsWith(assets + '/'))) throw new Error('Input uses reserved directory: ' + assets);
   // Only initial documents discover references. Parse all direct targets before URL validation.
-  for (const { path: file } of corpus.files) {
+  for (const { path: file } of bundle ? [] : corpus.files) {
     const doc = docs.get(file)!;
     const targets = new Set<string>();
     transformUrls(doc, (url, image) => {
@@ -177,13 +177,10 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
     for (const target of targets) {
       let bytes: Buffer;
       try {
-        const snapshot = bundle ? await readSource(corpus.root, target, maxFileBytes) : await readSource(corpus.root, target);
-        if (typeof snapshot === 'number') continue; // Bundling records the visible omission without parsing.
-        bytes = snapshot;
+        bytes = await readSource(corpus.root, target);
       }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          if (bundle) continue; // Retained exports report missing references during URL rewriting.
           throw new Error(`Markdown link is outside rendered corpus: ${file} -> ${target}`, { cause: error });
         }
         throw error;
@@ -292,8 +289,13 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
     });
   }
   for (const file of copiedAssets) {
-    const bytes = await readSource(corpus.root, file);
+    const bytes = references?.bytes(path.resolve(corpus.root, file)) ?? await readSource(corpus.root, file);
     files.set(file, bytes);
+  }
+  if (bundle) {
+    for (const file of [`${assets}/base.css`, `${assets}/theme.css`]) {
+      files.set(file, Buffer.from(await portableText(corpus.root, files.get(file)!.toString('utf8'))));
+    }
   }
   const bodies = await Promise.all([...docs.values()].map(doc => documentHtml(doc)));
   const diagrams = await renderDiagrams(bodies, options.mermaid !== false);
