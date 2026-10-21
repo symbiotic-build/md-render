@@ -58,6 +58,8 @@ export interface ReferenceTarget {
 export interface BundledReferences {
   target(file: string, pathname: string): ReferenceTarget;
   resolve(file: string, pathname: string): string;
+  /** Maps an existing source anchor to its portable identity; absent anchors stay invalid. */
+  anchor(file: string, id: string): string | undefined;
   bytes(absolute: string): Buffer | undefined;
 }
 
@@ -150,6 +152,38 @@ export async function bundleReferences(corpus: Corpus, docs: Map<string, ParsedD
       if (!targets.has(absolute)) targets.set(absolute, { label: await displayPath(corpus.root, absolute), kind: 'unbundled' });
     }
   }
+  // Identities, validation metadata and fragment links share one per-document mapping.
+  const anchorMaps = new Map<string, Map<string, string>>();
+  for (const [file, doc] of docs) {
+    const anchors = new Map<string, string>();
+    const used = new Set<string>();
+    for (const id of doc.anchors) {
+      const base = id ? await portableText(corpus.root, id) || 'anchor' : id;
+      let portableId = base;
+      let suffix = 0;
+      // Reservation order breaks collisions: explicit anchors precede generated heading IDs.
+      while (used.has(portableId)) portableId = `${base}-${++suffix}`;
+      used.add(portableId);
+      anchors.set(id, portableId);
+    }
+    anchorMaps.set(file, anchors);
+    doc.anchors = used;
+    for (const heading of doc.headings) heading.id = anchors.get(heading.id)!;
+    doc.meanings = new Map([...doc.meanings].map(([id, meaning]) => [anchors.get(id)!, meaning]));
+    const convertId = (properties: Record<string, unknown> | undefined): void => {
+      if (typeof properties?.id === 'string') properties.id = anchors.get(properties.id) ?? properties.id;
+    };
+    visit(doc.tree, node => {
+      convertId(node.data?.hProperties);
+      for (const child of node.data?.hChildren ?? []) visit(child, node => {
+        if (node.type === 'element') convertId(node.properties);
+      });
+    });
+  }
+  for (const entry of corpus.map) {
+    if (entry.anchor) entry.anchor = anchorMaps.get(entry.path)?.get(entry.anchor) ?? entry.anchor;
+  }
+  for (const home of corpus.entities) home.anchor = anchorMaps.get(home.path)?.get(home.anchor) ?? home.anchor;
   // Authored absolute input/home paths can occur in prose, code or link titles too.
   for (const doc of docs.values()) {
     // Mermaid and generated source blocks keep their text in HTML children.
@@ -178,5 +212,5 @@ export async function bundleReferences(corpus: Corpus, docs: Map<string, ParsedD
   for (const group of corpus.documents) {
     if (group.title !== undefined) group.title = await portableText(corpus.root, group.title);
   }
-  return { resolve, bytes: absolute => targets.get(absolute)?.bytes, target: (file, pathname) => targets.get(pathname ? resolve(file, pathname) : sources.get(file)!)! };
+  return { resolve, anchor: (file, id) => anchorMaps.get(file)?.get(id), bytes: absolute => targets.get(absolute)?.bytes, target: (file, pathname) => targets.get(pathname ? resolve(file, pathname) : sources.get(file)!)! };
 }

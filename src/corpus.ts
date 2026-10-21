@@ -31,17 +31,13 @@ export function within(root: string, relative: string): string {
 }
 
 /** Reads regular UTF-8 inputs; symbolic links and malformed encoding fail visibly. */
-export function readSource(root: string, relative: string): Promise<Buffer>;
-/** Returns the observed size instead of bytes when an additional source exceeds the limit. */
-export function readSource(root: string, relative: string, maxFileBytes: number): Promise<Buffer | number>;
-export async function readSource(root: string, relative: string, maxFileBytes?: number): Promise<Buffer | number> {
+export async function readSource(root: string, relative: string): Promise<Buffer> {
   const absolute = within(root, relative);
   const info = await lstat(absolute);
   if (!info.isFile() || await realpath(absolute) !== absolute) {
     throw new Error(`Input must be a regular file without symlinks: ${relative}`);
   }
-  if (maxFileBytes === undefined) return readFile(absolute);
-  return info.size > maxFileBytes ? info.size : readLimitedFile(absolute, maxFileBytes);
+  return readFile(absolute);
 }
 
 /** Reads at most the limit plus one detection byte; an oversized snapshot returns its observed size. */

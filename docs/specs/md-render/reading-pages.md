@@ -106,9 +106,13 @@ They do not prevent reading.
 
 The theme option chooses the site's CSS, independently of the colour mode.
 The neutral `default` theme is the default; `symbiotic` selects the Symbiotic brand palette; neither built-in theme has a logo.
-Custom CSS is copied as supplied, with one optional neighbouring SVG, PNG or WebP logo.
-Custom theme authors must keep extra resources inline to preserve offline use.
-They also own contrast in their custom CSS; the renderer’s contrast obligation covers its built-in themes and their diagram colours.
+Custom CSS supports one optional neighbouring SVG, PNG or WebP logo.
+
+Temporary viewers and folder exports copy stylesheet text as supplied; authors must inline extra resources for offline use in those modes.
+Standalone export embeds local imports and resources, and visibly rejects unavailable or remote dependencies.
+Stylesheet text and embedded resources stay unchanged by portable path conversion, as specified in [Bundled local references](serving-and-export.md#bundled-local-references).
+
+Custom theme authors also own contrast in their CSS; the renderer’s contrast obligation covers its built-in themes and their diagram colours.
 The built-in theme contrast evidence belongs to [Diagram rendering](resolving-content.md#diagram-rendering).
 
 <a id="article-display"></a>

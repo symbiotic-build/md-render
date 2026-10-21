@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadCorpus, readSource, within, type Corpus } from './corpus.js';
-import { bundleReferences, portableText, type ReferenceTarget } from './references.js';
+import { bundleReferences, type ReferenceTarget } from './references.js';
 import { renderDiagrams } from './diagrams.js';
 import { documentHtml, documentOutline, parseDocument, transformUrls, type OutlineEntry, type ParsedDocument } from './markdown.js';
 
@@ -246,7 +246,9 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
         if (reference.kind === 'binary') return { url: relativeUrl(file, reference.key!) + query + fragment, title: reference.label, download: path.basename(reference.key!) };
         const destination = docs.get(reference.key!)!;
         let id = decodeURIComponent(fragment.slice(1));
-        let valid = !id || destination.anchors.has(id);
+        const portableId = references.anchor(reference.key!, id);
+        let valid = !id || portableId !== undefined;
+        if (portableId !== undefined) id = portableId;
         if (id && reference.kind === 'text') {
           const line = /^L([1-9][0-9]*)(?:-L([1-9][0-9]*))?$/.exec(id);
           valid = !!line && Number(line[1]) <= destination.sourceLines! &&
@@ -291,11 +293,6 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
   for (const file of copiedAssets) {
     const bytes = references?.bytes(path.resolve(corpus.root, file)) ?? await readSource(corpus.root, file);
     files.set(file, bytes);
-  }
-  if (bundle) {
-    for (const file of [`${assets}/base.css`, `${assets}/theme.css`]) {
-      files.set(file, Buffer.from(await portableText(corpus.root, files.get(file)!.toString('utf8'))));
-    }
   }
   const bodies = await Promise.all([...docs.values()].map(doc => documentHtml(doc)));
   const diagrams = await renderDiagrams(bodies, options.mermaid !== false);

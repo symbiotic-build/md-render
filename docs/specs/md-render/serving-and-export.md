@@ -132,11 +132,14 @@ For files in another Git repository, read local Git metadata and display `<repos
 Other files show only their basename.
 
 Repository labels identify the checked-out commit; exported bytes are the current local file bytes.
-Apply these labels to reference metadata, path hovers, manifest titles, image descriptions, and absolute input/home paths appearing in visible prose or code.
-Apply the same conversion to published stylesheet text after loading its resources.
+Apply these labels to reference metadata, path hovers, manifest titles and image descriptions.
+Also convert anchor identifiers, matching fragments, and absolute input/home paths appearing in visible prose or code.
 Replace occurrences by their original text offsets, so inserted labels cannot consume a later original occurrence.
-A retained export's generated HTML, text and Markdown-derived content contain no original-machine URLs or absolute input/home paths.
-Opaque binary attachment bytes are exempt from this guarantee and remain unchanged.
+
+Retained exports remove original-machine URLs and absolute input/home paths from generated HTML, text and Markdown-derived content, with these exceptions for author files.
+Theme stylesheet text and its embedded resources are author files, exempt from path removal like opaque binary attachments.
+Their content stays unchanged by path removal, including when stylesheets are inlined.
+Standalone resource embedding follows [Single-file export](#single-file-export).
 Literal colon characters in ordinary text may use HTML character references without changing the reader's text.
 
 A missing linked file produces an external-local-reference warning and leaves its authored label as non-link text.
