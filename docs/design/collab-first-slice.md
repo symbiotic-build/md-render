@@ -1,0 +1,224 @@
+---
+status: draft
+issue: none yet (offline slug branch `collab-first-slice`; the issue is opened when the branch is first pushed)
+---
+
+# md-collab first slice: annotations on rendered documents
+
+This design implements the approved framework for people and agents working on the same Markdown documents. The framework itself, with its owners, layers and operator decisions of 2026-10-24, is in the operator handoff `collaborative-docs-framework.md`; its decisions are repeated under [Key decisions](#key-decisions) so this file stands alone.
+
+The first slice serves one need: the operator answers the open questions about a specification while reading it, and sees every earlier decision with who made it and when.
+
+## Scope
+
+- **md-render** gains block identity, source lines, a render-time extension interface, a browser interface and an in-memory single-page render. Its non-goals stay: it does not edit Markdown, host remotely or reload live.
+- **md-collab** is a new package in this repository. It stores annotations as files, resolves their anchors, offers agent commands, and serves a local page with the decisions sidebar and the history view.
+- **Not in this slice:** tags, suggested edits, agent-attached data, a database store, hosting, and the client portal's or Mission Control's adoption.
+
+## md-render additions
+
+### Block identity and source lines
+
+In a render with at least one extension, every rendered block element of a Markdown page carries two attributes. Renders without extensions are unchanged, so ordinary md-render output keeps its size and markup:
+
+- `data-source-lines="72-73"`: the first and last source line of the block, from the parser's positions. One line is written `72-72`.
+- `data-block="decimal~3f9a1c"`: the block ID.
+
+A block is a `p`, `li`, `h1`–`h6`, `tr`, `pre`, `blockquote` or `figure` element. `FACT`: remark keeps each node's source position through `remark-rehype` and `rehype-sanitize`; a probe on this repository at `dd43046` printed `p:3-4 li:6-6 tr:11-11` for a small document.
+
+A block ID is the ID of the nearest preceding heading, `~`, and the first six hexadecimal digits of the SHA-256 of the block's whitespace-normalised text. A block before the first heading uses `top`. A second block with the same ID in the same document gets `-2`, a third `-3`. This is the client portal's block rule (portal design §3.3), adopted so both name blocks the same way. It keeps the ID when lines move and changes it when the block's text or its section heading changes.
+
+Source pages for non-Markdown text files keep their existing `L<n>` line IDs and get no block IDs.
+
+### Site view and extensions
+
+```ts
+/** One rendered block, as extensions see it. */
+export interface Block {
+  id: string;                 // "decimal~3f9a1c"
+  path: string;               // corpus path: "docs/specs/memory-storage/schemas-and-values.md"
+  lines: [number, number];    // first and last source line
+  tag: string;                // "p", "li", "h2", "tr", …
+  text: string;               // whitespace-normalised text content
+  heading: string | null;     // ID of the nearest preceding heading
+}
+
+/** Read-only view of the rendered corpus. */
+export interface SiteView {
+  documents: { path: string; title: string; anchors: string[]; blocks: Block[] }[];
+}
+
+/** What an extension adds to every rendered page. */
+export interface ExtensionOutput {
+  styles?: string;            // CSS, inlined in a <style> element
+  script?: string;            // JavaScript, inlined after md-render's own script
+  data?: unknown;             // JSON, readable through mdRender.extensionData(name)
+  connect?: boolean;          // allow fetch to the page's own origin
+}
+
+export interface RenderExtension {
+  name: string;               // [a-z][a-z0-9-]*, unique per render
+  prepare(view: SiteView): ExtensionOutput | Promise<ExtensionOutput>;
+}
+
+export interface RenderOptions {
+  // … existing fields …
+  extensions?: RenderExtension[];
+}
+```
+
+md-render calls `prepare` once per render, after every page is parsed and rendered and before any HTML is written. An error thrown by `prepare` stops the render with `Extension <name> failed: <message>`. md-render writes each extension's output into every page in both output forms and adds the script's SHA-256 hash to the page's Content Security Policy. `connect: true` sets `connect-src 'self'`; otherwise the single-file policy keeps `connect-src 'none'`.
+
+`renderSinglePage(input, options): Promise<{ html: string; view: SiteView; warnings: string[] }>` returns the single-file page without writing a file, for servers such as md-collab's.
+
+### Browser interface
+
+md-render's script defines one frozen global before extension scripts run:
+
+```ts
+interface MdRender {
+  version: 1;
+  documents(): { path: string; title: string }[];
+  currentDocument(): string | null;                                   // corpus path shown now
+  blocks(path: string, first: number, last: number): Element[];       // blocks overlapping the lines, on the shown page
+  block(path: string, id: string): Element | null;
+  show(target: { path: string; block?: string; anchor?: string }): Promise<Element | null>;  // opens the chapter, scrolls
+  onNavigate(listener: (path: string) => void): void;                 // after the shown document changes
+  extensionData(name: string): unknown;
+}
+declare const mdRender: MdRender;
+```
+
+In the single-file form every document is in the page, so `blocks` and `block` find any document. In the folder form they find only the shown page, and `show` loads another page first.
+
+## md-collab
+
+### Terms
+
+- **Thread:** one annotation: a kind, anchors, kind fields and dated entries. One file.
+- **Collection:** a folder of threads about one document set, such as `memory-storage`.
+- **Store:** the folder that holds collections. The first store is a directory in a git checkout outside the documents' working tree.
+- **Entry:** one dated step in a thread: `raised`, `comment`, `answer`, `settled`, `reopened` or `withdrawn`.
+- **Actor:** who wrote an entry: `person:<github-login>` or `agent:<product>/<session>`.
+
+### Thread file
+
+```markdown
+---
+id: d1-decimal-schema-source
+kind: question
+title: How should a schema declare a decimal or bigdecimal field so that a host can submit it?
+decides: operator
+number: 1
+priority: P1
+topic: Exact numbers in schemas
+anchors:
+  - role: main
+    path: docs/specs/memory-storage/schemas-and-values.md
+    commit: 7aaff7d
+    lines: [73, 73]
+    block: decimal~3f9a1c
+    quote: "logical notation, not submittable source"
+  - role: also
+    path: docs/specs/memory-storage/decisions.md
+    commit: 7aaff7d
+    lines: [461, 472]
+settled_as: null
+---
+
+`FACT` You settled two exact number types … `ASSESSMENT` Until this is answered, nobody can build the schema parser.
+
+## Options
+
+1. **Write Cedar's own `decimal` type plus one Memory annotation … (recommended).**
+2. Use carrier types …
+
+## Entries
+
+### 2026-10-22T13:09:00Z agent:claude-code/memory-design raised
+
+### 2026-10-24T09:41:12Z person:operator answer
+
+Choice: 1
+
+Keep the annotation names short.
+```
+
+- Field and file names are lower snake case. The front matter is YAML.
+- `kind` is `comment` or `question` in this slice. A comment has no options, `decides` or `number`.
+- `decides` is `operator`, `lead` or `measurement`. `number` is the operator question number in its collection, unique there.
+- An anchor needs `path`, `commit` and `lines`; `block` and `quote` are written by the tool when it can.
+- The status comes from the entries: the last of `raised`, `reopened`, `answered`, `settled` and `withdrawn` decides it, and `comment` entries never change it. `answer` makes it `answered`.
+- Only a `person:` actor writes an `answer`. An agent that records an answer the operator gave in chat writes it as the person with the line `Source: chat` in the entry.
+
+### Settled decisions
+
+md-collab reads `### Decision:` sections from the decision chapters a collection names in its `collection.yaml`. Each becomes a read-only settled item: anchor = its decision heading, date and decider from **Authority**. They are never written to the store; the specification remains their home.
+
+### Anchor resolution
+
+At every load, each anchor is matched against the current `SiteView`:
+
+1. the block with the same `block` ID in the same path;
+2. otherwise the block in that path whose text contains `quote`, nearest to the old lines;
+3. otherwise, when the store's `commit` equals the documents' current commit, the blocks overlapping `lines`;
+4. otherwise the anchor is orphaned. The page lists orphaned anchors, and `md-collab check` reports them with exit code 1.
+
+### Commands
+
+```text
+md-collab serve <documents> --store <dir> --collection <name>      # local page on 127.0.0.1
+md-collab import <questions.md> --store <dir> --collection <name>  # House Rules question list -> question threads
+md-collab add question|comment --store <dir> --collection <name> --file <thread.md>
+md-collab list --store <dir> [--collection <name>] [--status open|answered|settled] [--json]
+md-collab answer <id> --choice <n> [--note <text>] --by person:<login> [--source chat]
+md-collab resolve <id> --settled-as <path#anchor> --by <actor>
+md-collab check <documents> --store <dir> --collection <name>
+```
+
+Writes go through one function that rereads the file, appends, and refuses when the file changed since it was read.
+
+### Local page and server
+
+`serve` renders the documents with `renderSinglePage` and the md-collab extension, then listens on `127.0.0.1` on a free port and prints the address with a per-session token.
+
+- Every request needs the token; writes also need `Origin` and `Host` equal to the printed address. A page from another site cannot call the server.
+- Annotation text is rendered through the same sanitizer as documents; raw HTML stays escaped.
+- The page reads threads from `GET /api/threads` and receives changes over server-sent events, so an agent's new question appears without a reload. A change to the documents re-renders the page and tells it to reload.
+- The sidebar has the approved Questions view and the History view of the 2026-10-24 prototype. Comments on a text selection anchor to the selected blocks.
+
+## Key decisions
+
+### Decision: md-render stays the renderer
+
+**Choice:** md-render keeps rendering and gains block identity, source lines, extensions and a browser interface. md-collab owns everything that writes.
+
+**Authority:** Lead decision, 2026-10-24, delegated by the operator; part of the framework the operator approved on 2026-10-24.
+
+**Reason:** md-render's spec lists "Editing Markdown, … remote hosting and live reload" as non-goals (`docs/specs/md-render/md-render.md:39`).
+
+**Rejected alternatives:** md-render growing into the whole tool. Editing md-render's finished HTML afterwards, as the first prototype did, depends on markup md-render never promised.
+
+### Decision: annotations live outside the documents' working tree
+
+**Choice:** Threads are files in a separate store, one file per thread, written only through md-collab.
+
+**Authority:** Lead proposal, 2026-10-24, after the operator asked how agents in worktrees and read-only reviewers would write annotations; part of the approved framework.
+
+**Reason:** Agents work on branches in worktrees and reviewers run read-only. Files inside the documents' repository would ride on feature branches, conflict in merges and be unwritable for reviewers.
+
+**Rejected alternatives:** An `annotations/` folder in the documents' repository; git notes, which attach to commits rather than text.
+
+### Decision: block IDs follow the client portal's rule
+
+**Choice:** Heading ID plus a hash of the block's text.
+
+**Authority:** Lead decision, 2026-10-24, under the approved owner of anchors (md-render).
+
+**Reason:** One rule for both systems; the ID survives line moves and changes when the text changes, which is when an anchor must fall back to its quote.
+
+**Rejected alternatives:** Line numbers only, which break on every edit above the block. Sequential block numbers, which shift when a block is inserted.
+
+## Size
+
+`ESTIMATE`: md-render, 4 source files changed and about 300 lines, plus spec sections and tests. md-collab, about 10 source files and 1 500 lines, plus tests.

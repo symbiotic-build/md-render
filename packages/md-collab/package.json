@@ -1,0 +1,23 @@
+{
+  "name": "md-collab",
+  "version": "0.1.0",
+  "description": "Comments, questions and decisions on Markdown documents, for people and agents.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": { "md-collab": "./dist/cli.js" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-browser.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json"
+  },
+  "dependencies": {
+    "md-render": "workspace:*",
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "typescript": "7.0.2"
+  }
+}
