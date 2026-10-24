@@ -177,12 +177,12 @@ Writes go through one function that rereads the file, appends, and refuses when 
 
 ### Local page and server
 
-`serve` renders the documents once with `renderSinglePage` and the md-collab extension, then listens on `127.0.0.1` and prints the address.
+`serve` renders the documents with `renderSinglePage` and the md-collab extension, then listens on `127.0.0.1` and prints the address.
 
 - Every request needs `Host` equal to the printed address, and writes also need `Origin` equal to it. A page from another site cannot write, and a site that rebinds its name to `127.0.0.1` is refused.
 - There is no token. Any program on the same computer can write through the server; the operator accepted that on 2026-10-24 to keep the address simple.
 - Annotation text is rendered through the same sanitizer as documents; raw HTML stays escaped.
-- The page reads threads from `GET /api/state`, and again after each of its own writes. Reloading the page shows what agents added. Edits to the documents appear after a server restart.
+- The page reads threads from `GET /api/state` and receives changes over server-sent events from `/api/events`: a store change, such as an agent's new question, reloads the threads, and a change to the documents re-renders the page and reloads it. The operator confirmed on 2026-10-24 that live updates are needed.
 - The sidebar has the approved Questions view and the History view of the 2026-10-24 prototype. Comments on a text selection anchor to the selected blocks.
 
 ## Key decisions

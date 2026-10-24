@@ -15,7 +15,7 @@ md-collab import questions.md path/to/repository/docs --store ~/annotations --co
 md-collab serve path/to/repository/docs --store ~/annotations --collection memory-storage --person person:your-login
 ```
 
-`serve` prints a `127.0.0.1` address. Open it in a browser on the same computer. Reload the page to see what agents added; restart `serve` after editing the documents.
+`serve` prints a `127.0.0.1` address. Open it in a browser on the same computer. What agents add appears in the open page at once, and an edit to the documents refreshes it.
 
 - **Questions for you** lists the operator questions. Choosing an option saves an answer; "Save note" saves the note with it.
 - **History** lists every question, lead and measurement item, comment and settled decision, newest first, with filters for who decides, status, topic and chapter.

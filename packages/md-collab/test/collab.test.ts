@@ -171,6 +171,7 @@ it('serves the page only under its own host and accepts writes only from its own
       http.get({ host: '127.0.0.1', port: new URL(origin).port, path: '/', headers: { host: 'evil.example' } }, response => { response.resume(); resolve(response.statusCode!); }).on('error', reject);
     });
     expect(rebound).toBe(403);
+    expect((await fetch(`http://localhost:${new URL(origin).port}/`)).status).toBe(200);
     const page = await fetch(session.url);
     expect(page.status).toBe(200);
     const html = await page.text();
@@ -187,6 +188,14 @@ it('serves the page only under its own host and accepts writes only from its own
     expect((await fetch(origin + `/api/threads/${created.thread.id}/entries`, { method: 'POST', headers: { ...headers, origin }, body: answer })).status).toBe(409);
     const file = await readFile(path.join(storeRoot, 'spec/threads', `${created.thread.id}.md`), 'utf8');
     expect(file).toMatch(/### \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ person:operator answer\n\nChoice: 1\n\nYes\./);
+    // An open page hears about a change an agent writes straight to the store.
+    const events = await fetch(origin + '/api/events');
+    const reader = events.body!.getReader();
+    await reader.read();
+    await store.append('spec', created.thread.id, { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'Seen?' });
+    let heard = '';
+    while (!heard.includes('event: changed')) heard += new TextDecoder().decode((await reader.read()).value);
+    await reader.cancel();
     const comment = await fetch(origin + '/api/comments', { method: 'POST', headers: { ...headers, origin }, body: JSON.stringify({ note: 'Is 4 MiB measured?', anchors: [{ path: 'docs/storage.md', lines: [7, 7], quote: 'The write group is 4 MiB.' }] }) });
     expect(comment.status).toBe(200);
     const after = await (await fetch(origin + '/api/state', { headers })).json();

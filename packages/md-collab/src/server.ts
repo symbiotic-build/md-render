@@ -1,6 +1,7 @@
 // The local page: one loopback server. Every request needs the server's own Host, so a site that
 // rebinds its name to 127.0.0.1 is refused; writes also need the page's own Origin.
 import { randomBytes } from 'node:crypto';
+import { watch, type FSWatcher } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -62,12 +63,19 @@ export async function serve(options: ServeOptions): Promise<Session> {
   const corpus = await loadCorpus(options.documents);
   let view: SiteView | undefined;
   const extension = await collabExtension({ collection: collection.name }, next => { view = next; });
-  // The documents are rendered once; restart the server to see edits to them.
-  const commit = await documentsCommit(corpus.root);
-  const { html } = await renderSinglePage(options.documents, { mermaid: options.mermaid }, [extension]);
+  let html = '';
+  let commit: string | null = null;
+  async function render(): Promise<void> {
+    commit = await documentsCommit(corpus.root);
+    html = (await renderSinglePage(options.documents, { mermaid: options.mermaid }, [extension])).html;
+  }
+  await render();
   // Checks every anchor once at start, so a broken collection fails before the page opens.
   await pageState({ store, collection, view: view!, corpusRoot: corpus.root, commit, person: options.person });
 
+  // Open pages hear about changes: "changed" after a store write, "reload" after the documents change.
+  const listeners = new Set<ServerResponse>();
+  const notify = (event: string) => { for (const listener of listeners) listener.write(`event: ${event}\ndata: {}\n\n`); };
   let origin = '';
   const server = createServer((request, response) => {
     handle(request, response).catch(error => {
@@ -77,13 +85,22 @@ export async function serve(options: ServeOptions): Promise<Session> {
   });
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? '/', origin);
-    if (request.headers.host !== new URL(origin).host) return send(response, 403, { error: `Open ${origin}` });
+    // This computer's two names; any other Host is a site that rebinds its name to 127.0.0.1.
+    const host = request.headers.host ?? '';
+    if (host !== new URL(origin).host && host !== `localhost:${new URL(origin).port}`) return send(response, 403, { error: `Open ${origin}` });
     if (request.method === 'GET' && url.pathname === '/') return send(response, 200, html, 'text/html; charset=utf-8');
     if (request.method === 'GET' && url.pathname === '/api/state') {
       return send(response, 200, await pageState({ store, collection, view: view!, corpusRoot: corpus.root, commit, person: options.person }));
     }
+    if (request.method === 'GET' && url.pathname === '/api/events') {
+      response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });
+      response.write(': connected\n\n');
+      listeners.add(response);
+      request.on('close', () => listeners.delete(response));
+      return;
+    }
     if (request.method !== 'POST') return send(response, 404, { error: 'Not found' });
-    if (request.headers.origin !== origin) return send(response, 403, { error: 'Writes are accepted only from the md-collab page' });
+    if (request.headers.origin !== `http://${host}`) return send(response, 403, { error: 'Writes are accepted only from the md-collab page' });
     const body = await readJson(request);
     const at = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
     const entryMatch = /^\/api\/threads\/([a-z0-9][a-z0-9-]*)\/entries$/.exec(url.pathname);
@@ -121,5 +138,23 @@ export async function serve(options: ServeOptions): Promise<Session> {
   const port = (server.address() as AddressInfo).port;
   origin = `http://127.0.0.1:${port}`;
 
-  return { url: `${origin}/`, close: () => new Promise<void>(resolve => server.close(() => resolve())) };
+  // Agents write threads with the command line, so the page learns of changes from the store itself.
+  let timer: NodeJS.Timeout | undefined;
+  const watchers: FSWatcher[] = [
+    watch(path.join(store.root, collection.name), { recursive: true }, () => notify('changed')),
+    watch(corpus.root, { recursive: true }, (_event, file) => {
+      if (!file || !/\.md$/i.test(String(file)) || String(file).split(path.sep).includes('.git')) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => { render().then(() => notify('reload'), error => console.error(`md-collab: re-render failed: ${(error as Error).message}`)); }, 300);
+    }),
+  ];
+  return {
+    url: `${origin}/`,
+    async close() {
+      clearTimeout(timer);
+      for (const watcher of watchers) watcher.close();
+      for (const listener of listeners) listener.end();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    },
+  };
 }

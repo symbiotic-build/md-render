@@ -362,8 +362,12 @@ async function load() {
   fillFilters();
   if (!typing()) renderList();
   renderCounts(); markDocument();
-  status(`Answers are saved to ${state.collection.title} as ${state.person.replace(/^person:/, '')}. Reload to see what agents added.${state.orphans.length ? ` ${state.orphans.length} passages are no longer found.` : ''}`, state.orphans.length > 0);
+  status(`Answers are saved to ${state.collection.title} as ${state.person.replace(/^person:/, '')}.${state.orphans.length ? ` ${state.orphans.length} passages are no longer found.` : ''}`, state.orphans.length > 0);
 }
+const events = new EventSource('/api/events');
+events.addEventListener('changed', () => { load(); });
+events.addEventListener('reload', () => { location.reload(); });
+events.onerror = () => status('Lost the connection to md-collab. Answers made now are not saved; restart it and reload.', true);
 mdRender.onNavigate(() => { if (view === 'q' && filter === 'page') renderList(); });
 
 /* ---------- comments on selected text ---------- */
