@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
+import { launchBrowser } from '../../../src/browser.js';
 import { execFile } from 'node:child_process';
 import http from 'node:http';
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
@@ -201,4 +202,28 @@ it('serves the page only under its own host and accepts writes only from its own
     const after = await (await fetch(origin + '/api/state', { headers })).json();
     expect(after.threads.map((item: { kind: string; status: string }) => [item.kind, item.status])).toEqual([['comment', 'open'], ['question', 'answered']]);
   } finally { await session.close(); }
+});
+
+it("shows the sidebar in a real browser and adds an agent's new thread without a reload", async () => {
+  const storeRoot = path.join(root, 'store-c');
+  const store = new FileStore(storeRoot);
+  await store.createCollection({ name: 'spec', title: 'Spec review', settled: ['docs/decisions.md'] });
+  const [thread] = questionThreads(parseQuestionList(questionList, path.join(docs, 'questions.md')), { view, corpusRoot: docs, commit, actor: 'agent:test/1', at: '2026-10-24T00:00:00Z', settled: ['docs/decisions.md'], base: docs });
+  await store.create('spec', thread!);
+  const session = await serve({ documents: path.join(docs, 'docs'), store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
+  const browser = await launchBrowser();
+  try {
+    await browser.withPage(async page => {
+      // Any script error on the page, including a syntax error in the sidebar, fails this test.
+      await page.send('Page.addScriptToEvaluateOnNewDocument', { source: "window.pageErrors = []; addEventListener('error', event => window.pageErrors.push(String(event.message)));" });
+      await page.navigate(session.url);
+      const wait = (expression: string) => page.evaluate(`new Promise((resolve, reject) => { const start = performance.now(); (function check() { const value = ${expression}; if (value) resolve(value); else if (performance.now() - start > 5000) reject(new Error('Timed out: ' + ${JSON.stringify(expression)})); else setTimeout(check, 50); })(); })`);
+      expect(await wait(`document.getElementById('ov-v-hn')?.textContent === '3' && document.getElementById('ov-count').textContent`)).toBe('0 / 1 answered');
+      expect(await page.evaluate(`document.querySelectorAll('.ov-tag').length`)).toBe(1);
+      await store.create('spec', { id: 'c-agent-note', kind: 'comment', title: 'Agent note', anchors: [{ role: 'main', path: 'docs/storage.md', commit, lines: [7, 7] }], context: '', options: [],
+        entries: [{ at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'Agent note' }] });
+      expect(await wait(`document.getElementById('ov-v-hn').textContent === '4'`)).toBe(true);
+      expect(await page.evaluate(`window.pageErrors`)).toEqual([]);
+    });
+  } finally { await browser.close(); await session.close(); }
 });

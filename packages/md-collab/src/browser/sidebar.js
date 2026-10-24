@@ -421,9 +421,6 @@ $('#ov-next').addEventListener('click', () => {
   if (!next) { toast('All questions have an answer.'); return; }
   openQuestion(next.number, true);
 });
-  if (!lines.length) { toast('No answers yet.'); return; }
-  try { await navigator.clipboard.writeText(lines.join('\n')); toast('Answers copied.'); } catch { toast('Copying is blocked here; your answers are saved anyway.'); }
-});
 $('#ov-v-q').addEventListener('click', () => setView('q'));
 $('#ov-v-h').addEventListener('click', () => setView('h'));
 $('#ov-fab').addEventListener('click', () => $('#ov-panel').classList.add('ov-show'));
