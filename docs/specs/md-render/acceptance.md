@@ -483,3 +483,34 @@ This case checks explicit exceptions to bundling without broken local links.
 **Expected:** Missing labels remain non-link text with warnings. Oversized files visibly show omission and size; files at the limit are bundled. Invalid policy, line destinations and in-root symlinks reject visibly.
 
 **Implementation:** [test/bundled-files.test.ts::lists oversized files and missing labels visibly without local URLs](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::rejects invalid bundle policies](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::rejects unsupported source line fragments](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::refuses linked symlinks inside the input root](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::omits oversized additional Markdown before parsing while exempting selected pages](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::visibly omits a linked file that grows beyond the read budget after stat](../../../test/bundled-files.test.ts)
+
+<a id="test-extension-render"></a>
+## Acceptance test: block identity and extensions
+
+This case checks block attributes, the corpus view and embedded extension output.
+
+**Method:** test.
+
+**Requirements:** [Let extensions find rendered blocks](requirements.md#req-extensions).
+
+**Inputs:** Two synthetic pages with a paragraph over two lines, a list, a table, an explicit anchor and repeated text, plus probe extensions.
+
+**Expected:** Every block carries its source lines and an ID made from its heading and text hash; an explicit anchor names its section and repeats get `-2`. Plain-text source pages have no blocks. The extension sees each document's blocks, and its style, data and script reach the page with the script hash and the requested connection policy. A failing, misnamed, duplicate or script-closing extension stops the render.
+
+**Implementation:** [test/extensions.test.ts::marks every Markdown block with its source lines and a stable block ID](../../../test/extensions.test.ts), [test/extensions.test.ts::names blocks after an explicit anchor before a heading and numbers repeated text](../../../test/extensions.test.ts), [test/extensions.test.ts::gives source pages of plain text files no blocks](../../../test/extensions.test.ts), [test/extensions.test.ts::passes the rendered corpus to an extension and embeds its output in the single page](../../../test/extensions.test.ts), [test/extensions.test.ts::stops the render when an extension fails or is malformed](../../../test/extensions.test.ts), [test/extensions.test.ts::writes an extension script as a deferred asset in folder output](../../../test/extensions.test.ts)
+
+<a id="test-extension-browser"></a>
+## Acceptance test: extension browser interface
+
+This case checks the browser interface through the real browser fixture.
+
+**Method:** test.
+
+**Requirements:** [Let extensions find rendered blocks](requirements.md#req-extensions).
+
+**Inputs:** A single-file page with two documents and an extension that records navigation.
+
+**Expected:** The interface is frozen at version 1, lists the documents, finds blocks by source lines and by ID, shows a block or an anchor in another document and reports the change, and returns null for an unknown document.
+
+**Implementation:** [test/extensions.test.ts::lets an extension find blocks by source line and show them in the single page](../../../test/extensions.test.ts)
+
