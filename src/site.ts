@@ -17,8 +17,6 @@ export interface RenderOptions {
   bundle?: { version: 1; maxFileBytes?: number };
   /** Versioned session policy; bounds HTML requests and HTTP asset freshness. */
   navigation?: { version: 1; cachePages?: number; assetMaxAgeSeconds?: number };
-  /** Render-time additions; each sees the rendered corpus and adds style, script and data to every page. */
-  extensions?: RenderExtension[];
 }
 
 /** One rendered Markdown block, as extensions see it. */
@@ -27,7 +25,7 @@ export interface Block extends RenderedBlock { path: string }
 export interface SiteView { documents: { path: string; title: string; anchors: string[]; blocks: Block[] }[] }
 /** What an extension adds to every page. `connect` allows fetch to the page's own origin. */
 export interface ExtensionOutput { styles?: string; script?: string; data?: unknown; connect?: boolean }
-/** A render-time extension; `prepare` runs once, after rendering and before any page is written. */
+/** A render-time extension of the single page; `prepare` runs once, after rendering and before the page is written. */
 export interface RenderExtension { name: string; prepare(view: SiteView): ExtensionOutput | Promise<ExtensionOutput> }
 /** A prepared extension's output, ready to embed. */
 export interface PreparedExtension extends ExtensionOutput { name: string }
@@ -121,10 +119,10 @@ export function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: st
   ['dark', 'Dark', '<path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"></path>'],
 ].map(([value, label, icon]) => `<button type="button" value="${value}" aria-label="${label}" title="${label}" aria-pressed="${value === 'system'}"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg></button>`).join('')}</div></aside>
 <main id="md-render-content">${single ? single.content : pageContent(corpus, docs, file, body, href)}</main>
-<script type="application/json" id="md-render-documents">${scriptJson([...docs.keys()].map(path => ({ path, title: docs.get(path)!.title, href: single ? single.url(pagePath(path)) : relativeUrl(file, pagePath(path)) })))}</script>
+<script type="application/json" id="md-render-documents">${scriptJson([...docs.keys()].map(path => ({ path, title: docs.get(path)!.title })))}</script>
 ${extensions.map(extension => extension.data === undefined ? '' : `<script type="application/json" id="md-render-extension-data-${extension.name}">${scriptJson(extension.data)}</script>`).join('')}
 ${single ? `<script>${single.script}</script>` : `<script src="${href(`${assets}/navigation.js`)}" defer></script>`}
-${extensions.map(extension => !extension.script ? '' : single ? `<script>${extension.script}</script>` : `<script src="${href(`${assets}/extensions/${extension.name}.js`)}" defer></script>`).join('')}
+${extensions.map(extension => extension.script ? `<script>${extension.script}</script>` : '').join('')}
 </body></html>`;
 }
 
@@ -184,7 +182,7 @@ async function prepareExtensions(view: SiteView, extensions: RenderExtension[]):
 }
 
 /** Renders every source before writing pages. Links resolve against the same parsed snapshot. */
-export async function prepareSite(input: string, options: RenderOptions = {}, bundle = false): Promise<PreparedSite> {
+export async function prepareSite(input: string, options: RenderOptions = {}, bundle = false, extensionList: RenderExtension[] = []): Promise<PreparedSite> {
   const maxFileBytes = options.bundle?.maxFileBytes ?? 5_000_000;
   if (options.bundle && options.bundle.version !== 1 || !Number.isSafeInteger(maxFileBytes) || maxFileBytes < 0) {
     throw new Error('Invalid version-1 bundle configuration');
@@ -345,19 +343,18 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
     const bytes = references?.bytes(path.resolve(corpus.root, file)) ?? await readSource(corpus.root, file);
     files.set(file, bytes);
   }
-  const rendered = await Promise.all([...docs.values()].map(doc => renderDocument(doc, { mark: !!options.extensions?.length })));
+  const rendered = await Promise.all([...docs.values()].map(doc => renderDocument(doc, { mark: extensionList.length > 0 })));
   const view: SiteView = { documents: [...docs].map(([path, doc], index) => ({
     path, title: doc.title, anchors: [...doc.anchors], blocks: rendered[index]!.blocks.map(block => ({ ...block, path })),
   })) };
-  const extensions = await prepareExtensions(view, options.extensions ?? []);
-  for (const extension of extensions) if (extension.script) files.set(`${assets}/extensions/${extension.name}.js`, Buffer.from(extension.script));
+  const extensions = await prepareExtensions(view, extensionList);
   const diagrams = await renderDiagrams(rendered.map(result => result.html), options.mermaid !== false);
   return { corpus, docs, bodies: diagrams.pages.map(html => bundle ? html.replace(/file:/gi, value => value.slice(0, -1) + '&#58;') : html), files, logo, themeInit, cachePages, links, mermaid: diagrams.available, warnings, view, extensions };
 }
 
 /** Writes the existing folder layout from one validated snapshot. */
 export async function writeSite(site: PreparedSite, output: string): Promise<RenderResult> {
-  const { corpus, docs, bodies, files, logo, themeInit, cachePages, links, mermaid, warnings, extensions } = site;
+  const { corpus, docs, bodies, files, logo, themeInit, cachePages, links, mermaid, warnings } = site;
   const directory = path.resolve(output);
   await mkdir(directory, { recursive: true });
   if ((await readdir(directory)).length) throw new Error(`Output directory must be empty: ${directory}`);
@@ -372,7 +369,7 @@ export async function writeSite(site: PreparedSite, output: string): Promise<Ren
     if (file.startsWith(`${assets}/`) && !docs.get(file)!.displayPath) throw new Error(`Input uses reserved directory: ${file}`);
     const target = within(directory, pagePath(file));
     await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, page(corpus, docs, file, bodies[index]!, logo, themeInit, cachePages, undefined, extensions));
+    await writeFile(target, page(corpus, docs, file, bodies[index]!, logo, themeInit, cachePages));
     pages.push(pagePath(file));
   }
   if (!pages.includes('index.html')) {

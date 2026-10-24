@@ -317,9 +317,9 @@ Extensions point at rendered text by its source lines, so no program has to chan
 
 **Actor:** md-render and the calling program.
 
-**Condition:** The caller passes `extensions` in the render options, or a page script runs in any rendered page.
+**Condition:** The caller passes extensions to `renderSinglePage`, or a page script runs in a rendered page.
 
-**Result:** Follow [Blocks and extensions](reference.md#extension-reference). In a render with extensions, mark every Markdown block with its source lines and block ID; leave other renders unchanged. Run each extension once on the rendered corpus and stop the render when one fails. Embed its style, script and data in every page, with the script's hash in the page policy. Give page scripts the version-1 browser interface.
+**Result:** Follow [Blocks and extensions](reference.md#extension-reference). In a render with extensions, mark every Markdown block with its source lines and block ID; leave other renders unchanged. Run each extension once on the rendered corpus and stop the render when one fails. Embed its style, script and data in the page, with the script's hash in the page policy. Give page scripts the version-1 browser interface.
 
 **Verification:** Render synthetic pages with a probe extension, inspect markup and policy, and call the browser interface in the real browser fixture.
 

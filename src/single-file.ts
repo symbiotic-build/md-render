@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { escapeHtml, page, pageContent, prepareSite, writeSite, type PreparedSite, type RenderOptions, type SiteView } from './site.js';
+import { escapeHtml, page, pageContent, prepareSite, writeSite, type PreparedSite, type RenderExtension, type RenderOptions, type SiteView } from './site.js';
 
 const mimeTypes: Record<string, string> = { '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf' };
 function dataUri(file: string, bytes: Buffer): string {
@@ -256,8 +256,8 @@ async function standalone(site: PreparedSite, options: RenderOptions): Promise<s
 }
 
 /** The single-file page and the corpus view, kept in memory, for servers that render on demand. */
-export async function renderSinglePage(input: string, options: RenderOptions = {}): Promise<{ html: string; view: SiteView; warnings: string[] }> {
-  const site = await prepareSite(input, options, true);
+export async function renderSinglePage(input: string, options: RenderOptions = {}, extensions: RenderExtension[] = []): Promise<{ html: string; view: SiteView; warnings: string[] }> {
+  const site = await prepareSite(input, options, true, extensions);
   return { html: await standalone(site, options), view: site.view, warnings: site.warnings };
 }
 

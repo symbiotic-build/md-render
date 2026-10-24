@@ -10,13 +10,12 @@ import { resolveAnchor } from './anchors.js';
 import { parseQuestionList, questionThreads } from './import.js';
 import { serve } from './server.js';
 import { FileStore } from './store.js';
-import { parseThread, threadStatus, type Entry } from './thread.js';
+import { threadStatus, type Entry } from './thread.js';
 
 const usage = `Usage:
   md-collab init --store <dir> --collection <name> --title <text> [--settled <corpus path>]...
   md-collab serve <documents> --store <dir> --collection <name> --person person:<login> [--port <n>]
   md-collab import <questions.md> <documents> --store <dir> --collection <name> --by <actor> [--at <UTC timestamp>]
-  md-collab add <thread.md> --store <dir> --collection <name>
   md-collab list --store <dir> --collection <name> [--status open|answered|settled|withdrawn] [--json]
   md-collab answer <id> --store <dir> --collection <name> --by person:<login> [--choice <n>] [--note <text>] [--source chat]
   md-collab comment <id> --store <dir> --collection <name> --by <actor> --note <text>
@@ -81,12 +80,6 @@ async function main(argv: string[]): Promise<number> {
       for (const thread of threads) await store.create(collection, thread);
       console.log(`Imported ${threads.length} questions into ${collection}`);
       for (const line of skipped) console.log(`  kept as text, no anchor: ${line}`);
-      return 0;
-    }
-    case 'add': {
-      const thread = parseThread(await readFile(positionals[0] ?? '', 'utf8'));
-      await store.create(collection, thread);
-      console.log(`Added ${thread.id}`);
       return 0;
     }
     case 'list': {

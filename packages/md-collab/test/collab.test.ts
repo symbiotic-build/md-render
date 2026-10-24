@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
+import http from 'node:http';
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -157,7 +158,7 @@ it('imports a House Rules question list with its cited passages as anchors', () 
   expect(thread!.context).not.toContain('Answer like so');
 });
 
-it('serves the page only with the session token and accepts writes only from its own origin', async () => {
+it('serves the page only under its own host and accepts writes only from its own origin', async () => {
   const storeRoot = path.join(root, 'store-b');
   const store = new FileStore(storeRoot);
   await store.createCollection({ name: 'spec', title: 'Spec review', settled: ['docs/decisions.md'] });
@@ -166,13 +167,16 @@ it('serves the page only with the session token and accepts writes only from its
   const session = await serve({ documents: path.join(docs, 'docs'), store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
   try {
     const origin = new URL(session.url).origin;
-    expect((await fetch(origin + '/')).status).toBe(403);
+    const rebound = await new Promise<number>((resolve, reject) => {
+      http.get({ host: '127.0.0.1', port: new URL(origin).port, path: '/', headers: { host: 'evil.example' } }, response => { response.resume(); resolve(response.statusCode!); }).on('error', reject);
+    });
+    expect(rebound).toBe(403);
     const page = await fetch(session.url);
     expect(page.status).toBe(200);
     const html = await page.text();
     expect(html).toContain("connect-src 'self'");
     expect(html).toContain('id="md-render-extension-data-md-collab"');
-    const headers = { 'x-md-collab-token': session.token, 'content-type': 'application/json' };
+    const headers = { 'content-type': 'application/json' };
     const state = await (await fetch(origin + '/api/state', { headers })).json();
     expect(state.threads[0]).toMatchObject({ id: created.thread.id, status: 'open', number: 1, anchors: [{ role: 'main', method: 'block' }, { role: 'also', method: 'block' }] });
     expect(state.settled.map((decision: { id: string; decidedBy: string[] }) => [decision.id, decision.decidedBy])).toEqual([['decision-fixed-group', ['operator']], ['decision-redo', ['lead']]]);

@@ -45,13 +45,13 @@ In a render with at least one extension, every Markdown block, a `p`, `li`, `h1`
 
 `data-source-lines="3-4"` names its first and last source line. `data-block` names its block ID: the nearest heading's ID, `~` and six hexadecimal digits of the SHA-256 of its whitespace-normalised text. An explicit anchor before a heading names that section instead of the heading's own ID. A repeated ID in one document gets `-2`, `-3`. Plain-text source pages keep their `L<n>` line IDs and have no blocks. Each page's `article` carries `data-source-path` with the document's corpus path.
 
-`renderSite`, `exportSite`, `startViewer` and `renderSinglePage` accept `extensions`, a list of `{ name, prepare(view) }`. A name matches `[a-z][a-z0-9-]*` and is unique. `prepare` runs once, after every page is rendered and before any page is written. It receives the documents in reading order with their path, title, anchors and blocks. It returns optional `styles`, `script`, `data` and `connect`.
+`renderSinglePage(input, options, extensions)` accepts `extensions`, a list of `{ name, prepare(view) }`; the folder and file exports take none. A name matches `[a-z][a-z0-9-]*` and is unique. `prepare` runs once, after every page is rendered and before the page is written. It receives the documents in reading order with their path, title, anchors and blocks. It returns optional `styles`, `script`, `data` and `connect`.
 
-md-render embeds the style and the JSON data in every page. In single files the script is inline and its SHA-256 hash joins the page policy; in folders it is the deferred asset `_md-render/extensions/<name>.js`. `connect: true` allows requests to the page's own origin. A failing `prepare` stops the render with `Extension <name> failed: <message>`, and a script that contains `</script` is refused.
+md-render embeds the style, the JSON data and the inline script in the page, and adds the script's SHA-256 hash to the page policy. `connect: true` allows requests to the page's own origin. A failing `prepare` stops the render with `Extension <name> failed: <message>`, and a script that contains `</script` is refused.
 
-`renderSinglePage(input, options)` returns `{ html, view, warnings }` without writing a file.
+`renderSinglePage` returns `{ html, view, warnings }` without writing a file.
 
-Page scripts use the frozen global `mdRender`, version 1. `documents()` lists path and title, and `currentDocument()` names the shown document. `blocks(path, first, last)` and `block(path, id)` return shown elements. `show({ path, block?, anchor? })` opens the document and scrolls to the target, resolving to the element or null. `onNavigate(listener)` reports the shown document after it changes, and `extensionData(name)` returns an extension's data.
+Page scripts use the frozen global `mdRender`, version 1. `documents()` lists path and title, and `currentDocument()` names the shown document. `blocks(path, first, last)` and `block(path, id)` return shown elements. `show({ path, block?, anchor? })` opens a document of the page and scrolls to the target, resolving to the element or null. `onNavigate(listener)` reports the shown document after it changes, and `extensionData(name)` returns an extension's data.
 
 <a id="selector-reference"></a>
 ## Selector execution

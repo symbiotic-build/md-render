@@ -11,7 +11,7 @@ The first slice serves one need: the operator answers the open questions about a
 
 ## Scope
 
-- **md-render** gains block identity, source lines, a render-time extension interface, a browser interface and an in-memory single-page render. Its non-goals stay: it does not edit Markdown, host remotely or reload live.
+- **md-render** gains block identity, source lines, a render-time extension interface for the single page, a browser interface and an in-memory single-page render. Its non-goals stay: it does not edit Markdown, host remotely or reload live.
 - **md-collab** is a new package in this repository. It stores annotations as files, resolves their anchors, offers agent commands, and serves a local page with the decisions sidebar and the history view.
 - **Not in this slice:** tags, suggested edits, agent-attached data, a database store, hosting, and the client portal's or Mission Control's adoption.
 
@@ -61,15 +61,13 @@ export interface RenderExtension {
   prepare(view: SiteView): ExtensionOutput | Promise<ExtensionOutput>;
 }
 
-export interface RenderOptions {
-  // … existing fields …
-  extensions?: RenderExtension[];
-}
+export function renderSinglePage(input: string, options?: RenderOptions, extensions?: RenderExtension[]):
+  Promise<{ html: string; view: SiteView; warnings: string[] }>;
 ```
 
-md-render calls `prepare` once per render, after every page is parsed and rendered and before any HTML is written. An error thrown by `prepare` stops the render with `Extension <name> failed: <message>`. md-render writes each extension's output into every page in both output forms and adds the script's SHA-256 hash to the page's Content Security Policy. `connect: true` sets `connect-src 'self'`; otherwise the single-file policy keeps `connect-src 'none'`.
+md-render calls `prepare` once, after every page is parsed and rendered and before the page is written. An error thrown by `prepare` stops the render with `Extension <name> failed: <message>`. md-render writes each extension's output into the page and adds the script's SHA-256 hash to the page's Content Security Policy. `connect: true` sets `connect-src 'self'`; otherwise the single-file policy keeps `connect-src 'none'`.
 
-`renderSinglePage(input, options): Promise<{ html: string; view: SiteView; warnings: string[] }>` returns the single-file page without writing a file, for servers such as md-collab's.
+`renderSinglePage` returns the single-file page without writing a file, for servers such as md-collab's.
 
 ### Browser interface
 
@@ -89,7 +87,7 @@ interface MdRender {
 declare const mdRender: MdRender;
 ```
 
-In the single-file form every document is in the page, so `blocks` and `block` find any document. In the folder form they find only the shown page, and `show` loads another page first.
+Extensions apply to the single page only, where every document is present, so `blocks`, `block` and `show` reach any document. Folder output and its viewer take no extensions.
 
 ## md-collab
 
@@ -169,7 +167,6 @@ At every load, each anchor is matched against the current `SiteView`:
 ```text
 md-collab serve <documents> --store <dir> --collection <name>      # local page on 127.0.0.1
 md-collab import <questions.md> --store <dir> --collection <name>  # House Rules question list -> question threads
-md-collab add question|comment --store <dir> --collection <name> --file <thread.md>
 md-collab list --store <dir> [--collection <name>] [--status open|answered|settled] [--json]
 md-collab answer <id> --choice <n> [--note <text>] --by person:<login> [--source chat]
 md-collab resolve <id> --settled-as <path#anchor> --by <actor>
@@ -180,11 +177,12 @@ Writes go through one function that rereads the file, appends, and refuses when 
 
 ### Local page and server
 
-`serve` renders the documents with `renderSinglePage` and the md-collab extension, then listens on `127.0.0.1` on a free port and prints the address with a per-session token.
+`serve` renders the documents once with `renderSinglePage` and the md-collab extension, then listens on `127.0.0.1` and prints the address.
 
-- Every request needs the token; writes also need `Origin` and `Host` equal to the printed address. A page from another site cannot call the server.
+- Every request needs `Host` equal to the printed address, and writes also need `Origin` equal to it. A page from another site cannot write, and a site that rebinds its name to `127.0.0.1` is refused.
+- There is no token. Any program on the same computer can write through the server; the operator accepted that on 2026-10-24 to keep the address simple.
 - Annotation text is rendered through the same sanitizer as documents; raw HTML stays escaped.
-- The page reads threads from `GET /api/threads` and receives changes over server-sent events, so an agent's new question appears without a reload. A change to the documents re-renders the page and tells it to reload.
+- The page reads threads from `GET /api/state`, and again after each of its own writes. Reloading the page shows what agents added. Edits to the documents appear after a server restart.
 - The sidebar has the approved Questions view and the History view of the 2026-10-24 prototype. Comments on a text selection anchor to the selected blocks.
 
 ## Key decisions

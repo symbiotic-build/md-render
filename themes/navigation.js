@@ -102,7 +102,6 @@ for (const control of appearanceButtons) {
 const navigation = menu.querySelector('nav');
 // Browser interface for render-time extensions (version 1); see the reference chapter.
 const navigateListeners = [];
-let openPage;
 let notifiedPath;
 function shownArticle() {
   return document.querySelector(singlePages.length ? '.single-page:not([hidden]) article.sd-doc' : 'main article.sd-doc');
@@ -254,7 +253,6 @@ const pageKey = (value) => { const url = new URL(value, location.href); url.hash
 const renderedPaths = new Set([...navigation.querySelectorAll('.chapter-row a')].map(link => new URL(link.href).pathname));
 const pageCache = new Map();
 let displayedPage = pageKey(location.href);
-openPage = url => changePage(new URL(url, location.href), undefined, true);
 let navigationSequence = 0;
 // Keep coordinates per history entry in memory. Writing replaceState on every
 // scroll would consume the browser's history API rate limit during reading.
@@ -427,8 +425,7 @@ if (/^https?:$/.test(location.protocol)) {
 
 }
 
-const documentList = JSON.parse(document.getElementById('md-render-documents')?.textContent || '[]')
-  .map(entry => ({ ...entry, href: new URL(entry.href, location.href).href }));
+const documentList = JSON.parse(document.getElementById('md-render-documents')?.textContent || '[]');
 function articleFor(path) {
   return [...document.querySelectorAll('article.sd-doc')].find(article => article.dataset.sourcePath === path) || null;
 }
@@ -457,11 +454,6 @@ Object.defineProperty(globalThis, 'mdRender', { enumerable: false, value: Object
   },
   block: (path, id) => articleFor(path)?.querySelector(`[data-block="${CSS.escape(id)}"]`) ?? null,
   async show(target) {
-    if (!articleFor(target.path)) {
-      const entry = documentList.find(item => item.path === target.path);
-      if (!entry || singlePages.length || !openPage) return null;
-      await openPage(entry.href);
-    }
     const element = findTarget(target);
     if (!element) return null;
     if (singlePages.length) selectSinglePage(element, false);

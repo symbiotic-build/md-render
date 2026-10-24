@@ -53,7 +53,7 @@ it('passes the rendered corpus to an extension and embeds its output in the sing
     seen = view;
     return { styles: '.probe{color:red}', script: 'window.probeRan = mdRender.extensionData("probe").count;', data: { count: 2, tag: '</script>' }, connect: true };
   } };
-  const { html, view } = await renderSinglePage(source, { mermaid: false, extensions: [extension] });
+  const { html, view } = await renderSinglePage(source, { mermaid: false }, [extension]);
   expect(seen).toBe(view);
   expect(view.documents.map(document => document.path)).toEqual(['index.md', 'nested/b.md']);
   expect(view.documents[1]!.blocks.find(block => block.text === 'The limit is 4 MiB.')).toMatchObject({ path: 'nested/b.md', lines: [7, 7], heading: 'limits' });
@@ -62,33 +62,29 @@ it('passes the rendered corpus to an extension and embeds its output in the sing
   const policy = /Content-Security-Policy" content="([^"]+)"/.exec(html)![1]!;
   expect(policy).toContain(`'sha256-${createHash('sha256').update('window.probeRan = mdRender.extensionData("probe").count;').digest('base64')}'`);
   expect(policy).toContain("connect-src 'self'");
+  expect(html).toContain('data-source-path="nested/b.md"');
   const plain = await renderSinglePage(source, { mermaid: false });
   expect(plain.html).toContain("connect-src 'none'");
+  expect(plain.html).not.toMatch(/<(?:p|h1|li|tr)\b[^>]*data-block=/);
+  const folder = path.join(root, 'folder');
+  await renderSite(source, folder, { mermaid: false });
+  expect(await readFile(path.join(folder, 'nested/b.html'), 'utf8')).not.toMatch(/<(?:p|h1|li|tr)\b[^>]*data-block=/);
 });
 
 it('stops the render when an extension fails or is malformed', async () => {
-  await expect(renderSinglePage(source, { mermaid: false, extensions: [{ name: 'broken', prepare() { throw new Error('no data'); } }] }))
+  await expect(renderSinglePage(source, { mermaid: false }, [{ name: 'broken', prepare() { throw new Error('no data'); } }]))
     .rejects.toThrow('Extension broken failed: no data');
-  await expect(renderSinglePage(source, { mermaid: false, extensions: [{ name: 'Bad Name', prepare: () => ({}) }] }))
+  await expect(renderSinglePage(source, { mermaid: false }, [{ name: 'Bad Name', prepare: () => ({}) }]))
     .rejects.toThrow('Invalid extension name: Bad Name');
-  await expect(renderSinglePage(source, { mermaid: false, extensions: [{ name: 'a', prepare: () => ({}) }, { name: 'a', prepare: () => ({}) }] }))
+  await expect(renderSinglePage(source, { mermaid: false }, [{ name: 'a', prepare: () => ({}) }, { name: 'a', prepare: () => ({}) }]))
     .rejects.toThrow('Duplicate extension name: a');
-  await expect(renderSinglePage(source, { mermaid: false, extensions: [{ name: 'tag', prepare: () => ({ script: 'x = "</script>"' }) }] }))
+  await expect(renderSinglePage(source, { mermaid: false }, [{ name: 'tag', prepare: () => ({ script: 'x = "</script>"' }) }]))
     .rejects.toThrow('Extension tag failed: its script contains </script');
-});
-
-it('writes an extension script as a deferred asset in folder output', async () => {
-  const output = path.join(root, 'folder');
-  await renderSite(source, output, { mermaid: false, extensions: [{ name: 'probe', prepare: () => ({ script: 'window.probe = 1;', data: [1] }) }] });
-  expect(await readFile(path.join(output, '_md-render/extensions/probe.js'), 'utf8')).toBe('window.probe = 1;');
-  const page = await readFile(path.join(output, 'nested/b.html'), 'utf8');
-  expect(page).toContain('<script src="../_md-render/extensions/probe.js" defer></script>');
-  expect(page).toContain('<article class="sd-doc" data-source-path="nested/b.md">');
 });
 
 it('lets an extension find blocks by source line and show them in the single page', async () => {
   const script = `mdRender.onNavigate(path => { (window.navigations ||= []).push(path); });`;
-  const { html } = await renderSinglePage(source, { mermaid: false, extensions: [{ name: 'probe', prepare: () => ({ script }) }] });
+  const { html } = await renderSinglePage(source, { mermaid: false }, [{ name: 'probe', prepare: () => ({ script }) }]);
   const file = path.join(root, 'single.html');
   await writeFile(file, html);
   await withBrowser(async browser => {

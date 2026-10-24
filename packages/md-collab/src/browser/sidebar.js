@@ -2,7 +2,7 @@
 // It reads and writes only through the md-collab server and finds text only through mdRender (version 1).
 (() => {
 const config = mdRender.extensionData('md-collab');
-const headers = { 'content-type': 'application/json', 'x-md-collab-token': config.token };
+const headers = { 'content-type': 'application/json' };
 const $ = selector => document.querySelector(selector);
 const esc = text => String(text ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -15,7 +15,7 @@ document.body.insertAdjacentHTML('beforeend', `
       <button id="ov-v-h" aria-pressed="false">History<small id="ov-v-hn"></small></button>
     </div>
     <div id="ov-qhead">
-      <div class="ov-prog"><span id="ov-count">0 / 0 answered</span><div class="ov-track"><div class="ov-fill" id="ov-fill"></div></div><button class="ov-copy" id="ov-copy">Copy answers</button></div>
+      <div class="ov-prog"><span id="ov-count">0 / 0 answered</span><div class="ov-track"><div class="ov-fill" id="ov-fill"></div></div></div>
       <div class="ov-chips" role="group" aria-label="Filter">
         <button class="ov-chip" data-f="all" aria-pressed="true">All</button>
         <button class="ov-chip" data-f="open" aria-pressed="false">Open</button>
@@ -349,7 +349,7 @@ function setFilter(next) { filter = next; document.querySelectorAll('.ov-chip').
 /* ---------- loading ---------- */
 async function load() {
   const response = await fetch('/api/state', { headers });
-  if (!response.ok) { status(`Could not load decisions (${response.status}). Restart md-collab and open the address it prints.`, true); return; }
+  if (!response.ok) { status(`Could not load decisions (${response.status}). Is md-collab still running?`, true); return; }
   state = await response.json();
   items = [
     ...state.threads,
@@ -362,12 +362,8 @@ async function load() {
   fillFilters();
   if (!typing()) renderList();
   renderCounts(); markDocument();
-  status(`Answers are saved to ${state.collection.title} as ${state.person.replace(/^person:/, '')}.${state.orphans.length ? ` ${state.orphans.length} passages are no longer found.` : ''}`, state.orphans.length > 0);
+  status(`Answers are saved to ${state.collection.title} as ${state.person.replace(/^person:/, '')}. Reload to see what agents added.${state.orphans.length ? ` ${state.orphans.length} passages are no longer found.` : ''}`, state.orphans.length > 0);
 }
-const events = new EventSource(`/api/events?token=${encodeURIComponent(config.token)}`);
-events.addEventListener('changed', () => { load(); });
-events.addEventListener('reload', () => { location.reload(); });
-events.onerror = () => status('Lost the connection to md-collab. Answers made now are not saved; restart it and reload.', true);
 mdRender.onNavigate(() => { if (view === 'q' && filter === 'page') renderList(); });
 
 /* ---------- comments on selected text ---------- */
@@ -421,8 +417,6 @@ $('#ov-next').addEventListener('click', () => {
   if (!next) { toast('All questions have an answer.'); return; }
   openQuestion(next.number, true);
 });
-$('#ov-copy').addEventListener('click', async () => {
-  const lines = questions().filter(q => q.status === 'answered').map(q => { const a = lastAnswer(q); return ` ${q.number}. ${[a.choice, a.note].filter(Boolean).join(' — ')}`; });
   if (!lines.length) { toast('No answers yet.'); return; }
   try { await navigator.clipboard.writeText(lines.join('\n')); toast('Answers copied.'); } catch { toast('Copying is blocked here; your answers are saved anyway.'); }
 });
