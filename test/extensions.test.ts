@@ -187,14 +187,17 @@ it('gives every extension the same read-only view, whatever an earlier one tries
 });
 
 it('stops the render when an extension fails or is malformed', async () => {
-  await expect(renderSinglePage(source, { mermaid: false }, [{ name: 'broken', prepare() { throw new Error('no data'); } }]))
-    .rejects.toThrow('Extension broken failed: no data');
-  await expect(renderSinglePage(source, { mermaid: false }, [{ name: 'Bad Name', prepare: () => ({}) }]))
-    .rejects.toThrow('Invalid extension name: Bad Name');
-  await expect(renderSinglePage(source, { mermaid: false }, [{ name: 'a', prepare: () => ({}) }, { name: 'a', prepare: () => ({}) }]))
-    .rejects.toThrow('Duplicate extension name: a');
-  await expect(renderSinglePage(source, { mermaid: false }, [{ name: 'tag', prepare: () => ({ script: 'x = "</script>"' }) }]))
-    .rejects.toThrow('Extension tag failed: its script contains </script');
+  const returns = (name: string, output: unknown): RenderExtension[] => [{ name, prepare: () => output as ExtensionOutput }];
+  const cases: [RenderExtension[], string][] = [
+    [[{ name: 'broken', prepare() { throw new Error('no data'); } }], 'Extension broken failed: no data'],
+    [returns('Bad Name', {}), 'Invalid extension name: Bad Name'],
+    [[...returns('a', {}), ...returns('a', {})], 'Duplicate extension name: a'],
+    [returns('tag', { script: 'x = "</script>"' }), 'Extension tag failed: its script contains </script'],
+    [returns('tag', { script: 'x = "<!--<script>"' }), 'Extension tag failed: its script contains <!--'],
+    [returns('tag', { script: 'x = "<SCRIPT>"' }), 'Extension tag failed: its script contains <SCRIPT'],
+  ];
+  const outcomes = await Promise.all(cases.map(([extensions]) => renderSinglePage(source, { mermaid: false }, extensions).then(() => 'rendered', (error: Error) => error.message)));
+  expect(outcomes).toEqual(cases.map(([, message]) => message));
 });
 
 /** Writes a single page with one extension; by default its script records navigation. */
