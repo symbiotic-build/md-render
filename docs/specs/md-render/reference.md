@@ -51,7 +51,7 @@ md-render embeds the style, the JSON data and the inline script in the page, and
 
 `renderSinglePage` returns `{ html, view, root, warnings }` without writing a file; `root` is the corpus root. `renderView(input, options)` returns `{ view, root, warnings }` without building a page.
 
-Page scripts of a single page with extensions use the frozen global `mdRender`, version 1. `documents()` lists path and title, and `currentDocument()` names the shown document. `blocks(path, first, last)` and `block(path, id)` return shown elements. `show({ path, block?, anchor? })` opens a document of the page, sets the fragment to its chapter and scrolls to the target, resolving to the element or null. `onNavigate(listener)` reports the shown document after it changes, and `extensionData(name)` returns an extension's data.
+Page scripts of a single page with extensions use the frozen global `mdRender`, version 1. `documents()` lists path and title, and `currentDocument()` names the shown document. `blocks(path, first, last)` and `block(path, id)` return shown elements. `show({ path, block?, anchor? })` opens a document of the page and scrolls to the target, resolving to the element or null. It also sets the fragment to that chapter. `onNavigate(listener)` reports the shown document after it changes, and `extensionData(name)` returns an extension's data.
 
 <a id="selector-reference"></a>
 ## Selector execution
