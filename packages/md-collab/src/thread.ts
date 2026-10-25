@@ -117,7 +117,8 @@ export function parseThread(source: string): Thread {
   for (const key of Object.keys(front)) if (!frontKeys.has(key)) throw new Error(`Thread ${String(front.id)}: unknown field ${key}`);
   const body = match[2]!;
   const sections = body.split(/^## (Options|Entries)\n/m);
-  const context = unescapeText(sections[0]!.trim());
+  // The file puts a blank line before and after the context; only those belong to the format.
+  const context = unescapeText(sections[0]!.replace(/^\n/, '').replace(/\n\n$/, ''));
   let options: Option[] = [];
   let entries: Entry[] = [];
   for (let index = 1; index < sections.length; index += 2) {
@@ -127,7 +128,9 @@ export function parseThread(source: string): Thread {
       options = text.split(/\n(?=\d+\. )/).map(part => part.trim()).filter(Boolean)
         .map(part => optionText(part.split('\n').map(line => line.trim()).join(' ')));
     } else {
-      entries = text.split(/^### /m).slice(1).map(part => {
+      // Every block of an entry, its heading, its fields and its note, ends with a blank line; the
+      // file's last one has only its line end, so one more is added before splitting.
+      entries = (text + '\n').split(/^### /m).slice(1).map(part => {
         const [head, ...rest] = part.split('\n');
         const parts = head!.trim().split(' ');
         if (parts.length !== 3) throw new Error(`Thread ${String(front.id)}: entry heading "${head}" needs time, actor and kind`);
@@ -144,7 +147,7 @@ export function parseThread(source: string): Thread {
           lines.shift();
         }
         if (fields && lines[0] === '') lines.shift();
-        entry.note = unescapeText(lines.join('\n').replace(/\n+$/, ''));
+        entry.note = unescapeText(lines.join('\n').replace(/\n\n$/, ''));
         return entry;
       });
     }
@@ -190,5 +193,5 @@ export function serializeThread(thread: Thread): string {
     if (fields.length) parts.push(fields.join('\n'), '');
     if (entry.note) parts.push(escapeText(entry.note), '');
   }
-  return parts.join('\n').replace(/\n+$/, '\n');
+  return parts.join('\n');
 }
