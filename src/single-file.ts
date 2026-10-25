@@ -263,9 +263,9 @@ export async function renderSinglePage(input: string, options: RenderOptions = {
   return { html: await standalone(site, options), view: site.view!, root: site.corpus.root, warnings: site.warnings };
 }
 
-/** The corpus view and root without building a page, for tools that only need to find blocks. */
+/** The corpus view and root without building a page, for tools that only need to find blocks: no theme, page HTML or diagrams. */
 export async function renderView(input: string, options: RenderOptions = {}): Promise<{ view: SiteView; root: string; warnings: string[] }> {
-  const site = await prepareSite(input, options, true, [], true);
+  const site = await prepareSite(input, options, true, [], true, false);
   return { view: site.view!, root: site.corpus.root, warnings: site.warnings };
 }
 

@@ -199,8 +199,9 @@ function freeze<T>(value: T): T {
 /**
  * Renders every source before writing pages. Links resolve against the same parsed snapshot.
  * The view, with every document's blocks, is built only for extensions or when `withView` asks for it.
+ * Without `page`, only the view is wanted: theme files, page HTML and diagrams are skipped.
  */
-export async function prepareSite(input: string, options: RenderOptions = {}, bundle = false, extensionList: RenderExtension[] = [], withView = extensionList.length > 0): Promise<PreparedSite> {
+export async function prepareSite(input: string, options: RenderOptions = {}, bundle = false, extensionList: RenderExtension[] = [], withView = extensionList.length > 0, page = true): Promise<PreparedSite> {
   const maxFileBytes = options.bundle?.maxFileBytes ?? 5_000_000;
   if (options.bundle && options.bundle.version !== 1 || !Number.isSafeInteger(maxFileBytes) || maxFileBytes < 0) {
     throw new Error('Invalid version-1 bundle configuration');
@@ -214,9 +215,9 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
   }
   const corpus = await loadCorpus(input);
   const files = new Map<string, Buffer>();
-  for (const name of ['base.css', 'navigation.js']) files.set(`${assets}/${name}`, await readFile(fileURLToPath(new URL(`../themes/${name}`, import.meta.url))));
-  const logo = await themeAssets(files, options.theme ?? 'default');
-  const themeInit = await readFile(fileURLToPath(new URL('../themes/theme-init.js', import.meta.url)), 'utf8');
+  if (page) for (const name of ['base.css', 'navigation.js']) files.set(`${assets}/${name}`, await readFile(fileURLToPath(new URL(`../themes/${name}`, import.meta.url))));
+  const logo = page ? await themeAssets(files, options.theme ?? 'default') : undefined;
+  const themeInit = page ? await readFile(fileURLToPath(new URL('../themes/theme-init.js', import.meta.url)), 'utf8') : '';
   const docs = new Map(corpus.files.map((file) => [file.path, parseDocument(file.markdown, 'Untitled chapter')]));
   if (corpus.files.some(file => file.path === assets || file.path.startsWith(assets + '/'))) throw new Error('Input uses reserved directory: ' + assets);
   // Only initial documents discover references. Parse all direct targets before URL validation.
@@ -361,12 +362,12 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
     const bytes = references?.bytes(path.resolve(corpus.root, file)) ?? await readSource(corpus.root, file);
     files.set(file, bytes);
   }
-  const rendered = await Promise.all([...docs.values()].map(doc => renderDocument(doc, { blocks: withView, mark: extensionList.length > 0 })));
+  const rendered = await Promise.all([...docs.values()].map(doc => renderDocument(doc, { blocks: withView, mark: extensionList.length > 0, html: page })));
   const view: SiteView | undefined = withView ? freeze({ documents: [...docs].map(([path, doc], index) => ({
     path, title: doc.title, anchors: [...doc.anchors], blocks: rendered[index]!.blocks.map(block => ({ ...block, path })),
   })) }) : undefined;
   const extensions = view ? await prepareExtensions(view, extensionList) : [];
-  const diagrams = await renderDiagrams(rendered.map(result => result.html), options.mermaid !== false);
+  const diagrams = page ? await renderDiagrams(rendered.map(result => result.html), options.mermaid !== false) : { pages: rendered.map(result => result.html), available: false };
   return { corpus, docs, bodies: diagrams.pages.map(html => bundle ? html.replace(/file:/gi, value => value.slice(0, -1) + '&#58;') : html), files, logo, themeInit, cachePages, links, mermaid: diagrams.available, warnings, view, extensions };
 }
 

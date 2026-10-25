@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { exportSite, renderSinglePage, renderSite, type RenderExtension, type SiteView } from '../src/index.js';
+import { exportSite, renderSinglePage, renderSite, renderView, type RenderExtension, type SiteView } from '../src/index.js';
 
 const withBrowser = useBrowser();
 let root: string;
@@ -65,6 +65,20 @@ it('gives a Mermaid figure and its source the fence lines, with and without the 
     expect(html).toContain(`<pre data-source-lines="15-17" data-block="${id('pre')}">`);
     if (mermaid) expect(html).toMatch(/<figure class="mermaid-diagram"[^>]*><div><svg/);
   }
+});
+
+// A view needs no theme file and no diagram browser: with either missing, renderView still returns it.
+it.each([
+  { name: 'a theme file that does not exist', theme: 'no-theme.css' },
+  { name: 'diagrams on and no browser to draw them', mermaid: true, browser: 'no-browser' },
+] as { name: string; theme?: string; mermaid?: boolean; browser?: string }[])('returns the view without building a page, given $name', async ({ theme, mermaid, browser }) => {
+  const { view: expected } = await probe();
+  const saved = process.env.MD_RENDER_BROWSER;
+  if (browser) process.env.MD_RENDER_BROWSER = path.join(root, browser);
+  try {
+    const { view } = await renderView(source, { mermaid: mermaid ?? false, ...(theme ? { theme: path.join(root, theme) } : {}) });
+    expect(view).toEqual(expected);
+  } finally { if (saved === undefined) delete process.env.MD_RENDER_BROWSER; else process.env.MD_RENDER_BROWSER = saved; }
 });
 
 it("keeps main's output bytes for renders without extensions (recorded from main at dd43046)", async () => {

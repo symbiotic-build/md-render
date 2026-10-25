@@ -70,7 +70,7 @@ export function renderView(input: string, options?: RenderOptions):
 
 md-render calls `prepare` once, after every page is parsed and rendered and before the page is written. An error thrown by `prepare` stops the render with `Extension <name> failed: <message>`. md-render writes each extension's output into the page and adds the script's SHA-256 hash to the page's Content Security Policy. `connect: true` sets `connect-src 'self'`; otherwise the single-file policy keeps `connect-src 'none'`.
 
-`renderSinglePage` returns the single-file page without writing a file, for servers such as md-collab's. `renderView` returns only the view, for commands that find blocks but show no page. Both return the corpus root, so callers read the corpus once.
+`renderSinglePage` returns the single-file page without writing a file, for servers such as md-collab's. `renderView` returns only the view, for commands that find blocks but show no page; it reads no theme files, writes no page HTML and draws no diagrams. Both return the corpus root, so callers read the corpus once.
 
 ### Browser interface
 

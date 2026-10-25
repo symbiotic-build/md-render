@@ -318,8 +318,9 @@ export async function documentHtml(doc: ParsedDocument): Promise<string> {
 /**
  * Produces sanitized HTML and, with `blocks`, its blocks; source pages have no blocks. With `mark`,
  * every block element also carries `data-source-lines` and `data-block`; renders with extensions set it.
+ * With `html: false`, only the blocks are wanted and the HTML is the empty string.
  */
-export async function renderDocument(doc: ParsedDocument, options: { blocks?: boolean; mark?: boolean } = {}): Promise<{ html: string; blocks: RenderedBlock[] }> {
+export async function renderDocument(doc: ParsedDocument, options: { blocks?: boolean; mark?: boolean; html?: boolean } = {}): Promise<{ html: string; blocks: RenderedBlock[] }> {
   const tree = await writer.run(doc.tree) as HtmlRoot;
   const blocks = doc.sourceLines === undefined && (options.blocks || options.mark) ? markBlocks(tree, options.mark === true) : [];
   visit(tree, 'element', (node, index, parent) => {
@@ -343,5 +344,5 @@ export async function renderDocument(doc: ParsedDocument, options: { blocks?: bo
       return SKIP;
     }
   });
-  return { html: writer.stringify(tree), blocks };
+  return { html: options.html === false ? '' : writer.stringify(tree), blocks };
 }
