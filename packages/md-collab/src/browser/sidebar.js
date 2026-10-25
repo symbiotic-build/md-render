@@ -320,8 +320,9 @@ const drafts = new Map();
 let redrawPending = false;
 const typing = () => document.activeElement?.classList.contains('ov-note');
 $('#ov-list').addEventListener('input', event => { if (event.target.classList.contains('ov-note')) drafts.set(event.target.id, event.target.value); });
-$('#ov-list').addEventListener('focusout', event => {
-  if (redrawPending && event.target.classList.contains('ov-note') && !$('#ov-panel').contains(event.relatedTarget)) renderList();
+// Focus may pass from the note to a button in the sidebar first; the redraw waits until it leaves the sidebar.
+$('#ov-panel').addEventListener('focusout', event => {
+  if (redrawPending && !$('#ov-panel').contains(event.relatedTarget)) renderList();
 });
 function renderList() {
   redrawPending = false;

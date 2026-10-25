@@ -510,8 +510,12 @@ it('loads the threads again when the event stream opens again', async () => {
   });
 });
 
-it('shows a question that arrived while the reader typed once the note loses focus, keeping the draft', async () => {
-  await sidebar('store-typing', async (page, store) => {
+// The focus leaves the sidebar straight from the note, or first moves to a button in the sidebar.
+it.each([
+  ['from the note', `document.getElementById('ov-note-1').blur()`],
+  ['through the Clear answer button', `document.querySelector('#ov-card-1 .ov-clear').focus(); document.querySelector('#ov-card-1 .ov-clear').blur()`],
+])('shows a question that arrived while the reader typed once the focus leaves the sidebar %s, keeping the draft', async (name, leave) => {
+  await sidebar('store-typing-' + name.split(' ').pop()!.toLowerCase(), async (page, store) => {
     await page.evaluate(`(() => {
       document.querySelector('#ov-card-1 .ov-qh').click();
       const note = document.getElementById('ov-note-1');
@@ -520,10 +524,11 @@ it('shows a question that arrived while the reader typed once the note loses foc
     await store.create('spec', { ...imported()[0]!, id: 'q02-second-question', title: 'Second question', number: 2 });
     await until(page, `document.getElementById('ov-count').textContent === '0 / 2 answered'`);
     expect(await page.evaluate(`!!document.getElementById('ov-card-2')`)).toBe(false);
-    expect(await page.evaluate(`(() => { document.getElementById('ov-note-1').blur(); return { card: !!document.getElementById('ov-card-2'), draft: document.getElementById('ov-note-1').value }; })()`))
+    expect(await page.evaluate(`(() => { ${leave}; return { card: !!document.getElementById('ov-card-2'), draft: document.getElementById('ov-note-1').value }; })()`))
       .toEqual({ card: true, draft: 'Draft answer' });
   });
 });
+
 it('keeps what the reader typed while a save was running', async () => {
   await sidebar('store-save-typing', async page => {
     await page.evaluate(`(() => {
