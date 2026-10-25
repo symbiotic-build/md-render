@@ -184,8 +184,10 @@ async function prepareExtensions(view: SiteView, extensions: RenderExtension[]):
     let output: ExtensionOutput;
     try { output = await extension.prepare(view); }
     catch (error) { throw new Error(`Extension ${extension.name} failed: ${(error as Error).message}`, { cause: error }); }
-    if (output.script && /<\/script/i.test(output.script)) throw new Error(`Extension ${extension.name} failed: its script contains </script`);
-    prepared.push({ name: extension.name, ...output });
+    // HTML parsing turns CR LF and CR into LF before the browser checks the hash, so embed and hash that text.
+    const script = output.script?.replace(/\r\n?/g, '\n');
+    if (script && /<\/script/i.test(script)) throw new Error(`Extension ${extension.name} failed: its script contains </script`);
+    prepared.push({ name: extension.name, ...output, script });
   }
   return prepared;
 }

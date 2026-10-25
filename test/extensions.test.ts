@@ -237,6 +237,14 @@ it('opens the collapsed Mermaid source that show() selects', async () => {
   });
 });
 
+it('runs an extension script written with Windows line endings', async () => {
+  const url = await singleFile('single-crlf.html', { script: 'window.first = 1;\r\nwindow.second = 2;\r\n' });
+  await withBrowser(async browser => {
+    await browser.navigate(url);
+    expect(await browser.evaluate('[window.first, window.second]')).toEqual([1, 2]);
+  });
+});
+
 it('follows a link back to the previous chapter after show() opened another one', async () => {
   const url = await singleFile('single-return.html');
   await withBrowser(async browser => {
