@@ -2,7 +2,7 @@
 // Every write holds the collection's lock file, so one process at a time reads, checks and writes.
 import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { link, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { link, mkdir, open, readdir, readFile, realpath, rename, rm, writeFile, type FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
@@ -35,22 +35,12 @@ async function publish(file: string, text: string): Promise<void> {
   } finally { await rm(draft, { force: true }); }
 }
 
-/** A lock's owner is alive while its process exists; a lock from a crashed process is stale. */
+/** A lock's owner is alive while its process exists. */
 function alive(owner: string): boolean {
   const pid = Number(owner.split(' ')[0]);
-  if (!Number.isSafeInteger(pid) || pid < 1) return false;
+  if (!Number.isSafeInteger(pid) || pid < 1) return true;
   try { process.kill(pid, 0); return true; }
   catch (error) { return code(error) === 'EPERM'; }
-}
-
-/** Removes a stale lock; when another process replaced it meanwhile, puts that live lock back. */
-async function breakLock(lock: string, stale: string): Promise<void> {
-  const aside = `${lock}.${randomBytes(4).toString('hex')}.stale`;
-  try { await rename(lock, aside); }
-  catch (error) { if (code(error) === 'ENOENT') return; throw error; }
-  try {
-    if (await readFile(aside, 'utf8') !== stale) await link(aside, lock).catch(() => undefined);
-  } finally { await rm(aside, { force: true }); }
 }
 
 export class FileStore {
@@ -65,21 +55,34 @@ export class FileStore {
     return path.join(this.directory(collection), 'threads', `${id}.md`);
   }
 
-  /** Runs `work` while this process holds `<collection>/.lock`, which names its process. */
+  /**
+   * Runs `work` while this process holds `<collection>/.lock`, which names its process. A lock whose
+   * process no longer runs is never taken over: the write is refused until someone removes it.
+   */
   private async locked<T>(collection: string, work: () => Promise<T>): Promise<T> {
     const lock = path.join(this.directory(collection), '.lock');
     const owner = `${process.pid} ${randomBytes(8).toString('hex')}`;
     const start = Date.now();
     for (;;) {
-      try { await publish(lock, owner); break; }
-      catch (error) { if (code(error) !== 'EEXIST') throw error; }
-      const current = await readFile(lock, 'utf8').catch(() => null);
-      if (current !== null && !alive(current)) { await breakLock(lock, current); continue; }
-      if (Date.now() - start > lockWaitMs) throw new Error(`Collection ${collection} is locked by process ${current?.split(' ')[0]}; try again when it finishes`);
-      await delay(10);
+      let handle: FileHandle;
+      try { handle = await open(lock, 'wx'); }
+      catch (error) {
+        if (code(error) !== 'EEXIST') throw error;
+        const current = await readFile(lock, 'utf8').catch(() => '');
+        const pid = current.split(' ')[0] || 'unknown';
+        if (current && !alive(current)) throw new Error(`Collection ${collection} is locked by process ${pid}, which no longer runs; if no md-collab command is writing, delete ${lock}`);
+        if (Date.now() - start > lockWaitMs) throw new Error(`Collection ${collection} is locked by process ${pid}; try again when it finishes`);
+        await delay(10);
+        continue;
+      }
+      // The lock is ours from the moment it is created; a failed write removes it again.
+      try { await handle.writeFile(owner); }
+      catch (error) { await handle.close().catch(() => undefined); await rm(lock, { force: true }); throw error; }
+      await handle.close();
+      break;
     }
     try { return await work(); }
-    finally { await rm(lock, { force: true }); }
+    finally { if (await readFile(lock, 'utf8').catch(() => null) === owner) await rm(lock, { force: true }); }
   }
 
   async collection(name: string): Promise<Collection> {

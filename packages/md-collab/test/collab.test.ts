@@ -189,7 +189,7 @@ it('refuses a repeated question number in a batch or in the collection and write
   expect((await store.list('spec')).map(({ thread }) => thread.number)).toEqual([1, 2]);
 });
 
-it('leaves no draft or lock behind when a write is refused, and takes over a lock left by a crashed process', async () => {
+it('leaves no draft or lock behind when a write is refused, and refuses to write past a lock left by a crashed process', async () => {
   const store = new FileStore(path.join(root, 'store-clean'));
   const directory = path.join(store.root, 'spec');
   await store.createCollection({ name: 'spec', title: 'Clean', settled: [] });
@@ -203,9 +203,15 @@ it('leaves no draft or lock behind when a write is refused, and takes over a loc
   expect((await readdir(directory, { recursive: true })).sort()).toEqual(files);
   // A process that ended without removing its lock leaves its number behind; that process no longer exists.
   const { pid } = spawnSync(process.execPath, ['-e', '']);
-  await writeFile(path.join(directory, '.lock'), `${pid} crashed`);
-  await store.append('spec', created.thread.id, { ...comment, note: 'After the crash.' });
-  expect((await store.read('spec', created.thread.id)).thread.entries.map(entry => entry.note)).toEqual(['', 'First.', 'After the crash.']);
+  const lock = path.join(directory, '.lock');
+  await writeFile(lock, `${pid} crashed`);
+  await expect(store.append('spec', created.thread.id, { ...comment, note: 'After the crash.' }))
+    .rejects.toThrow(`Collection spec is locked by process ${pid}, which no longer runs; if no md-collab command is writing, delete ${lock}`);
+  expect([(await store.read('spec', created.thread.id)).thread.entries.map(entry => entry.note), await readFile(lock, 'utf8')]).toEqual([['', 'First.'], `${pid} crashed`]);
+  // The documented repair: delete the lock by hand, then write again.
+  await rm(lock);
+  await store.append('spec', created.thread.id, { ...comment, note: 'After the repair.' });
+  expect((await store.read('spec', created.thread.id)).thread.entries.map(entry => entry.note)).toEqual(['', 'First.', 'After the repair.']);
   expect((await readdir(directory, { recursive: true })).sort()).toEqual(files);
 });
 
