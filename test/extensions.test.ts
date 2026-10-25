@@ -10,6 +10,7 @@ import { documentHtml, exportSite, parseDocument, renderSinglePage, renderSite, 
 const withBrowser = useBrowser();
 let root: string;
 let source: string;
+let anchors: string;
 const hex = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 6);
 beforeAll(async () => {
   root = await realpath(await mkdtemp(path.join(tmpdir(), 'md-render-extensions-')));
@@ -17,7 +18,12 @@ beforeAll(async () => {
   await mkdir(path.join(source, 'nested'), { recursive: true });
   await writeFile(path.join(source, 'index.md'), '# Guide\n\nFirst paragraph\nspans two lines.\n\n## Rules\n\n- One rule\n- Two rule\n\n| Key | Value |\n| --- | --- |\n| a | b |\n\n```mermaid\ngraph TD; A-->B\n```\n\n[Notes](notes.txt)\n');
   await writeFile(path.join(source, 'notes.txt'), 'one\ntwo\n');
-  await writeFile(path.join(source, 'nested/b.md'), '# Second\n\n<a id="limits"></a>\n\n## Limits and caps\n\nThe limit is 4 MiB.\n\nRepeat.\n\nRepeat.\n');
+  await writeFile(path.join(source, 'nested/b.md'), '# Second\n\n<a id="limits"></a>\n\n## Limits and caps\n\nThe limit is 4 MiB.\n\nRepeat.\n\nRepeat.\n');  // Text before the first heading, an inline anchor, and the three supported anchor forms before a heading.
+  anchors = path.join(root, 'anchors');
+  await mkdir(anchors);
+  await writeFile(path.join(anchors, 'index.md'), ['Intro before any heading.', '# Anchors', 'Before <a id="spot"></a> after.', 'Different passage.',
+    '<a id="marker"></a>', '## Marked', 'Under marked.', '<a id="stacked">\n</a>', '## Stacked', 'Under stacked.',
+    '<a id="first"></a><br><a id="second"></a>', '## Mixed', 'Under mixed.'].join('\n\n') + '\n');
 });
 afterAll(async () => { if (root) await rm(root, { recursive: true, force: true }); });
 
@@ -43,7 +49,19 @@ it('marks every Markdown block with its source lines and a stable block ID', asy
 it('names blocks after an explicit anchor before a heading and numbers repeated text', async () => {
   const { view } = await probe();
   expect(blocksOf(view, 'nested/b.md').map(block => block.id)).toEqual([
-    `second~${hex('Second')}`, `limits~${hex('Limits and caps')}`, `limits~${hex('The limit is 4 MiB.')}`, `limits~${hex('Repeat.')}`, `limits~${hex('Repeat.')}-2`,
+    `second~${hex('Second')}`, `second~${hex('')}`, `limits~${hex('Limits and caps')}`, `limits~${hex('The limit is 4 MiB.')}`, `limits~${hex('Repeat.')}`, `limits~${hex('Repeat.')}-2`,
+  ]);
+});
+
+// Lines: 1 intro, 3 h1, 5 inline anchor, 7, 9 anchor-only paragraph, 11 h2, 13, 15-16 HTML-block anchor, 18 h2, 20, 22 all-HTML paragraph, 24 h2, 26.
+it('names a section after the explicit anchor before its heading, in every supported anchor form', async () => {
+  let seen: SiteView | undefined;
+  await renderSinglePage(anchors, { mermaid: false }, [{ name: 'probe', prepare(view) { seen = view; return {}; } }]);
+  expect(blocksOf(seen!, 'index.md').map(block => [block.tag, block.lines, block.heading, block.id.split('~')[0]])).toEqual([
+    ['p', [1, 1], null, 'top'], ['h1', [3, 3], 'anchors', 'anchors'], ['p', [5, 5], 'anchors', 'anchors'], ['p', [7, 7], 'anchors', 'anchors'],
+    ['p', [9, 9], 'anchors', 'anchors'], ['h2', [11, 11], 'marker', 'marker'], ['p', [13, 13], 'marker', 'marker'],
+    ['h2', [18, 18], 'stacked', 'stacked'], ['p', [20, 20], 'stacked', 'stacked'],
+    ['p', [22, 22], 'stacked', 'stacked'], ['h2', [24, 24], 'first', 'first'], ['p', [26, 26], 'first', 'first'],
   ]);
 });
 

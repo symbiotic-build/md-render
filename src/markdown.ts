@@ -97,6 +97,9 @@ function navigationMapNodes(tree: Root): Set<Nodes> {
   return omitted;
 }
 
+/** For each parsed tree, the explicit anchor that names a heading's section, by the heading's generated ID. */
+const sections = new WeakMap<Root, Map<string, string>>();
+
 /** A document as md-render parses it: always with the text it was parsed from, which the view needs. */
 export interface SourceDocument extends ParsedDocument { markdown: string }
 
@@ -107,6 +110,7 @@ export function parseDocument(markdown: string, fallbackTitle: string): SourceDo
   const anchors = new Set<string>();
   const headings: ParsedDocument['headings'] = [];
   const meanings = new Map<string, string>();
+  const named = new Map<string, string>();
   let title = '';
   function addAnchor(id: string): void {
     if (anchors.has(id)) throw new Error(`Duplicate anchor: ${id}`);
@@ -125,6 +129,7 @@ export function parseDocument(markdown: string, fallbackTitle: string): SourceDo
     node.data = { ...node.data, hProperties: { id } };
     // Read authored anchors before the HTML transform; keep generated IDs as valid targets too.
     const explicit = index !== undefined && parent ? blockAnchors(parent.children[index - 1]).at(-1) : undefined;
+    if (explicit) named.set(id, explicit);
     if (!omitted.has(node)) headings.push({ id: explicit ?? id, title: toString(node, { includeHtml: false }), depth: node.depth });
   });
   // Home anchor, heading, first paragraph: the format's canonical one-line meaning.
@@ -190,6 +195,7 @@ export function parseDocument(markdown: string, fallbackTitle: string): SourceDo
       node.data = { ...node.data };
     }
   });
+  sections.set(tree, named);
   return { title: title || fallbackTitle, markdown, tree, anchors, headings, meanings };
 }
 
@@ -274,33 +280,22 @@ const blockTags = new Set(['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'tr', 
 function textContent(node: HtmlRoot | Element): string {
   return node.children.map(child => child.type === 'text' ? child.value : child.type === 'element' ? textContent(child) : '').join('');
 }
-function anchorOnly(node: Element): string | undefined {
-  const anchors = node.children.filter(child => child.type !== 'text' || child.value.trim());
-  const last = anchors.at(-1);
-  return anchors.length && anchors.every(child => child.type === 'element' && child.tagName === 'a' && typeof child.properties.id === 'string' && !child.children.length)
-    ? String((last as Element).properties.id) : undefined;
-}
 
 /**
  * Marks every Markdown block with its source lines and a block ID: the nearest heading's ID
  * (an explicit anchor before the heading wins), "~", and six hex digits of the SHA-256 of
  * the block's whitespace-normalised text. Repeats in one document get "-2", "-3".
  */
-function markBlocks(tree: HtmlRoot, mark: boolean): RenderedBlock[] {
+function markBlocks(tree: HtmlRoot, mark: boolean, named: ReadonlyMap<string, string>): RenderedBlock[] {
   const blocks: RenderedBlock[] = [];
   const seen = new Map<string, number>();
   let heading: string | null = null;
-  let pendingAnchor: string | undefined;
   visit(tree, 'element', (node) => {
-    if (node.tagName === 'p') {
-      const anchor = anchorOnly(node);
-      if (anchor) { pendingAnchor = anchor; return; }
-    }
     if (!blockTags.has(node.tagName) || !node.position) return;
-    if (/^h[1-6]$/.test(node.tagName)) {
-      heading = pendingAnchor ?? (typeof node.properties.id === 'string' ? node.properties.id : heading);
+    // The parser already chose the explicit anchor that names this heading's section, as the menu uses it.
+    if (/^h[1-6]$/.test(node.tagName) && typeof node.properties.id === 'string') {
+      heading = named.get(node.properties.id) ?? node.properties.id;
     }
-    pendingAnchor = undefined;
     const text = textContent(node).replace(/\s+/g, ' ').trim();
     const base = `${heading ?? 'top'}~${createHash('sha256').update(text).digest('hex').slice(0, 6)}`;
     const count = (seen.get(base) ?? 0) + 1;
@@ -328,7 +323,7 @@ export async function documentHtml(doc: ParsedDocument): Promise<string> {
  */
 export async function renderDocument(doc: ParsedDocument, options: { blocks?: boolean; mark?: boolean; html?: boolean } = {}): Promise<{ html: string; blocks: RenderedBlock[] }> {
   const tree = await writer.run(doc.tree) as HtmlRoot;
-  const blocks = doc.sourceLines === undefined && (options.blocks || options.mark) ? markBlocks(tree, options.mark === true) : [];
+  const blocks = doc.sourceLines === undefined && (options.blocks || options.mark) ? markBlocks(tree, options.mark === true, sections.get(doc.tree) ?? new Map()) : [];
   // The rest only shapes the HTML: a render that wants only blocks skips it.
   if (options.html === false) return { html: '', blocks };
   visit(tree, 'element', (node, index, parent) => {
