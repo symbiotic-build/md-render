@@ -192,19 +192,23 @@ export async function serve(options: ServeOptions): Promise<Session> {
     }));
     await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(options.port ?? 0, '127.0.0.1', resolve); });
   } catch (error) {
-    for (const watcher of watchers) watcher.close();
+    await stop();
     throw error;
+  }
+  // A failed start and close end the same way: no render starts any more, and the running one ends.
+  async function stop(): Promise<void> {
+    closed = true;
+    clearTimeout(timer);
+    for (const watcher of watchers) watcher.close();
+    for (const listener of listeners) listener.end();
+    await rendering;
   }
   const port = (server.address() as AddressInfo).port;
   origin = `http://127.0.0.1:${port}`;
   return {
     url: `${origin}/`,
     async close() {
-      closed = true;
-      clearTimeout(timer);
-      for (const watcher of watchers) watcher.close();
-      for (const listener of listeners) listener.end();
-      await rendering;
+      await stop();
       await new Promise<void>(resolve => server.close(() => resolve()));
     },
   };
