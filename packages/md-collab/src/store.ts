@@ -1,7 +1,9 @@
 // The file store: <store>/<collection>/collection.yaml and <store>/<collection>/threads/<id>.md.
+// Every write holds the collection's lock file, so one process at a time reads, checks and writes.
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { link, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { parseThread, serializeThread, threadStatus, type Entry, type Thread } from './thread.js';
 
@@ -18,6 +20,36 @@ export class ConflictError extends Error {
 
 const collectionName = /^[a-z0-9][a-z0-9-]*$/;
 const version = (text: string): string => createHash('sha256').update(text).digest('hex').slice(0, 16);
+const lockWaitMs = 10_000;
+const code = (error: unknown) => (error as NodeJS.ErrnoException).code;
+const temporary = (file: string) => path.join(path.dirname(file), `.${path.basename(file)}.${randomBytes(4).toString('hex')}.tmp`);
+
+/** Publishes a complete file under `file`, refusing when it exists; nobody sees it half written. */
+async function publish(file: string, text: string): Promise<void> {
+  const draft = temporary(file);
+  try {
+    await writeFile(draft, text, { flag: 'wx' });
+    await link(draft, file);
+  } finally { await rm(draft, { force: true }); }
+}
+
+/** A lock's owner is alive while its process exists; a lock from a crashed process is stale. */
+function alive(owner: string): boolean {
+  const pid = Number(owner.split(' ')[0]);
+  if (!Number.isSafeInteger(pid) || pid < 1) return false;
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return code(error) === 'EPERM'; }
+}
+
+/** Removes a stale lock; when another process replaced it meanwhile, puts that live lock back. */
+async function breakLock(lock: string, stale: string): Promise<void> {
+  const aside = `${lock}.${randomBytes(4).toString('hex')}.stale`;
+  try { await rename(lock, aside); }
+  catch (error) { if (code(error) === 'ENOENT') return; throw error; }
+  try {
+    if (await readFile(aside, 'utf8') !== stale) await link(aside, lock).catch(() => undefined);
+  } finally { await rm(aside, { force: true }); }
+}
 
 export class FileStore {
   constructor(readonly root: string) {}
@@ -31,12 +63,29 @@ export class FileStore {
     return path.join(this.directory(collection), 'threads', `${id}.md`);
   }
 
+  /** Runs `work` while this process holds `<collection>/.lock`, which names its process. */
+  private async locked<T>(collection: string, work: () => Promise<T>): Promise<T> {
+    const lock = path.join(this.directory(collection), '.lock');
+    const owner = `${process.pid} ${randomBytes(8).toString('hex')}`;
+    const start = Date.now();
+    for (;;) {
+      try { await publish(lock, owner); break; }
+      catch (error) { if (code(error) !== 'EEXIST') throw error; }
+      const current = await readFile(lock, 'utf8').catch(() => null);
+      if (current !== null && !alive(current)) { await breakLock(lock, current); continue; }
+      if (Date.now() - start > lockWaitMs) throw new Error(`Collection ${collection} is locked by process ${current?.split(' ')[0]}; try again when it finishes`);
+      await delay(10);
+    }
+    try { return await work(); }
+    finally { await rm(lock, { force: true }); }
+  }
+
   async collection(name: string): Promise<Collection> {
     const file = path.join(this.directory(name), 'collection.yaml');
     let text: string;
     try { text = await readFile(file, 'utf8'); }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`No collection ${name} in ${this.root}: ${file} is missing`);
+      if (code(error) === 'ENOENT') throw new Error(`No collection ${name} in ${this.root}: ${file} is missing`);
       throw error;
     }
     const value = parseYaml(text) as Record<string, unknown> | null;
@@ -48,15 +97,19 @@ export class FileStore {
   async createCollection(collection: Collection): Promise<void> {
     const directory = this.directory(collection.name);
     await mkdir(path.join(directory, 'threads'), { recursive: true });
-    await writeFile(path.join(directory, 'collection.yaml'), stringifyYaml({ title: collection.title, settled: collection.settled }), { flag: 'wx' });
+    try { await publish(path.join(directory, 'collection.yaml'), stringifyYaml({ title: collection.title, settled: collection.settled })); }
+    catch (error) {
+      if (code(error) === 'EEXIST') throw new Error(`Collection ${collection.name} already exists in ${this.root}`);
+      throw error;
+    }
   }
 
   async list(collection: string): Promise<StoredThread[]> {
     const directory = path.join(this.directory(collection), 'threads');
     let names: string[];
-    try { names = (await readdir(directory)).filter(name => name.endsWith('.md')).sort(); }
+    try { names = (await readdir(directory)).filter(name => name.endsWith('.md') && !name.startsWith('.')).sort(); }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      if (code(error) === 'ENOENT') return [];
       throw error;
     }
     const threads = await Promise.all(names.map(name => this.read(collection, name.slice(0, -3))));
@@ -79,34 +132,56 @@ export class FileStore {
     return { thread, version: version(text) };
   }
 
-  /** Writes a new thread; refuses an id that exists. */
+  /** Writes one new thread; see createAll. */
   async create(collection: string, thread: Thread): Promise<StoredThread> {
-    const text = serializeThread(thread);
-    const file = this.file(collection, thread.id);
-    await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(file, text, { flag: 'wx' });
-    return { thread, version: version(text) };
+    return (await this.createAll(collection, [thread]))[0]!;
+  }
+
+  /**
+   * Writes new threads. Refuses the whole batch, before writing any, when an id exists or repeats
+   * or a question number is already used in the collection or in the batch.
+   */
+  async createAll(collection: string, threads: Thread[]): Promise<StoredThread[]> {
+    const texts = threads.map(serializeThread);
+    return this.locked(collection, async () => {
+      const ids = new Set<string>();
+      const numbers = new Map<number, string>();
+      for (const { thread } of await this.list(collection)) {
+        ids.add(thread.id);
+        if (thread.number !== undefined) numbers.set(thread.number, thread.id);
+      }
+      for (const thread of threads) {
+        if (ids.has(thread.id)) throw new Error(`Thread ${thread.id} already exists in ${collection}; nothing was written`);
+        ids.add(thread.id);
+        if (thread.number === undefined) continue;
+        const other = numbers.get(thread.number);
+        if (other) throw new Error(`Question number ${thread.number} is used by both ${other} and ${thread.id}; nothing was written`);
+        numbers.set(thread.number, thread.id);
+      }
+      await mkdir(path.join(this.directory(collection), 'threads'), { recursive: true });
+      for (const [index, thread] of threads.entries()) await publish(this.file(collection, thread.id), texts[index]!);
+      return threads.map((thread, index) => ({ thread, version: version(texts[index]!) }));
+    });
   }
 
   /** Appends one entry, refusing when the file is no longer at `expected`. */
   async append(collection: string, id: string, entry: Entry, expected?: string): Promise<StoredThread> {
-    const current = await this.read(collection, id);
-    if (expected !== undefined && current.version !== expected) throw new ConflictError(id);
-    if (entry.kind === 'answer' && current.thread.kind !== 'question') throw new Error(`Thread ${id} is a comment and takes no answer`);
-    const next: Thread = { ...current.thread, entries: [...current.thread.entries, entry] };
-    if (entry.kind === 'settled' && entry.settledAs) next.settledAs = entry.settledAs;
-    const text = serializeThread(next);
-    const file = this.file(collection, id);
-    // Write beside the file, then rename: readers never see half a file.
-    const temporary = `${file}.${randomBytes(4).toString('hex')}.tmp`;
-    await writeFile(temporary, text, { flag: 'wx' });
-    const again = version(await readFile(file, 'utf8'));
-    if (again !== current.version) {
-      await rm(temporary);
-      throw new ConflictError(id);
-    }
-    await rename(temporary, file);
-    return { thread: next, version: version(text) };
+    return this.locked(collection, async () => {
+      const current = await this.read(collection, id);
+      if (expected !== undefined && current.version !== expected) throw new ConflictError(id);
+      if (entry.kind === 'answer' && current.thread.kind !== 'question') throw new Error(`Thread ${id} is a comment and takes no answer`);
+      const next: Thread = { ...current.thread, entries: [...current.thread.entries, entry] };
+      if (entry.kind === 'settled' && entry.settledAs) next.settledAs = entry.settledAs;
+      const text = serializeThread(next);
+      const file = this.file(collection, id);
+      // Write beside the file, then rename: readers never see half a file.
+      const draft = temporary(file);
+      try {
+        await writeFile(draft, text, { flag: 'wx' });
+        await rename(draft, file);
+      } finally { await rm(draft, { force: true }); }
+      return { thread: next, version: version(text) };
+    });
   }
 }
 

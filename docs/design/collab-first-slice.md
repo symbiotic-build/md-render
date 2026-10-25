@@ -178,6 +178,17 @@ md-collab check <documents> --store <dir> --collection <name>
 
 Writes go through one function that rereads the file, appends, and refuses when the file changed since it was read.
 
+### Store writes
+
+One function in `store.ts` owns every write to a collection. It holds the collection's lock while it reads, checks and writes:
+
+- **Lock.** The lock is the file `<store>/<collection>/.lock`, holding the owner's process number and a random token. A writer publishes it the same way as a new thread, below, so the lock appears only when complete and only if absent. A writer that finds a lock waits, polling every 10 ms, and gives up after 10 seconds with `Collection <name> is locked by process <n>`.
+- **A lock left by a crashed process.** A lock whose process no longer exists is stale. The waiting writer moves it aside under a unique name and reads it back; when the moved file is the stale lock, it deletes it and takes the lock. When another writer replaced the stale lock meanwhile, it links that live lock back. If a third writer took the lock in that instant, two writers can hold it; that needs a crash and three concurrent writers. A lock whose process number was reused by a live process is not seen as stale; remove it by hand, see [Recovery](#recovery).
+- **New files** (threads, `collection.yaml`, the lock) are written to a private draft beside the destination, `.<name>.<random>.tmp`, then published with a hard link that fails when the destination exists, and the draft is removed. A reader sees a complete file or none.
+- **Appends** reread the thread under the lock, refuse when the caller named an older version, write a draft and rename it over the thread.
+- **Creation** under the lock reads the collection, refuses an id or a question number that exists or repeats in the batch, then publishes each thread.
+- Drafts and the lock start with a dot. Readers and the page's change notices ignore them, and every handled failure removes the draft it wrote.
+
 ### Local page and server
 
 `serve` renders the documents with `renderSinglePage` and the md-collab extension, then listens on `127.0.0.1` and prints the address.

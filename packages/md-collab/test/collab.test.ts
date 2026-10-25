@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { launchBrowser } from '../../../src/browser.js';
-import { execFile } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import http from 'node:http';
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -124,7 +124,49 @@ it('appends entries and refuses a write against an old version', async () => {
   await expect(store.append('spec', created.thread.id, { at: '2026-10-24T10:01:00Z', actor: 'person:operator', kind: 'comment', note: 'Late.' }, created.version))
     .rejects.toBeInstanceOf(ConflictError);
   expect((await store.read('spec', created.thread.id)).thread.entries.map(entry => entry.note)).toEqual(['', 'First.']);
-  await expect(store.create('spec', question())).rejects.toMatchObject({ code: 'EEXIST' });
+  await expect(store.create('spec', question())).rejects.toThrow('Thread q01-identifier-length already exists in spec; nothing was written');
+});
+
+it('keeps every entry when many writers append to one thread at once', async () => {
+  const store = new FileStore(path.join(root, 'store-race'));
+  await store.createCollection({ name: 'spec', title: 'Race', settled: [] });
+  const { thread } = await store.create('spec', question());
+  const notes = Array.from({ length: 12 }, (_, index) => `Writer ${index}.`);
+  await Promise.all(notes.map((note, index) => store.append('spec', thread.id, { at: `2026-10-24T10:00:${String(index).padStart(2, '0')}Z`, actor: 'agent:test/race', kind: 'comment', note })));
+  expect((await store.read('spec', thread.id)).thread.entries.slice(1).map(entry => entry.note).sort()).toEqual([...notes].sort());
+});
+
+it('refuses a repeated question number in a batch or in the collection and writes nothing', async () => {
+  const store = new FileStore(path.join(root, 'store-numbers'));
+  await store.createCollection({ name: 'spec', title: 'Numbers', settled: [] });
+  await store.create('spec', question());
+  const second: Thread = { ...question(), id: 'q02-other', number: 2 };
+  await expect(store.createAll('spec', [second, { ...second, id: 'q02-twin' }])).rejects.toThrow('Question number 2 is used by both q02-other and q02-twin; nothing was written');
+  await expect(store.createAll('spec', [second, { ...question(), id: 'q01-again' }])).rejects.toThrow('Question number 1 is used by both q01-identifier-length and q01-again; nothing was written');
+  // Two creators of the same number at once: one wins, the other is refused.
+  const results = await Promise.allSettled([store.create('spec', { ...second, id: 'q02-a' }), store.create('spec', { ...second, id: 'q02-b' })]);
+  expect(results.map(result => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+  expect((await store.list('spec')).map(({ thread }) => thread.number)).toEqual([1, 2]);
+});
+
+it('leaves no draft or lock behind when a write is refused, and takes over a lock left by a crashed process', async () => {
+  const store = new FileStore(path.join(root, 'store-clean'));
+  const directory = path.join(store.root, 'spec');
+  await store.createCollection({ name: 'spec', title: 'Clean', settled: [] });
+  const created = await store.create('spec', question());
+  const comment = { at: '2026-10-24T10:00:00Z', actor: 'person:operator', kind: 'comment' as const, note: 'First.' };
+  await store.append('spec', created.thread.id, comment, created.version);
+  await expect(store.append('spec', created.thread.id, comment, created.version)).rejects.toBeInstanceOf(ConflictError);
+  await expect(store.create('spec', question())).rejects.toThrow('already exists');
+  await expect(store.createCollection({ name: 'spec', title: 'Again', settled: [] })).rejects.toThrow('Collection spec already exists');
+  const files = ['collection.yaml', 'threads', 'threads/q01-identifier-length.md'];
+  expect((await readdir(directory, { recursive: true })).sort()).toEqual(files);
+  // A process that ended without removing its lock leaves its number behind; that process no longer exists.
+  const { pid } = spawnSync(process.execPath, ['-e', '']);
+  await writeFile(path.join(directory, '.lock'), `${pid} crashed`);
+  await store.append('spec', created.thread.id, { ...comment, note: 'After the crash.' });
+  expect((await store.read('spec', created.thread.id)).thread.entries.map(entry => entry.note)).toEqual(['', 'First.', 'After the crash.']);
+  expect((await readdir(directory, { recursive: true })).sort()).toEqual(files);
 });
 
 it('finds an anchor again by block, then quote, then lines, and reports an orphan', async () => {
