@@ -3,7 +3,7 @@ import { useBrowser } from '../../../test/browser-fixture.js';
 import type { BrowserSession } from '../../../src/browser.js';
 import { execFile, spawnSync } from 'node:child_process';
 import http from 'node:http';
-import { cp, mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, cp, mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -225,6 +225,31 @@ it('leaves no draft or lock behind when a write is refused, and refuses to write
   await store.append('spec', created.thread.id, { ...comment, note: 'After the repair.' });
   expect((await store.read('spec', created.thread.id)).thread.entries.map(entry => entry.note)).toEqual(['', 'First.', 'After the repair.']);
   expect((await readdir(directory, { recursive: true })).sort()).toEqual(files);
+});
+
+it('reports a lock it could not remove after a write, and leaves it for the documented repair', async () => {
+  const store = new FileStore(path.join(root, 'store-release'));
+  await store.createCollection({ name: 'spec', title: 'Release', settled: [] });
+  const lock = path.join(store.root, 'spec/.lock');
+  const file = path.join(store.root, 'spec/threads/q01-identifier-length.md');
+  // The thread is a named pipe, so the append holds the lock until the test writes the thread into
+  // it. Meanwhile the lock becomes a folder, which the release cannot read.
+  await run('mkfifo', [file]);
+  const comment = { at: '2026-10-24T10:00:00Z', actor: 'person:operator', kind: 'comment' as const, note: 'Saved.' };
+  const appending = store.append('spec', 'q01-identifier-length', comment);
+  const outcome = appending.then(() => 'resolved', (error: Error) => error.message);
+  for (const deadline = Date.now() + 10_000; !(await access(lock).then(() => true, () => false)); await delay(10)) {
+    if (Date.now() > deadline) throw new Error('The append took no lock');
+  }
+  await rm(lock);
+  await mkdir(lock);
+  await writeFile(file, serializeThread(question()));
+  expect(await outcome).toBe(`Could not remove the lock ${lock}: EISDIR: illegal operation on a directory, read; the change may be saved. If no md-collab command is writing, delete the lock`);
+  expect([(await store.read('spec', 'q01-identifier-length')).thread.entries.map(entry => entry.note), await access(lock).then(() => true, () => false)]).toEqual([['', 'Saved.'], true]);
+  // The documented repair: the change is saved, so delete the lock and carry on.
+  await rm(lock, { recursive: true });
+  await store.append('spec', 'q01-identifier-length', { ...comment, note: 'After the repair.' });
+  expect((await store.read('spec', 'q01-identifier-length')).thread.entries.map(entry => entry.note)).toEqual(['', 'Saved.', 'After the repair.']);
 });
 
 it('finds an anchor again by block, then quote, then lines, and reports an orphan', async () => {

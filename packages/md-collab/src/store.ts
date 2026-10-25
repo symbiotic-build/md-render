@@ -43,6 +43,20 @@ function alive(owner: string): boolean {
   catch (error) { return code(error) === 'EPERM'; }
 }
 
+/**
+ * Removes a writer's lock: the lock that holds `owner`, or, when the writer could not write its
+ * token, the lock it created. A lock that is already gone counts as removed; any other failure is
+ * reported with its repair, since a lock left behind refuses every later write.
+ */
+async function release(lock: string, owner: string | false): Promise<void> {
+  try {
+    if (owner === false || await readFile(lock, 'utf8') === owner) await rm(lock);
+  } catch (error) {
+    if (code(error) === 'ENOENT') return;
+    throw new Error(`Could not remove the lock ${lock}: ${(error as Error).message}; the change may be saved. If no md-collab command is writing, delete the lock`, { cause: error });
+  }
+}
+
 export class FileStore {
   constructor(readonly root: string) {}
 
@@ -63,9 +77,9 @@ export class FileStore {
     const lock = path.join(this.directory(collection), '.lock');
     const owner = `${process.pid} ${randomBytes(8).toString('hex')}`;
     const start = Date.now();
+    let handle: FileHandle;
     for (;;) {
-      let handle: FileHandle;
-      try { handle = await open(lock, 'wx'); }
+      try { handle = await open(lock, 'wx'); break; }
       catch (error) {
         if (code(error) !== 'EEXIST') throw error;
         const current = await readFile(lock, 'utf8').catch(() => '');
@@ -73,16 +87,24 @@ export class FileStore {
         if (current && !alive(current)) throw new Error(`Collection ${collection} is locked by process ${pid}, which no longer runs; if no md-collab command is writing, delete ${lock}`);
         if (Date.now() - start > lockWaitMs) throw new Error(`Collection ${collection} is locked by process ${pid}; try again when it finishes`);
         await delay(10);
-        continue;
       }
-      // The lock is ours from the moment it is created; a failed write removes it again.
-      try { await handle.writeFile(owner); }
-      catch (error) { await handle.close().catch(() => undefined); await rm(lock, { force: true }); throw error; }
-      await handle.close();
-      break;
     }
-    try { return await work(); }
-    finally { if (await readFile(lock, 'utf8').catch(() => null) === owner) await rm(lock, { force: true }); }
+    // The lock is ours from the moment it is created. Every way out from here releases it, a failed
+    // token write or close included, and a release that fails reaches the caller.
+    let written = false;
+    let result: T;
+    try {
+      try { await handle.writeFile(owner); written = true; }
+      finally { await handle.close(); }
+      result = await work();
+    } catch (error) {
+      await release(lock, written && owner).catch(failure => {
+        throw new Error(`${(error as Error).message}; and then: ${(failure as Error).message}`, { cause: error });
+      });
+      throw error;
+    }
+    await release(lock, written && owner);
+    return result;
   }
 
   async collection(name: string): Promise<Collection> {
