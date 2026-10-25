@@ -19,7 +19,7 @@ The first slice serves one need: the operator answers the open questions about a
 
 ### Block identity and source lines
 
-In a render with at least one extension, every rendered block element of a Markdown page carries two attributes. Renders without extensions write the same bytes as before this slice, in folder and single-file output, and do no block work:
+In a render with at least one extension, every rendered block element of a Markdown page carries two attributes. Folder and single-file exports, which take no extensions, write the same bytes as before this slice and do no block work. `renderSinglePage` and `renderView` return a view, so they always collect blocks, with or without extensions:
 
 - `data-source-lines="72-73"`: the first and last source line of the block, from the parser's positions. One line is written `72-72`.
 - `data-block="decimal~3f9a1c"`: the block ID.
@@ -159,7 +159,7 @@ Keep the annotation names short.
 md-collab reads `### Decision:` sections from the decision chapters a collection names in its `collection.yaml`. Each becomes a read-only settled item: anchor = its decision heading, date and decider from **Authority**. They are never written to the store; the specification remains their home.
 
 - The page names a settled item `<chapter path>#<anchor>`, because two chapters may use the same anchor.
-- The decider is the explicit **Decided by** line when there is one. Otherwise the **Authority** text decides: a `Q<n>` or `operator` names the operator, "lead decision", "lead clarification" or "lead proposal" names the lead, and `measurement` names measurement. Authority text that names none of them is refused with a request for a **Decided by** line, instead of being attributed to the operator.
+- The decider is the explicit **Decided by** line when there is one. Otherwise the **Authority** text decides. An Authority that starts with "Lead decision", "Lead clarification" or "Lead proposal" names the lead alone, even when it also mentions a `Q<n>`, the operator or measurement: "Lead decision, 2026-10-14. The operator delegated Q152" names the lead. A decision that needs another attribution gets a **Decided by** line. In any other Authority, a `Q<n>` or `operator` names the operator, "lead decision", "lead clarification" or "lead proposal" names the lead, and `measurement` names measurement. Authority text that names none of them is refused with a request for a **Decided by** line, instead of being attributed to the operator.
 
 ### Anchor resolution
 
@@ -243,7 +243,9 @@ What each refusal leaves behind, who acts and how.
 | `Collection <name> is locked by process <n>` | A lock file held by process `<n>`. | The writer | Retry. If process `<n>` is not an md-collab command, its number was reused after a crash: delete `<store>/<collection>/.lock`. |
 | `Collection <name> is locked by process <n>, which no longer runs; …` | The lock file `<store>/<collection>/.lock` of a crashed writer. Every write to the collection is refused. | The person or agent that sees the message | Check that no md-collab command is writing to the collection, then delete the named lock file and repeat the write. |
 | A thread file that does not parse, or a repeated question number from a hand edit | The file; every read of the collection fails and names it. | Whoever edited the store | Fix or remove the named file in the store's git checkout, for example with `git checkout -- <file>`. |
-| `check` reports an orphaned anchor | The thread, unchanged; the page lists the passage as no longer found. | The agent that owns the question | Find the passage, or resolve or withdraw the question. |
+| `check` reports an orphaned anchor | The thread, unchanged; the page lists the passage as no longer found. | The agent that owns the question | Find where the text went. If a decision settles the question, record it with `resolve`; otherwise add a `comment` that names the passage now in question. |
+| `Thread <id>: only a person writes an answer` | Nothing written. | The agent that tried to answer | Leave the answer to the person. When the person answered in chat, record it as that person: `answer <id> --by person:<login> --source chat`. |
+| `Extension <name> failed: <message>` | Nothing written. `serve` does not start; during a re-render the last good page stays. | The extension's maintainer; for `md-collab`, whoever installed it | Fix the extension the message names. For `md-collab`, rebuild or reinstall the package so its sidebar files are the shipped ones. |
 | `check` reports a missing settled chapter, or `serve` refuses one | `collection.yaml` names a chapter that is not rendered. | The collection's owner | Fix the path in `collection.yaml`, or render the folder that holds the chapter. |
 | An Authority line names no decider | The decision chapter, unchanged; `serve` refuses to start. | The specification's owner | Add a `**Decided by:**` line to that decision. |
 | A re-render fails | The last good page stays served; the page shows the error. | The document's author | Fix the document; the next save re-renders. |

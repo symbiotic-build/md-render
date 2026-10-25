@@ -41,7 +41,7 @@ The CLI prints each warning and reports unavailable Mermaid explicitly.
 <a id="extension-reference"></a>
 ## Blocks and extensions
 
-In a render with at least one extension, every Markdown block, a `p`, `li`, `h1`–`h6`, `tr`, `pre`, `blockquote` or `figure` element, carries two attributes. A Mermaid fence's `figure` and its source `pre` both carry the fence's lines. Without extensions the output bytes are unchanged and no block work is done.
+In a render with at least one extension, every Markdown block, a `p`, `li`, `h1`–`h6`, `tr`, `pre`, `blockquote` or `figure` element, carries two attributes. A Mermaid fence's `figure` and its source `pre` both carry the fence's lines. Folder output and the single-file export take no extensions; their bytes are unchanged and they do no block work. `renderSinglePage` and `renderView` return a view, so they collect blocks with or without extensions.
 
 `data-source-lines="3-4"` names its first and last source line. `data-block` names its block ID: the nearest heading's ID, `~` and six hexadecimal digits of the SHA-256 of its whitespace-normalised text. An explicit anchor before a heading names that section instead of the heading's own ID. A repeated ID in one document gets `-2`, `-3`. Plain-text source pages keep their `L<n>` line IDs and have no blocks. In a single page with extensions, each chapter's section carries `data-source-path` with the document's corpus path.
 
