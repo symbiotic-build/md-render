@@ -1,10 +1,10 @@
-// Settled decisions stay in the specification; md-collab only reads its `### Decision:` sections.
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
+// Settled decisions stay in the specification; md-collab only reads its `### Decision:` sections,
+// from the text and structure md-render rendered.
+import type { SiteView } from 'md-render';
 import type { Decider } from './thread.js';
 
 export interface SettledDecision {
-  /** The decision's explicit anchor, for example `decision-bounded-decimal`. */
+  /** The decision heading's anchor, as md-render names its section, for example `decision-bounded-decimal`. */
   id: string;
   title: string;
   topic: string | null;
@@ -41,38 +41,45 @@ export function decidersOf(authority: string, explicit?: string): Decider[] {
   return named;
 }
 
-/** Reads every decision section of one chapter; `file` is the chapter's corpus path. */
-export async function readSettled(root: string, file: string): Promise<SettledDecision[]> {
-  const lines = (await readFile(path.join(root, file), 'utf8')).replace(/\r\n?/g, '\n').split('\n');
+/**
+ * Reads every decision section of one rendered chapter. A section is a level-three heading that
+ * md-render rendered and whose source line is `### Decision: <title>`, so a heading inside a code
+ * fence is none. Its anchor is the one md-render gives the heading's blocks: an explicit anchor
+ * before the heading, otherwise the heading's own ID. Its fields are the source lines of its blocks.
+ */
+export function readSettled(document: SiteView['documents'][number]): SettledDecision[] {
+  const lines = document.markdown.replace(/\r\n?/g, '\n').split('\n');
+  const source = (line: number) => lines[line - 1] ?? '';
+  const { blocks } = document;
   const decisions: SettledDecision[] = [];
   let topic: string | null = null;
-  let anchor: string | null = null;
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index]!;
-    if (line.startsWith('## ')) topic = line.slice(3).trim();
-    const anchorMatch = /^<a id="([^"]+)"><\/a>$/.exec(line.trim());
-    if (anchorMatch) { anchor = anchorMatch[1]!; continue; }
-    const heading = /^### Decision: (.+)$/.exec(line);
+  for (let index = 0; index < blocks.length; index++) {
+    const block = blocks[index]!;
+    if (block.tag === 'h2') topic = source(block.lines[0]).replace(/^##\s+/, '').trim();
+    const heading = block.tag === 'h3' ? /^### Decision: (.+)$/.exec(source(block.lines[0])) : null;
     if (!heading) continue;
-    if (!anchor) throw new Error(`${file}:${index + 1}: decision "${heading[1]}" has no anchor before its heading`);
     const fields: Partial<Record<(typeof fieldNames)[number], string>> = {};
     let current: (typeof fieldNames)[number] | undefined;
-    let next = index + 1;
-    for (; next < lines.length && !/^#{1,3} /.test(lines[next]!) && !/^<a id="/.test(lines[next]!.trim()); next++) {
-      const field = fieldLine.exec(lines[next]!);
-      if (field) { current = field[1] as (typeof fieldNames)[number]; fields[current] = field[2]!; }
-      else if (current && lines[next]!.trim()) fields[current] += '\n' + lines[next];
+    // The section runs to the next heading of level one to three; a block inside another, such as a
+    // list item's paragraph, is read once.
+    let read = block.lines[1];
+    for (; index + 1 < blocks.length && !/^h[1-3]$/.test(blocks[index + 1]!.tag); index++) {
+      const [first, last] = blocks[index + 1]!.lines;
+      for (let line = Math.max(first, read + 1); line <= last; line++) {
+        const field = fieldLine.exec(source(line));
+        if (field) { current = field[1] as (typeof fieldNames)[number]; fields[current] = field[2]!; }
+        else if (current && source(line).trim()) fields[current] += '\n' + source(line);
+      }
+      read = Math.max(read, last);
     }
-    if (!fields.Choice || !fields.Authority) throw new Error(`${file}:${index + 1}: decision "${heading[1]}" needs Choice and Authority`);
+    if (!fields.Choice || !fields.Authority) throw new Error(`${document.path}:${block.lines[0]}: decision "${heading[1]}" needs Choice and Authority`);
     const dates = fields.Date ? [fields.Date.trim()] : [...fields.Authority.matchAll(isoDate)].map(match => match[1]!).sort();
     decisions.push({
-      id: anchor, title: heading[1]!.trim(), topic, path: file,
+      id: block.heading!, title: heading[1]!.trim(), topic, path: document.path,
       choice: fields.Choice.trim(), reason: (fields.Reason ?? '').trim(), rejected: (fields['Rejected alternatives'] ?? '').trim(),
       authority: fields.Authority.trim(), date: dates.at(-1) ?? null,
       decidedBy: decidersOf(fields.Authority, fields['Decided by']),
     });
-    anchor = null;
-    index = next - 1;
   }
   return decisions;
 }

@@ -272,7 +272,7 @@ it('covers every passage of a citation that starts inside its first paragraph', 
 });
 
 it('reads settled decisions with their dates and deciders from the specification', async () => {
-  const settled = await readSettled(docs, 'docs/decisions.md');
+  const settled = readSettled(view.documents.find(document => document.path === 'docs/decisions.md')!);
   expect(settled.map(({ id, topic, date, decidedBy }) => ({ id, topic, date, decidedBy }))).toEqual([
     { id: 'decision-fixed-group', topic: 'Storage choices', date: '2026-10-12', decidedBy: ['operator'] },
     { id: 'decision-redo', topic: 'Storage choices', date: '2026-10-14', decidedBy: ['lead'] },
@@ -283,11 +283,31 @@ it('reads settled decisions with their dates and deciders from the specification
   expect(() => decidersOf('Agreed in review, 2026-10-16.')).toThrow('Authority names no operator, lead or measurement; add a **Decided by:** line: Agreed in review, 2026-10-16.');
 });
 
+it('reads the decisions md-render renders: none from a code fence, and one after a single-quoted anchor', async () => {
+  const folder = path.join(root, 'fenced-decisions');
+  await mkdir(folder);
+  await writeFile(path.join(folder, 'decisions.md'), "# Decisions\n\n## Format\n\nAn example:\n\n```markdown\n### Decision: Only an example\n\n**Choice:** None.\n```\n\n<a id='decision-quoted'></a>\n\n### Decision: Quoted anchor\n\n**Choice:** Single quotes.\n\n**Authority:** Lead decision, 2026-10-20.\n");
+  const { view: rendered } = await renderView(folder, { mermaid: false });
+  expect(readSettled(rendered.documents[0]!).map(({ id, title, topic, choice, date, decidedBy }) => ({ id, title, topic, choice, date, decidedBy }))).toEqual([
+    { id: 'decision-quoted', title: 'Quoted anchor', topic: 'Format', choice: 'Single quotes.', date: '2026-10-20', decidedBy: ['lead'] },
+  ]);
+});
+
+it('takes settled decisions from the text md-render rendered, not from the file as it is now', async () => {
+  const folder = path.join(root, 'rendered-decisions');
+  await mkdir(folder);
+  await writeFile(path.join(folder, 'decisions.md'), sizeDecision);
+  const { view: rendered } = await renderView(folder, { mermaid: false });
+  // The chapter changes after the render, as it may while a render runs.
+  await writeFile(path.join(folder, 'decisions.md'), sizeDecision.replace('Fixed size', 'Changed size'));
+  expect(settledDecisions({ name: 'spec', title: 'Rendered', settled: ['decisions.md'] }, rendered).map(decision => decision.title)).toEqual(['Fixed size']);
+});
+
 it('keeps decisions from two chapters apart when they share an anchor', async () => {
   const store = new FileStore(path.join(root, 'store-settled'));
   const collection = { name: 'spec', title: 'Settled', settled: ['docs/decisions.md', 'docs/more-decisions.md'] };
   await store.createCollection(collection);
-  const state = await pageState({ store, collection, view, settled: await settledDecisions(collection, view, docs), commit, person: 'person:operator' });
+  const state = await pageState({ store, collection, view, settled: settledDecisions(collection, view), commit, person: 'person:operator' });
   expect(state.settled.map(decision => [decision.id, decision.title, decision.anchors[0]!.path])).toEqual([
     ['docs/decisions.md#decision-fixed-group', 'Fixed write group', 'docs/decisions.md'],
     ['docs/decisions.md#decision-redo', 'Separate redo call', 'docs/decisions.md'],

@@ -69,13 +69,13 @@ export async function serve(options: ServeOptions): Promise<Session> {
   const collection = await store.collection(options.collection);
   const sidebar = await collabExtension();
   // A render builds a whole snapshot; only a successful one replaces the current snapshot. Its
-  // settled decisions are read right after the documents, so a failed render discards them too.
+  // settled decisions come from the text it rendered, so a failed render discards them too.
   let renders = 0;
   async function render(): Promise<Snapshot> {
     const generation = ++renders;
     const extension: RenderExtension = { name: sidebar.name, prepare: async view => ({ ...await sidebar.prepare(view), data: { generation } }) };
     const { html, view, root } = await renderSinglePage(options.documents, { mermaid: options.mermaid }, [extension]);
-    return { generation, html, view, root, commit: await documentsCommit(root), settled: await settledDecisions(collection, view, root) };
+    return { generation, html, view, root, commit: await documentsCommit(root), settled: settledDecisions(collection, view) };
   }
   let snapshot = await render();
   const root = snapshot.root;

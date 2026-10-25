@@ -59,14 +59,13 @@ async function inlineHtml(markdown: string): Promise<string> {
   return (await markdownHtml(markdown)).replace(/^<p>([\s\S]*)<\/p>$/, '$1');
 }
 
-/** The decisions of every settled chapter the collection names, read from the rendered corpus. */
-export async function settledDecisions(collection: Collection, view: SiteView, corpusRoot: string): Promise<SettledDecision[]> {
-  const decisions: SettledDecision[] = [];
-  for (const file of collection.settled) {
-    if (!view.documents.some(document => document.path === file)) throw new Error(`Collection ${collection.name}: settled chapter ${file} is not a rendered document`);
-    decisions.push(...await readSettled(corpusRoot, file));
-  }
-  return decisions;
+/** The decisions of every settled chapter the collection names, from the text the view was rendered from. */
+export function settledDecisions(collection: Collection, view: SiteView): SettledDecision[] {
+  return collection.settled.flatMap(file => {
+    const document = view.documents.find(item => item.path === file);
+    if (!document) throw new Error(`Collection ${collection.name}: settled chapter ${file} is not a rendered document`);
+    return readSettled(document);
+  });
 }
 
 /** The page's state: the store's threads now, and the settled decisions of the rendered documents. */
