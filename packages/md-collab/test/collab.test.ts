@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { useBrowser } from '../../../test/browser-fixture.js';
 import type { BrowserSession } from '../../../src/browser.js';
-import { execFile, spawnSync } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import { access, chmod, cp, mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { renderView, type SiteView } from 'md-render';
@@ -451,26 +452,31 @@ it('serves the documents and shows an edit beside a folder it cannot read', asyn
   } finally { if (locked) await chmod(locked, 0o755); }
 });
 
-// A failed start and close leave no change check behind, which would keep the process running.
+// The command ends after a failed start and after Ctrl+C; a change check left running would keep it alive.
+const collabCli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 it.each([
-  ['a failed start', async (storeRoot: string) => {
-    const blocker = http.createServer();
-    await new Promise<void>(resolve => blocker.listen(0, '127.0.0.1', resolve));
-    try {
-      await expect(serve({ documents: path.join(docs, 'docs'), store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false, port: (blocker.address() as { port: number }).port }))
-        .rejects.toMatchObject({ code: 'EADDRINUSE' });
-    } finally { await new Promise(resolve => blocker.close(resolve)); }
-  }],
-  ['close', async (storeRoot: string) => {
-    await (await serve({ documents: path.join(docs, 'docs'), store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false })).close();
-  }],
-])('leaves no change check running after %s', async (name, start) => {
-  const storeRoot = path.join(root, 'store-stop-' + name.split(' ').pop());
-  await new FileStore(storeRoot).createCollection({ name: 'spec', title: 'Stop', settled: [] });
-  const timers = () => process.getActiveResourcesInfo().filter(resource => resource === 'Timeout').length;
-  const before = timers();
-  await start(storeRoot);
-  expect(timers()).toBe(before);
+  ['a failed start', true],
+  ['Ctrl+C', false],
+])('md-collab serve ends after %s', async (name, busy) => {
+  const storeRoot = path.join(root, 'store-end-' + name.split(' ').pop()!.toLowerCase().replace(/\W/g, ''));
+  await new FileStore(storeRoot).createCollection({ name: 'spec', title: 'End', settled: [] });
+  const blocker = http.createServer();
+  await new Promise<void>(resolve => blocker.listen(0, '127.0.0.1', resolve));
+  const port = busy ? ['--port', String((blocker.address() as { port: number }).port)] : [];
+  const child = spawn(process.execPath, [collabCli, 'serve', path.join(docs, 'docs'), '--store', storeRoot, '--collection', 'spec', '--person', 'person:operator', '--no-mermaid', ...port], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '';
+  child.stdout.on('data', chunk => { const before = output; output += chunk; if (!before.includes('md-collab: open') && output.includes('md-collab: open')) child.kill('SIGINT'); });
+  child.stderr.on('data', chunk => { output += chunk; });
+  try {
+    const ended = await new Promise<{ code: number | null; signal: string | null }>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`md-collab serve did not end within 10 s; printed ${JSON.stringify(output)}`)), 10_000);
+      child.once('exit', (code, signal) => { clearTimeout(timer); resolve({ code, signal }); });
+    });
+    expect({ ...ended, output }).toEqual({ code: busy ? 1 : 0, signal: null, output: busy ? expect.stringContaining('EADDRINUSE') : expect.stringMatching(/^md-collab: open http:\/\/127\.0\.0\.1:\d+\/\nPress Ctrl\+C to stop\.\n$/) });
+  } finally {
+    child.kill('SIGKILL');
+    await new Promise(resolve => blocker.close(resolve));
+  }
 });
 
 const sizeDecision = `# Decisions
