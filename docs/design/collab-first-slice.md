@@ -172,16 +172,27 @@ At every load, each anchor is matched against the current `SiteView`:
 
 ### Commands
 
+Every command takes `--store <dir>` and `--collection <name>`. An actor is `person:<login>` or `agent:<product>/<session>`.
+
 ```text
-md-collab serve <documents> --store <dir> --collection <name>      # local page on 127.0.0.1
-md-collab import <questions.md> --store <dir> --collection <name>  # House Rules question list -> question threads
-md-collab list --store <dir> [--collection <name>] [--status open|answered|settled] [--json]
-md-collab answer <id> --choice <n> [--note <text>] --by person:<login> [--source chat]
-md-collab resolve <id> --settled-as <path#anchor> --by <actor>
+md-collab init --store <dir> --collection <name> --title <text> [--settled <corpus path>]...
+md-collab import <questions.md> <documents> --store <dir> --collection <name> --by <actor> [--at <UTC timestamp>]
+md-collab serve <documents> --store <dir> --collection <name> --person person:<login> [--port <n>] [--no-mermaid]
+md-collab list --store <dir> --collection <name> [--status open|answered|settled|withdrawn] [--json]
+md-collab answer <id> --store <dir> --collection <name> --by person:<login> [--choice <n>] [--note <text>] [--source chat]
+md-collab comment <id> --store <dir> --collection <name> --by <actor> --note <text>
+md-collab resolve <id> --store <dir> --collection <name> --by <actor> --settled-as <path#anchor> [--note <text>]
 md-collab check <documents> --store <dir> --collection <name>
 ```
 
-Writes go through one function that rereads the file, appends, and refuses when the file changed since it was read.
+Setting up a review:
+
+1. **Prerequisites.** The documents are in a git checkout. The store is a folder outside that checkout's working tree; `import` and `serve` refuse a store inside it.
+2. **Create the collection.** `init` writes `<store>/<collection>/collection.yaml` and prints `Created collection <name> in <store>`. It refuses a collection that exists. `--settled` names each decision chapter by its corpus path, for example `docs/specs/memory-storage/decisions.md`.
+3. **Import the questions.** `import` reads a House Rules question list, anchors each citation in the documents at their current commit and prints `Imported <n> questions into <collection>`, plus one line per citation kept as text because it names no rendered document. It refuses the whole list, before writing anything, when a question number repeats in the list or is already in the collection.
+4. **Serve the page.** `serve` prints `md-collab: open http://127.0.0.1:<port>/` and runs until Ctrl+C. The operator answers there.
+5. **Read the answers.** `list` prints one line per thread with its status and latest answer; `--json` prints the threads. `answer`, `comment` and `resolve` print `<id>: <kind> recorded; status <status>`.
+6. **Check anchors.** `check` prints each orphaned anchor and each missing settled chapter and exits 1 when there is one; otherwise it prints `All anchors resolve`.
 
 ### Store writes
 
@@ -194,11 +205,23 @@ One function in `store.ts` owns every write to a collection. It holds the collec
 - **Creation** under the lock reads the collection, refuses an id or a question number that exists or repeats in the batch, then publishes each thread.
 - Drafts and the lock start with a dot. Readers and the page's change notices ignore them, and every handled failure removes the draft it wrote.
 
+### Store invariants
+
+Each invariant names the failure it prevents and the test that checks it at the store's boundary.
+
+| Invariant | Prevents | Test |
+| --- | --- | --- |
+| An acknowledged entry stays in its thread, whatever other writers do. | Two concurrent appends both report success and one entry is lost. | [keeps every entry when many writers append to one thread at once](../../packages/md-collab/test/collab.test.ts) |
+| A question number names one thread in its collection. | A repeated number in one import, or two concurrent imports, make the collection unreadable. | [refuses a repeated question number in a batch or in the collection and writes nothing](../../packages/md-collab/test/collab.test.ts) |
+| A refused write changes nothing, and no write leaves a draft or a lock behind; a crashed writer's lock is taken over. | A conflict, a repeated id or a crash blocks or corrupts later writes. | [appends entries and refuses a write against an old version](../../packages/md-collab/test/collab.test.ts), [leaves no draft or lock behind when a write is refused, and takes over a lock left by a crashed process](../../packages/md-collab/test/collab.test.ts) |
+| A thread file reads back as the thread written, whatever its text. | A note that starts like a field or a heading changes an answer or makes the thread unreadable. | [writes and reads a thread file without loss, and derives status from its entries](../../packages/md-collab/test/collab.test.ts) |
+| The store is outside the documents' working tree. | Annotations ride on the documents' branches. | [refuses a store inside the documents' working tree](../../packages/md-collab/test/collab.test.ts) |
+
 ### Local page and server
 
 `serve` renders the documents with `renderSinglePage` and the md-collab extension, then listens on `127.0.0.1` and prints the address.
 
-- Every request needs `Host` equal to the printed address, and writes also need `Origin` equal to it. A page from another site cannot write, and a site that rebinds its name to `127.0.0.1` is refused.
+- Every request needs `Host` equal to `127.0.0.1:<port>`, the printed address, or `localhost:<port>`, both names of this computer. Writes also need `Origin` equal to `http://` and that Host. A page from another site cannot write. A site that points its own name at `127.0.0.1` is still refused, because the browser sends that site's name as the Host.
 - There is no token. Any program on the same computer can write through the server; the operator accepted that on 2026-10-24 to keep the address simple.
 - Annotation text is rendered through the same sanitizer as documents; raw HTML stays escaped.
 - The page reads threads from `GET /api/state` and receives changes over server-sent events from `/api/events`: a store change, such as an agent's new question, reloads the threads, and a change to the documents re-renders the page and reloads it. The operator confirmed on 2026-10-24 that live updates are needed.
@@ -206,6 +229,22 @@ One function in `store.ts` owns every write to a collection. It holds the collec
 - The page loads the threads at start and each time the event stream opens, so a reconnection catches up on writes it missed. One state request runs at a time, so an older response never replaces a newer one. A page that stops reading the stream is disconnected and catches up when it reconnects.
 - A change that arrives while the reader types a note updates the counts at once and redraws the list when the note loses focus; notes being written survive the redraw.
 - The sidebar has the approved Questions view and the History view of the 2026-10-24 prototype. Comments on a text selection anchor to the selected blocks.
+
+## Recovery
+
+What each refusal leaves behind, who acts and how.
+
+| Situation | What is left | Who acts | Repair |
+| --- | --- | --- | --- |
+| `import` stopped part-way, by a crash or a disk error | The questions published before the stop; each is complete. | The agent that imported | `list` shows the imported numbers. Remove those questions from the question file, or keep a copy with only the rest, and import again. A repeated number refuses the whole import, so nothing is imported twice. |
+| `Thread <id> changed since it was read` | The thread with the other writer's entry. | The page reloads; the reader repeats the change. | None in the store. |
+| `Collection <name> is locked by process <n>` | A lock file held by process `<n>`. | The writer | Retry. If process `<n>` is not an md-collab command, its number was reused after a crash: delete `<store>/<collection>/.lock`. |
+| A thread file that does not parse, or a repeated question number from a hand edit | The file; every read of the collection fails and names it. | Whoever edited the store | Fix or remove the named file in the store's git checkout, for example with `git checkout -- <file>`. |
+| `check` reports an orphaned anchor | The thread, unchanged; the page lists the passage as no longer found. | The agent that owns the question | Find the passage, or resolve or withdraw the question. |
+| `check` reports a missing settled chapter, or `serve` refuses one | `collection.yaml` names a chapter that is not rendered. | The collection's owner | Fix the path in `collection.yaml`, or render the folder that holds the chapter. |
+| An Authority line names no decider | The decision chapter, unchanged; `serve` refuses to start. | The specification's owner | Add a `**Decided by:**` line to that decision. |
+| A re-render fails | The last good page stays served; the page shows the error. | The document's author | Fix the document; the next save re-renders. |
+| The store is inside the documents' working tree | Nothing written. | The operator | Move the store to a separate folder and pass it with `--store`. |
 
 ## Key decisions
 

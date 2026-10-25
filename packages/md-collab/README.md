@@ -15,7 +15,7 @@ md-collab import questions.md path/to/repository/docs --store ~/annotations --co
 md-collab serve path/to/repository/docs --store ~/annotations --collection memory-storage --person person:your-login
 ```
 
-`serve` prints a `127.0.0.1` address. Open it in a browser on the same computer. What agents add appears in the open page at once, and an edit to the documents refreshes it.
+The store must be a folder outside the documents' git working tree; `import` and `serve` refuse one inside it. `serve` prints a `127.0.0.1` address. Open it in a browser on the same computer. What agents add appears in the open page at once, and an edit to the documents refreshes it.
 
 - **Questions for you** lists the operator questions. Choosing an option saves an answer; "Save note" saves the note with it.
 - **History** lists every question, lead and measurement item, comment and settled decision, newest first, with filters for who decides, status, topic and chapter.
@@ -25,7 +25,7 @@ Answers and comments are written to the store at once. An agent sees them with `
 
 ## Commands for agents
 
-- `import <questions.md> <documents>`: turns a House Rules question list (`### 1\. Title`, context, numbered options with one "(recommended)") into question threads. Each `[file.md:72-73](link)` citation becomes an anchor. A line `Main passage: [file.md:72](link)` names the main passage; otherwise it is the first citation outside the settled chapters.
+- `import <questions.md> <documents>`: turns a House Rules question list (`### 1\. Title`, context, numbered options with one "(recommended)") into question threads. Each `[file.md:72-73](link)` citation, in the context or an option, becomes an anchor. A line `Main passage: [file.md:72](link)` names the main passage; otherwise it is the first citation outside the settled chapters. A question number that repeats in the list or is already in the collection refuses the whole list.
 - `list [--status answered] [--json]`: threads with their status and latest answer.
 - `answer <id> --by person:<login> --choice <n> [--note <text>] --source chat`: records an answer the person gave in chat. Only a person answers.
 - `comment <id> --by <actor> --note <text>`: adds a comment to a thread.
@@ -39,6 +39,9 @@ An actor is `person:<login>` or `agent:<product>/<session>`.
 ```text
 <store>/<collection>/collection.yaml        # title, and the decision chapters to read
 <store>/<collection>/threads/<id>.md        # one thread: YAML front matter, context, options, entries
+<store>/<collection>/.lock                  # present while a command writes; names its process
 ```
+
+Every write holds the collection's lock, so concurrent agents never lose each other's entries. What to do after an interrupted import or a refused write is in the design's [Recovery](../../docs/design/collab-first-slice.md#recovery) section.
 
 Settled decisions are read from the `### Decision:` sections of the chapters `collection.yaml` names. They stay in the specification and are never copied into the store.
