@@ -134,11 +134,7 @@ function wireLinks(root, item) {
     if (!link) return;
     const href = link.getAttribute('href');
     const cite = /^#md-collab-anchor-(\d+)$/.exec(href);
-    if (cite) { event.preventDefault(); showAnchor(item.anchors[Number(cite[1])]); return; }
-    if (/^[a-z][a-z0-9+.-]*:/i.test(href) || !item.basePath) return;
-    event.preventDefault();
-    const url = new URL(href, 'http://local/' + item.basePath);
-    mdRender.show({ path: decodeURIComponent(url.pathname.slice(1)) || item.basePath, anchor: decodeURIComponent(url.hash.slice(1)) || undefined });
+    if (cite) { event.preventDefault(); showAnchor(item.anchors[Number(cite[1])]); }
   });
 }
 function passageLinks(item) {
@@ -397,7 +393,8 @@ async function loadOnce() {
     ...state.threads,
     ...state.settled.map(decision => ({
       id: decision.id, kind: 'decision', title: decision.title, topic: decision.topic, decides: decision.decidedBy, number: null, priority: null,
-      status: 'settled', contextHtml: decision.contextHtml, authorityHtml: decision.authorityHtml, basePath: decision.basePath, options: [],
+      status: 'settled', options: [], authorityHtml: esc(decision.authority),
+      contextHtml: [['Choice', decision.choice], ['Reason', decision.reason], ['Rejected alternatives', decision.rejected]].filter(([, text]) => text).map(([name, text]) => `<p><b>${name}:</b> ${esc(text)}</p>`).join(''),
       anchors: decision.anchors, entries: [{ at: decision.date ? decision.date + 'T00:00:00Z' : null, kind: 'settled', actor: decision.decidedBy.join(' + ') }],
     })),
   ];

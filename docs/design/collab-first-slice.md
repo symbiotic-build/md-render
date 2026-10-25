@@ -162,6 +162,9 @@ Keep the annotation names short.
 
 md-collab reads `### Decision:` sections from the decision chapters a collection names in its `collection.yaml`, in the text and structure md-render rendered: a decision heading inside a code fence is none. Each becomes a read-only settled item: anchor = the anchor md-render gives its heading (an explicit anchor before it, in either quote form, or else the heading's own ID), date and decider from **Authority**. They are never written to the store; the specification remains their home.
 
+- A field (**Choice**, **Authority**, **Reason**, **Rejected alternatives**, **Decided by**, **Date**) is a top-level paragraph of the section, in md-render's parse of that text, that starts with the bold field name and a colon. Code blocks, lists and quotes are never fields, so a fenced example that contains `**Choice:** Example only` leaves the decision's own Choice as it is.
+- History shows each field's value as plain text: link text stays, link targets and other markup go.
+
 - The page names a settled item `<chapter path>#<anchor>`, because two chapters may use the same anchor.
 - The decider is the explicit **Decided by** line when there is one. Otherwise the **Authority** text decides. An Authority that starts with "Lead decision", "Lead clarification" or "Lead proposal" names the lead alone, even when it also mentions a `Q<n>`, the operator or measurement: "Lead decision, 2026-10-14. The operator delegated Q152" names the lead. A decision that needs another attribution gets a **Decided by** line. In any other Authority, a `Q<n>` or `operator` names the operator, "lead decision", "lead clarification" or "lead proposal" names the lead, and `measurement` names measurement. Authority text that names none of them is refused with a request for a **Decided by** line, instead of being attributed to the operator.
 

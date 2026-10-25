@@ -35,10 +35,11 @@ export interface PageSettled {
   topic: string | null;
   date: string | null;
   decidedBy: Decider[];
-  authorityHtml: string;
-  contextHtml: string;
-  /** The chapter that relative links in the decision's text start from. */
-  basePath: string;
+  /** The decision's fields as plain text, which the page shows as text. */
+  choice: string;
+  authority: string;
+  reason: string;
+  rejected: string;
   anchors: PageAnchor[];
 }
 export interface PageState {
@@ -93,9 +94,7 @@ export async function pageState(options: {
     const blocks = view.documents.find(item => item.path === file)!.blocks.filter(block => block.heading === decision.id).map(block => block.id);
     settled.push({
       id: `${file}#${decision.id}`, title: decision.title, topic: decision.topic, date: decision.date, decidedBy: decision.decidedBy,
-      authorityHtml: await inlineHtml(decision.authority),
-      contextHtml: await markdownHtml([`**Choice:** ${decision.choice}`, decision.reason && `**Reason:** ${decision.reason}`, decision.rejected && `**Rejected alternatives:** ${decision.rejected}`].filter(Boolean).join('\n\n')),
-      basePath: file,
+      choice: decision.choice, authority: decision.authority, reason: decision.reason, rejected: decision.rejected,
       anchors: [{ role: 'main', path: file, label: `${file.split('/').pop()}#${decision.id}`, method: blocks.length ? 'block' : 'orphan', blocks }],
     });
   }

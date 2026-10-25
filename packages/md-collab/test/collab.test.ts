@@ -308,6 +308,29 @@ it('reads the decisions md-render renders: none from a code fence, and one after
   ]);
 });
 
+it("keeps a decision's own Choice and Authority when its fenced example shows field lines", async () => {
+  const folder = path.join(root, 'example-fields');
+  await mkdir(folder);
+  await writeFile(path.join(folder, 'decisions.md'), '# Decisions\n\n### Decision: Example fields\n\n**Choice:** The real choice.\n\n**Authority:** Lead decision, 2026-10-20.\n\nA decision is written like this:\n\n```markdown\n**Choice:** Example only\n\n**Authority:** Operator decision, 2030-01-01.\n```\n');
+  const { view: rendered } = await renderView(folder, { mermaid: false });
+  expect(readSettled(rendered.documents[0]!).map(({ choice, authority, date, decidedBy }) => ({ choice, authority, date, decidedBy }))).toEqual([
+    { choice: 'The real choice.', authority: 'Lead decision, 2026-10-20.', date: '2026-10-20', decidedBy: ['lead'] },
+  ]);
+});
+
+it('shows a Choice with a reference-style link as its link text', async () => {
+  const folder = path.join(root, 'reference-choice');
+  await mkdir(folder);
+  await writeFile(path.join(folder, 'storage.md'), '# Storage\n\n## Limits\n\nThe write group is 4 MiB.\n');
+  await writeFile(path.join(folder, 'decisions.md'), '# Decisions\n\n### Decision: Linked choice\n\n**Choice:** Keep the [write group][group] fixed.\n\n[group]: storage.md#limits\n\n**Authority:** Lead decision, 2026-10-20.\n');
+  const { view: rendered } = await renderView(folder, { mermaid: false });
+  const store = new FileStore(path.join(root, 'store-reference-choice'));
+  const collection = { name: 'spec', title: 'Linked', settled: ['decisions.md'] };
+  await store.createCollection(collection);
+  const state = await pageState({ store, collection, view: rendered, settled: settledDecisions(collection, rendered), commit: null, person: 'person:operator' });
+  expect(state.settled.map(({ choice, authority }) => ({ choice, authority }))).toEqual([{ choice: 'Keep the write group fixed.', authority: 'Lead decision, 2026-10-20.' }]);
+});
+
 it('takes settled decisions from the text md-render rendered, not from the file as it is now', async () => {
   const folder = path.join(root, 'rendered-decisions');
   await mkdir(folder);
