@@ -190,6 +190,7 @@ it('stops the render when an extension fails or is malformed', async () => {
   const returns = (name: string, output: unknown): RenderExtension[] => [{ name, prepare: () => output as ExtensionOutput }];
   const cases: [RenderExtension[], string][] = [
     [[{ name: 'broken', prepare() { throw new Error('no data'); } }], 'Extension broken failed: no data'],
+    [[{ name: 'broken', prepare() { throw null; } }], 'Extension broken failed: null'],
     [returns('Bad Name', {}), 'Invalid extension name: Bad Name'],
     [[...returns('a', {}), ...returns('a', {})], 'Duplicate extension name: a'],
     [returns('tag', { script: 'x = "</script>"' }), 'Extension tag failed: its script contains </script'],

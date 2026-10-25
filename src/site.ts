@@ -183,7 +183,7 @@ async function prepareExtensions(view: SiteView, extensions: RenderExtension[]):
   for (const extension of extensions) {
     let output: ExtensionOutput;
     try { output = await extension.prepare(view); }
-    catch (error) { throw new Error(`Extension ${extension.name} failed: ${(error as Error).message}`, { cause: error }); }
+    catch (error) { throw new Error(`Extension ${extension.name} failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error }); }
     const refuse = (reason: string): Error => new Error(`Extension ${extension.name} failed: ${reason}`);
     // JavaScript callers reach this point without the types, so check what prepare returned.
     if (typeof output !== 'object' || output === null || Array.isArray(output)) throw refuse('prepare did not return an object');
