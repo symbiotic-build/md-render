@@ -67,18 +67,11 @@ function send(response: ServerResponse, status: number, body: unknown, type = 'a
   response.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
   response.end(typeof body === 'string' ? body : JSON.stringify(body));
 }
+/** The page's JSON request body. Only the page reaches it: the Host and Origin checks refuse other sites first. */
 async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
-  if (!request.headers['content-type']?.startsWith('application/json')) throw Object.assign(new Error('Send JSON'), { status: 415 });
-  let size = 0;
   const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    size += (chunk as Buffer).length;
-    if (size > 65_536) throw Object.assign(new Error('Request too large'), { status: 413 });
-    chunks.push(chunk as Buffer);
-  }
-  const value = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw Object.assign(new Error('Send a JSON object'), { status: 400 });
-  return value as Record<string, unknown>;
+  for await (const chunk of request) chunks.push(chunk as Buffer);
+  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
 }
 
 export async function serve(options: ServeOptions): Promise<Session> {
@@ -139,8 +132,7 @@ export async function serve(options: ServeOptions): Promise<Session> {
   let origin = '';
   const server = createServer((request, response) => {
     handle(request, response).catch(error => {
-      const status = error instanceof ConflictError ? 409 : (error as { status?: number }).status ?? 400;
-      send(response, status, { error: (error as Error).message });
+      send(response, error instanceof ConflictError ? 409 : 400, { error: (error as Error).message });
     });
   });
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
