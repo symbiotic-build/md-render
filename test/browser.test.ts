@@ -1,10 +1,11 @@
 import { useBrowser } from './browser-fixture.js';
-import { it, expect, vi } from 'vitest';
+import { it, expect, onTestFinished, vi } from 'vitest';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { renderSite } from '../src/site.js';
+import { startViewer } from '../src/server.js';
 const withBrowser = useBrowser();
 
 vi.mock('../src/diagrams.js', () => import('./diagram-fixture.js'));
@@ -77,6 +78,12 @@ it('checks rendered menu, theme controls, storage failure and diagram contrast i
           expect(Math.min(...contrast)).toBeGreaterThanOrEqual(4.5);
           console.log(`${theme} ${mode}: minimum diagram contrast ${Math.min(...contrast).toFixed(2)}:1 (${contrast.length} pairs)`);
         }
+        // The reload check runs on md-render's localhost viewer. Chrome 155 headless on Linux can
+        // lose a file page's storage on reload (#13): 17 of 64 file reloads, 0 of 64 over http.
+        const viewer = await startViewer(path.join(source, 'index.md'), { theme });
+        onTestFinished(() => viewer.close());
+        await browser.navigate(viewer.url);
+        await browser.evaluate(`document.querySelector('.theme-switch button[value="dark"]').click()`);
         // Reload the page the way a reader does. Page.navigate to the same URL is a new
         // navigation that Chromium may move to another browsing instance, whose renderer can
         // read storage before this page's write arrives; a reload keeps the browsing instance.
