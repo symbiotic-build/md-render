@@ -13,7 +13,7 @@ import { anchorAt, resolveAnchor } from '../src/anchors.js';
 import { parseQuestionList, questionThreads } from '../src/import.js';
 import { serve } from '../src/server.js';
 import { decidersOf, readSettled } from '../src/settled.js';
-import { pageState } from '../src/state.js';
+import { pageState, settledDecisions } from '../src/state.js';
 import { ConflictError, FileStore } from '../src/store.js';
 import { parseThread, serializeThread, threadStatus, type Thread } from '../src/thread.js';
 
@@ -262,7 +262,7 @@ it('keeps decisions from two chapters apart when they share an anchor', async ()
   const store = new FileStore(path.join(root, 'store-settled'));
   const collection = { name: 'spec', title: 'Settled', settled: ['docs/decisions.md', 'docs/more-decisions.md'] };
   await store.createCollection(collection);
-  const state = await pageState({ store, collection, view, corpusRoot: docs, commit, person: 'person:operator' });
+  const state = await pageState({ store, collection, view, settled: await settledDecisions(collection, view, docs), commit, person: 'person:operator' });
   expect(state.settled.map(decision => [decision.id, decision.title, decision.anchors[0]!.path])).toEqual([
     ['docs/decisions.md#decision-fixed-group', 'Fixed write group', 'docs/decisions.md'],
     ['docs/decisions.md#decision-redo', 'Separate redo call', 'docs/decisions.md'],
@@ -367,24 +367,39 @@ it('releases its file watchers when it cannot listen', async () => {
   } finally { await new Promise(resolve => blocker.close(resolve)); }
 });
 
-it('keeps the last good page when a re-render fails and tells the open page', async () => {
+const sizeDecision = `# Decisions
+
+<a id="decision-size"></a>
+
+### Decision: Fixed size
+
+**Choice:** Keep the size.
+
+**Authority:** Lead decision, 2026-10-12.
+`;
+
+it('keeps the last good page and its decisions when a re-render fails, and tells the open page', async () => {
   const documents = path.join(root, 'render-docs');
   await mkdir(documents, { recursive: true });
   await writeFile(path.join(documents, 'a.md'), '# A\n\nFirst text.\n');
+  await writeFile(path.join(documents, 'decisions.md'), sizeDecision);
   const storeRoot = path.join(root, 'store-render');
-  await new FileStore(storeRoot).createCollection({ name: 'spec', title: 'Render', settled: [] });
+  await new FileStore(storeRoot).createCollection({ name: 'spec', title: 'Render', settled: ['decisions.md'] });
   const session = await serve({ documents, store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
   try {
     const reader = (await fetch(session.url + 'api/events')).body!.getReader();
     await heard(reader, ': connected');
-    // One edit after start breaks the render.
-    await writeFile(path.join(documents, 'a.md'), '---\ntitle: [1]\n---\n# A\n\nBroken text.\n');
+    const shown = async () => {
+      const [page, state] = await Promise.all([(await fetch(session.url)).text(), (await fetch(session.url + 'api/state')).json()]);
+      return { first: page.includes('First text.'), decisions: state.settled.map((decision: { title: string }) => decision.title) };
+    };
+    // One edit renames the decision and breaks the render.
+    await writeFile(path.join(documents, 'decisions.md'), '---\ntitle: [1]\n---\n' + sizeDecision.replace('Fixed size', 'Changed size'));
     expect(await heard(reader, 'event: failed')).toContain('data: {"error":"');
-    const page = await (await fetch(session.url)).text();
-    expect([page.includes('First text.'), page.includes('Broken text.')]).toEqual([true, false]);
-    await writeFile(path.join(documents, 'a.md'), '# A\n\nSecond text.\n');
+    expect(await shown()).toEqual({ first: true, decisions: ['Fixed size'] });
+    await writeFile(path.join(documents, 'decisions.md'), sizeDecision.replace('Fixed size', 'Changed size'));
     await heard(reader, 'event: reload');
-    expect(await (await fetch(session.url)).text()).toContain('Second text.');
+    expect(await shown()).toEqual({ first: true, decisions: ['Changed size'] });
     await reader.cancel();
   } finally { await session.close(); }
 });

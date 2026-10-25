@@ -10,7 +10,8 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { renderSinglePage, type RenderExtension, type SiteView } from 'md-render';
-import { pageState } from './state.js';
+import type { SettledDecision } from './settled.js';
+import { pageState, settledDecisions } from './state.js';
 import { checkStoreOutside, ConflictError, FileStore } from './store.js';
 import type { Anchor, Entry, Thread } from './thread.js';
 
@@ -39,8 +40,8 @@ export async function collabExtension(): Promise<RenderExtension> {
   return { name: 'md-collab', prepare: () => ({ styles, script, connect: true }) };
 }
 
-/** One rendered generation: the page and the view and commit its anchors resolve against. */
-interface Snapshot { html: string; view: SiteView; root: string; commit: string | null }
+/** One rendered generation: the page, the view and commit its anchors resolve against, and the settled decisions read with it. */
+interface Snapshot { html: string; view: SiteView; root: string; commit: string | null; settled: SettledDecision[] }
 
 function send(response: ServerResponse, status: number, body: unknown, type = 'application/json; charset=utf-8'): void {
   response.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -65,16 +66,17 @@ export async function serve(options: ServeOptions): Promise<Session> {
   const store = new FileStore(path.resolve(options.store));
   const collection = await store.collection(options.collection);
   const extension = await collabExtension();
-  // A render builds a whole snapshot; only a successful one replaces the current snapshot.
+  // A render builds a whole snapshot; only a successful one replaces the current snapshot. Its
+  // settled decisions are read right after the documents, so a failed render discards them too.
   async function render(): Promise<Snapshot> {
     const { html, view, root } = await renderSinglePage(options.documents, { mermaid: options.mermaid }, [extension]);
-    return { html, view, root, commit: await documentsCommit(root) };
+    return { html, view, root, commit: await documentsCommit(root), settled: await settledDecisions(collection, view, root) };
   }
   let snapshot = await render();
   const root = snapshot.root;
   await checkStoreOutside(store.root, root);
   // Checks every anchor once at start, so a broken collection fails before the page opens.
-  await pageState({ store, collection, view: snapshot.view, corpusRoot: root, commit: snapshot.commit, person: options.person });
+  await pageState({ store, collection, view: snapshot.view, settled: snapshot.settled, commit: snapshot.commit, person: options.person });
 
   // Open pages hear about changes: "changed" after a store write, "reload" after the documents change,
   // "failed" when a re-render fails. A page that stops reading is disconnected; it reloads its state
@@ -118,8 +120,8 @@ export async function serve(options: ServeOptions): Promise<Session> {
     if (host !== new URL(origin).host && host !== `localhost:${new URL(origin).port}`) return send(response, 403, { error: `Open ${origin}` });
     if (request.method === 'GET' && url.pathname === '/') return send(response, 200, snapshot.html, 'text/html; charset=utf-8');
     if (request.method === 'GET' && url.pathname === '/api/state') {
-      const { view, commit } = snapshot;
-      return send(response, 200, await pageState({ store, collection, view, corpusRoot: root, commit, person: options.person }));
+      const { view, settled, commit } = snapshot;
+      return send(response, 200, await pageState({ store, collection, view, settled, commit, person: options.person }));
     }
     if (request.method === 'GET' && url.pathname === '/api/events') {
       response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });

@@ -3,5 +3,5 @@ export { FileStore, ConflictError, type Collection, type StoredThread } from './
 export { resolveAnchor, anchorAt, sameCommit, type ResolvedAnchor } from './anchors.js';
 export { readSettled, decidersOf, type SettledDecision } from './settled.js';
 export { parseQuestionList, questionThreads, type ListedQuestion } from './import.js';
-export { pageState, type PageState } from './state.js';
+export { pageState, settledDecisions, type PageState } from './state.js';
 export { serve, collabExtension, type ServeOptions, type Session } from './server.js';

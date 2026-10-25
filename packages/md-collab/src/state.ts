@@ -1,7 +1,7 @@
 // The page's view of one collection: threads with resolved anchors and rendered text, plus settled decisions.
 import { documentHtml, parseDocument, type SiteView } from 'md-render';
 import { resolveAnchor, type AnchorMethod } from './anchors.js';
-import { readSettled } from './settled.js';
+import { readSettled, type SettledDecision } from './settled.js';
 import type { Collection, FileStore } from './store.js';
 import { threadStatus, type Decider, type Entry, type Status, type ThreadKind } from './thread.js';
 
@@ -59,8 +59,19 @@ async function inlineHtml(markdown: string): Promise<string> {
   return (await markdownHtml(markdown)).replace(/^<p>([\s\S]*)<\/p>$/, '$1');
 }
 
+/** The decisions of every settled chapter the collection names, read from the rendered corpus. */
+export async function settledDecisions(collection: Collection, view: SiteView, corpusRoot: string): Promise<SettledDecision[]> {
+  const decisions: SettledDecision[] = [];
+  for (const file of collection.settled) {
+    if (!view.documents.some(document => document.path === file)) throw new Error(`Collection ${collection.name}: settled chapter ${file} is not a rendered document`);
+    decisions.push(...await readSettled(corpusRoot, file));
+  }
+  return decisions;
+}
+
+/** The page's state: the store's threads now, and the settled decisions of the rendered documents. */
 export async function pageState(options: {
-  store: FileStore; collection: Collection; view: SiteView; corpusRoot: string; commit: string | null; person: string;
+  store: FileStore; collection: Collection; view: SiteView; settled: SettledDecision[]; commit: string | null; person: string;
 }): Promise<PageState> {
   const { view, commit } = options;
   const stored = await options.store.list(options.collection.name);
@@ -78,19 +89,16 @@ export async function pageState(options: {
     entries: thread.entries, settledAs: thread.settledAs ?? null, version,
   })));
   const settled: PageSettled[] = [];
-  for (const file of options.collection.settled) {
-    const document = view.documents.find(item => item.path === file);
-    if (!document) throw new Error(`Collection ${options.collection.name}: settled chapter ${file} is not a rendered document`);
-    for (const decision of await readSettled(options.corpusRoot, file)) {
-      const blocks = document.blocks.filter(block => block.heading === decision.id).map(block => block.id);
-      settled.push({
-        id: `${file}#${decision.id}`, title: decision.title, topic: decision.topic, date: decision.date, decidedBy: decision.decidedBy,
-        authorityHtml: await inlineHtml(decision.authority),
-        contextHtml: await markdownHtml([`**Choice:** ${decision.choice}`, decision.reason && `**Reason:** ${decision.reason}`, decision.rejected && `**Rejected alternatives:** ${decision.rejected}`].filter(Boolean).join('\n\n')),
-        basePath: file,
-        anchors: [{ role: 'main', path: file, label: `${file.split('/').pop()}#${decision.id}`, method: blocks.length ? 'block' : 'orphan', blocks }],
-      });
-    }
+  for (const decision of options.settled) {
+    const file = decision.path;
+    const blocks = view.documents.find(item => item.path === file)!.blocks.filter(block => block.heading === decision.id).map(block => block.id);
+    settled.push({
+      id: `${file}#${decision.id}`, title: decision.title, topic: decision.topic, date: decision.date, decidedBy: decision.decidedBy,
+      authorityHtml: await inlineHtml(decision.authority),
+      contextHtml: await markdownHtml([`**Choice:** ${decision.choice}`, decision.reason && `**Reason:** ${decision.reason}`, decision.rejected && `**Rejected alternatives:** ${decision.rejected}`].filter(Boolean).join('\n\n')),
+      basePath: file,
+      anchors: [{ role: 'main', path: file, label: `${file.split('/').pop()}#${decision.id}`, method: blocks.length ? 'block' : 'orphan', blocks }],
+    });
   }
   return { collection: { name: options.collection.name, title: options.collection.title }, commit, person: options.person, threads, settled, orphans };
 }
