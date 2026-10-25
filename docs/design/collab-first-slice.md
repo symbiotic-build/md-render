@@ -24,7 +24,7 @@ In a render with at least one extension, every rendered block element of a Markd
 - `data-source-lines="72-73"`: the first and last source line of the block, from the parser's positions. One line is written `72-72`.
 - `data-block="decimal~3f9a1c"`: the block ID.
 
-A block is a `p`, `li`, `h1`–`h6`, `tr`, `pre`, `blockquote` or `figure` element. `FACT`: remark keeps each node's source position through `remark-rehype` and `rehype-sanitize`; a probe on this repository at `dd43046` printed `p:3-4 li:6-6 tr:11-11` for a small document.
+A block is a `p`, `li`, `h1`–`h6`, `tr`, `pre`, `blockquote` or `figure` element. A Mermaid fence becomes a `figure` and its source `pre`, and both carry the fence's lines, with or without the diagram renderer. `FACT`: remark keeps each node's source position through `remark-rehype` and `rehype-sanitize`; a probe on this repository at `dd43046` printed `p:3-4 li:6-6 tr:11-11` for a small document.
 
 A block ID is the ID of the nearest preceding heading, `~`, and the first six hexadecimal digits of the SHA-256 of the block's whitespace-normalised text. A block before the first heading uses `top`. A second block with the same ID in the same document gets `-2`, a third `-3`. This is the client portal's block rule (portal design §3.3), adopted so both name blocks the same way. It keeps the ID when lines move and changes it when the block's text or its section heading changes.
 

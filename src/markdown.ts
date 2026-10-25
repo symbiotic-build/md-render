@@ -175,10 +175,10 @@ export function parseDocument(markdown: string, fallbackTitle: string): ParsedDo
         { type: 'element', tagName: 'figcaption', properties: {}, children: [
           { type: 'text', value: 'Mermaid diagram — source (offline renderer unavailable)' },
         ] },
-        { type: 'element', tagName: 'pre', properties: {}, children: [
+        { type: 'element', tagName: 'pre', properties: {}, position: node.position, children: [
           { type: 'element', tagName: 'code', properties: {}, children: [{ type: 'text', value: node.value }] },
         ] },
-      ]) as never;
+      ]), position: node.position } as never;
     }
     if (node.type === 'table') {
       // Preserve native GFM handling; wrap the resulting table in the HTML stage below.

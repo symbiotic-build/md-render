@@ -33,7 +33,7 @@ it('marks every Markdown block with its source lines and a stable block ID', asy
   const { view, html } = await probe();
   expect(blocksOf(view, 'index.md').map(block => [block.tag, block.lines, block.heading])).toEqual([
     ['h1', [1, 1], 'guide'], ['p', [3, 4], 'guide'], ['h2', [6, 6], 'rules'], ['li', [8, 8], 'rules'], ['li', [9, 9], 'rules'],
-    ['tr', [11, 11], 'rules'], ['tr', [13, 13], 'rules'], ['p', [19, 19], 'rules'],
+    ['tr', [11, 11], 'rules'], ['tr', [13, 13], 'rules'], ['figure', [15, 17], 'rules'], ['pre', [15, 17], 'rules'], ['p', [19, 19], 'rules'],
   ]);
   expect(blocksOf(view, 'index.md')[1]).toMatchObject({ path: 'index.md', id: `guide~${hex('First paragraph spans two lines.')}`, text: 'First paragraph spans two lines.' });
   expect(html).toContain(`<p data-source-lines="3-4" data-block="guide~${hex('First paragraph spans two lines.')}">`);
@@ -54,6 +54,17 @@ it('gives source pages of plain text files no blocks', async () => {
   const section = new RegExp(`<section class="single-page"[^>]*data-source-path="${notes.path}">([\\s\\S]*?)</section>`).exec(html)![1]!;
   expect(section).toContain('id="page-2--L2"');
   expect(section).not.toContain('data-block');
+});
+
+it('gives a Mermaid figure and its source the fence lines, with and without the diagram renderer', async () => {
+  for (const mermaid of [false, true]) {
+    const { view, html } = await probe({ mermaid });
+    const id = (tag: string) => blocksOf(view, 'index.md').find(block => block.tag === tag && block.lines[0] === 15)?.id;
+    expect([id('figure'), id('pre')]).toEqual([expect.stringMatching(/^rules~[0-9a-f]{6}$/), expect.stringMatching(/^rules~[0-9a-f]{6}$/)]);
+    expect(html).toMatch(new RegExp(`<figure class="mermaid-diagram" data-source-lines="15-17" data-block="${id('figure')}">`));
+    expect(html).toContain(`<pre data-source-lines="15-17" data-block="${id('pre')}">`);
+    if (mermaid) expect(html).toMatch(/<figure class="mermaid-diagram"[^>]*><div><svg/);
+  }
 });
 
 it("keeps main's output bytes for renders without extensions (recorded from main at dd43046)", async () => {
