@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { documentHtml, exportSite, parseDocument, renderSinglePage, renderSite, renderView, type ParsedDocument, type RenderExtension, type SiteView } from '../src/index.js';
+import { documentHtml, exportSite, parseDocument, renderSinglePage, renderSite, renderView, type ExtensionOutput, type ParsedDocument, type RenderExtension, type SiteView } from '../src/index.js';
 
 const withBrowser = useBrowser();
 let root: string;
@@ -197,9 +197,9 @@ it('stops the render when an extension fails or is malformed', async () => {
     .rejects.toThrow('Extension tag failed: its script contains </script');
 });
 
-async function singleFile(name: string): Promise<string> {
-  const script = `mdRender.onNavigate(path => { (window.navigations ||= []).push(path); });`;
-  const { html } = await renderSinglePage(source, { mermaid: false }, [{ name: 'probe', prepare: () => ({ script }) }]);
+/** Writes a single page with one extension; by default its script records navigation. */
+async function singleFile(name: string, { input = source, mermaid = false, script = `mdRender.onNavigate(path => { (window.navigations ||= []).push(path); });` } = {}): Promise<string> {
+  const { html } = await renderSinglePage(input, { mermaid }, [{ name: 'probe', prepare: () => ({ script }) }]);
   const file = path.join(root, name);
   await writeFile(file, html);
   return pathToFileURL(file).href;
@@ -216,6 +216,15 @@ it('lets an extension find blocks by source line and show them in the single pag
     expect(shown).toEqual({ text: 'The limit is 4 MiB.', visible: true, current: 'nested/b.md', navigations: ['nested/b.md'] });
     expect(await browser.evaluate(`mdRender.show({ path: 'nested/b.md', anchor: 'limits' }).then(e => e.textContent)`)).toBe('Limits and caps');
     expect(await browser.evaluate(`mdRender.show({ path: 'missing.md' })`)).toBeNull();
+  });
+});
+
+it('shows the passage that holds an anchor, or the heading after an anchor that stands alone', async () => {
+  const url = await singleFile('single-anchors.html', { input: anchors });
+  await withBrowser(async browser => {
+    await browser.navigate(url);
+    expect(await browser.evaluate(`Promise.all(['spot', 'marker', 'stacked'].map(anchor => mdRender.show({ path: 'index.md', anchor }).then(e => e.textContent.replace(/\\s+/g, ' '))))`))
+      .toEqual(['Before after.', 'Marked', 'Stacked']);
   });
 });
 

@@ -21,13 +21,18 @@ const overlaps = (element, first, last) => {
   const [start, end] = element.dataset.sourceLines.split('-').map(Number);
   return start <= last && end >= first;
 };
+// An anchor alone in its paragraph, or outside every block, marks the element after it, such as a heading.
+const marksNext = element => [...element.childNodes].every(node => node.nodeType === Node.TEXT_NODE ? !node.textContent.trim() : node.localName === 'a' && node.id && !node.firstChild);
 const findTarget = target => {
   const section = sectionFor(target.path);
   if (!section) return null;
   if (target.block) return section.querySelector(`[data-block="${CSS.escape(target.block)}"]`);
   if (target.anchor) {
     const anchor = document.getElementById(`${section.id}--${target.anchor}`);
-    return anchor ? anchor.closest('p')?.nextElementSibling ?? anchor : null;
+    if (!anchor) return null;
+    const block = anchor.closest('[data-block]');
+    if (block && !(block.localName === 'p' && marksNext(block))) return block;
+    return (block ?? anchor).nextElementSibling ?? block ?? anchor;
   }
   return section.querySelector('article.sd-doc');
 };
