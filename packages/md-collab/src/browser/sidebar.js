@@ -287,7 +287,7 @@ function historyBody(item) {
   const more = document.createElement('button'); more.className = 'ov-more'; more.setAttribute('aria-expanded', 'false'); more.textContent = 'Details';
   const detail = document.createElement('div'); detail.className = 'ov-detail'; detail.hidden = true;
   const chosen = lastAnswer(item)?.choice;
-  detail.innerHTML = (item.authorityHtml ? `<div class="ov-auth"><b>Authority:</b> ${item.authorityHtml}</div>` : '') + `<div class="ov-ctx">${item.contextHtml}</div>` +
+  detail.innerHTML = `<div class="ov-ctx">${item.contextHtml}</div>` +
     item.options.map(o => `<div class="ov-optro${chosen === o.n ? ' ov-chosen' : ''}"><span class="ov-n">${o.n}</span><span>${o.html}${o.recommended ? ' <span class="ov-rec">recommended</span>' : ''}</span></div>`).join('') +
     `<ul class="ov-events">${item.entries.map(e => `<li>${e.at ? esc(e.at.slice(0, 16).replace('T', ' ')) + ' UTC' : 'Undated'} · ${esc(e.kind)} by ${esc(e.actor)}${e.choice ? ': option ' + e.choice : ''}${e.note ? ' — ' + esc(e.note) : ''}</li>`).join('')}</ul>`;
   wireLinks(detail, item);
@@ -393,8 +393,7 @@ async function loadOnce() {
     ...state.threads,
     ...state.settled.map(decision => ({
       id: decision.id, kind: 'decision', title: decision.title, topic: decision.topic, decides: decision.decidedBy, number: null, priority: null,
-      status: 'settled', options: [], authorityHtml: esc(decision.authority),
-      contextHtml: [['Choice', decision.choice], ['Reason', decision.reason], ['Rejected alternatives', decision.rejected]].filter(([, text]) => text).map(([name, text]) => `<p><b>${name}:</b> ${esc(text)}</p>`).join(''),
+      status: 'settled', options: [], contextHtml: '',
       anchors: decision.anchors, entries: [{ at: decision.date ? decision.date + 'T00:00:00Z' : null, kind: 'settled', actor: decision.decidedBy.join(' + ') }],
     })),
   ];

@@ -35,11 +35,7 @@ export interface PageSettled {
   topic: string | null;
   date: string | null;
   decidedBy: Decider[];
-  /** The decision's fields as plain text, which the page shows as text. */
-  choice: string;
-  authority: string;
-  reason: string;
-  rejected: string;
+  /** The decision in the rendered page; History links to it. */
   anchors: PageAnchor[];
 }
 export interface PageState {
@@ -94,7 +90,6 @@ export async function pageState(options: {
     const blocks = view.documents.find(item => item.path === file)!.blocks.filter(block => block.heading === decision.id).map(block => block.id);
     settled.push({
       id: `${file}#${decision.id}`, title: decision.title, topic: decision.topic, date: decision.date, decidedBy: decision.decidedBy,
-      choice: decision.choice, authority: decision.authority, reason: decision.reason, rejected: decision.rejected,
       anchors: [{ role: 'main', path: file, label: `${file.split('/').pop()}#${decision.id}`, method: blocks.length ? 'block' : 'orphan', blocks }],
     });
   }

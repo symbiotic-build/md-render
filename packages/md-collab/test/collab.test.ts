@@ -13,7 +13,7 @@ import { anchorAt, resolveAnchor } from '../src/anchors.js';
 import { parseQuestionList, questionThreads } from '../src/import.js';
 import { serve, type Session } from '../src/server.js';
 import { decidersOf, readSettled } from '../src/settled.js';
-import { pageState, settledDecisions } from '../src/state.js';
+import { pageState, settledDecisions, type PageState } from '../src/state.js';
 import { ConflictError, FileStore } from '../src/store.js';
 import { parseThread, serializeThread, threadStatus, type Thread } from '../src/thread.js';
 
@@ -287,32 +287,30 @@ it('reads the decisions md-render renders: none from a code fence, and one after
   await mkdir(folder);
   await writeFile(path.join(folder, 'decisions.md'), "# Decisions\n\n## Format\n\nAn example:\n\n```markdown\n### Decision: Only an example\n\n**Choice:** None.\n```\n\n<a id='decision-quoted'></a>\n\n### Decision: Quoted anchor\n\n**Choice:** Single quotes.\n\n**Authority:** Lead decision, 2026-10-20.\n");
   const { view: rendered } = await renderView(folder, { mermaid: false });
-  expect(readSettled(rendered.documents[0]!).map(({ id, title, topic, choice, date, decidedBy }) => ({ id, title, topic, choice, date, decidedBy }))).toEqual([
-    { id: 'decision-quoted', title: 'Quoted anchor', topic: 'Format', choice: 'Single quotes.', date: '2026-10-20', decidedBy: ['lead'] },
+  expect(readSettled(rendered.documents[0]!)).toEqual([
+    { id: 'decision-quoted', title: 'Quoted anchor', topic: 'Format', path: 'decisions.md', date: '2026-10-20', decidedBy: ['lead'] },
   ]);
 });
 
-it("keeps a decision's own Choice and Authority when its fenced example shows field lines", async () => {
+it("keeps a decision's own Authority when its fenced example shows field lines", async () => {
   const folder = path.join(root, 'example-fields');
   await mkdir(folder);
   await writeFile(path.join(folder, 'decisions.md'), '# Decisions\n\n### Decision: Example fields\n\n**Choice:** The real choice.\n\n**Authority:** Lead decision, 2026-10-20.\n\nA decision is written like this:\n\n```markdown\n**Choice:** Example only\n\n**Authority:** Operator decision, 2030-01-01.\n```\n');
   const { view: rendered } = await renderView(folder, { mermaid: false });
-  expect(readSettled(rendered.documents[0]!).map(({ choice, authority, date, decidedBy }) => ({ choice, authority, date, decidedBy }))).toEqual([
-    { choice: 'The real choice.', authority: 'Lead decision, 2026-10-20.', date: '2026-10-20', decidedBy: ['lead'] },
+  expect(readSettled(rendered.documents[0]!)).toEqual([
+    { id: 'decision-example-fields', title: 'Example fields', topic: null, path: 'decisions.md', date: '2026-10-20', decidedBy: ['lead'] },
   ]);
 });
 
-it('shows a Choice with a reference-style link as its link text', async () => {
-  const folder = path.join(root, 'reference-choice');
+// Markdown's two hard line breaks: a backslash and two spaces at the end of the line.
+it.each([['a backslash', '\\'], ['two spaces', '  ']])('reads the decider and date of an Authority with a hard line break written with %s', async (name, mark) => {
+  const folder = path.join(root, 'hard-break-' + name.split(' ').pop());
   await mkdir(folder);
-  await writeFile(path.join(folder, 'storage.md'), '# Storage\n\n## Limits\n\nThe write group is 4 MiB.\n');
-  await writeFile(path.join(folder, 'decisions.md'), '# Decisions\n\n### Decision: Linked choice\n\n**Choice:** Keep the [write group][group] fixed.\n\n[group]: storage.md#limits\n\n**Authority:** Lead decision, 2026-10-20.\n');
+  await writeFile(path.join(folder, 'decisions.md'), `# Decisions\n\n### Decision: Broken line\n\n**Choice:** One.\n\n**Authority:** Lead${mark}\ndecision, 2026-10-20.\n`);
   const { view: rendered } = await renderView(folder, { mermaid: false });
-  const store = new FileStore(path.join(root, 'store-reference-choice'));
-  const collection = { name: 'spec', title: 'Linked', settled: ['decisions.md'] };
-  await store.createCollection(collection);
-  const state = await pageState({ store, collection, view: rendered, settled: settledDecisions(collection, rendered), commit: null, person: 'person:operator' });
-  expect(state.settled.map(({ choice, authority }) => ({ choice, authority }))).toEqual([{ choice: 'Keep the write group fixed.', authority: 'Lead decision, 2026-10-20.' }]);
+  expect(readSettled(rendered.documents[0]!)).toEqual([
+    { id: 'decision-broken-line', title: 'Broken line', topic: null, path: 'decisions.md', date: '2026-10-20', decidedBy: ['lead'] },
+  ]);
 });
 
 it('takes settled decisions from the text md-render rendered, not from the file as it is now', async () => {
@@ -325,15 +323,20 @@ it('takes settled decisions from the text md-render rendered, not from the file 
   expect(settledDecisions({ name: 'spec', title: 'Rendered', settled: ['decisions.md'] }, rendered).map(decision => decision.title)).toEqual(['Fixed size']);
 });
 
-it('keeps decisions from two chapters apart when they share an anchor', async () => {
+it('shows each settled decision with its title, date, decider and a link to its heading, apart from a decision of another chapter with the same anchor', async () => {
   const store = new FileStore(path.join(root, 'store-settled'));
   const collection = { name: 'spec', title: 'Settled', settled: ['docs/decisions.md', 'docs/more-decisions.md'] };
   await store.createCollection(collection);
   const state = await pageState({ store, collection, view, settled: settledDecisions(collection, view), commit, person: 'person:operator' });
-  expect(state.settled.map(decision => [decision.id, decision.title, decision.anchors[0]!.path])).toEqual([
-    ['docs/decisions.md#decision-fixed-group', 'Fixed write group', 'docs/decisions.md'],
-    ['docs/decisions.md#decision-redo', 'Separate redo call', 'docs/decisions.md'],
-    ['docs/more-decisions.md#decision-redo', 'Redo in one place', 'docs/more-decisions.md'],
+  // History opens the first block of a decision's passage.
+  const opened = (anchor: PageState['settled'][number]['anchors'][number]) => {
+    const block = view.documents.find(document => document.path === anchor.path)!.blocks.find(item => item.id === anchor.blocks[0]);
+    return `${anchor.path} ${block?.tag} ${block?.text}`;
+  };
+  expect(state.settled.map(({ anchors, ...decision }) => ({ ...decision, opens: anchors.map(opened) }))).toEqual([
+    { id: 'docs/decisions.md#decision-fixed-group', title: 'Fixed write group', topic: 'Storage choices', date: '2026-10-12', decidedBy: ['operator'], opens: ['docs/decisions.md h3 Decision: Fixed write group'] },
+    { id: 'docs/decisions.md#decision-redo', title: 'Separate redo call', topic: 'Storage choices', date: '2026-10-14', decidedBy: ['lead'], opens: ['docs/decisions.md h3 Decision: Separate redo call'] },
+    { id: 'docs/more-decisions.md#decision-redo', title: 'Redo in one place', topic: null, date: '2026-10-15', decidedBy: ['lead'], opens: ['docs/more-decisions.md h3 Decision: Redo in one place'] },
   ]);
 });
 
