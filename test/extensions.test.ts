@@ -195,9 +195,24 @@ it('stops the render when an extension fails or is malformed', async () => {
     [returns('tag', { script: 'x = "</script>"' }), 'Extension tag failed: its script contains </script'],
     [returns('tag', { script: 'x = "<!--<script>"' }), 'Extension tag failed: its script contains <!--'],
     [returns('tag', { script: 'x = "<SCRIPT>"' }), 'Extension tag failed: its script contains <SCRIPT'],
+    [returns('odd', false), 'Extension odd failed: prepare did not return an object'],
+    [returns('odd', 42), 'Extension odd failed: prepare did not return an object'],
+    [returns('odd', { script: 0 }), 'Extension odd failed: its script is not a string'],
+    [returns('odd', { styles: ['.a{}'] }), 'Extension odd failed: its styles is not a string'],
+    [returns('odd', { connect: 'yes' }), 'Extension odd failed: its connect is not a boolean'],
   ];
   const outcomes = await Promise.all(cases.map(([extensions]) => renderSinglePage(source, { mermaid: false }, extensions).then(() => 'rendered', (error: Error) => error.message)));
   expect(outcomes).toEqual(cases.map(([, message]) => message));
+});
+
+// A JavaScript caller, or a TypeScript object with extra fields, can return a name; the registered one wins.
+it('keeps the registered name of an extension whose output names another one', async () => {
+  const output = { name: 'second', data: { owner: 'first' } };
+  const { html } = await renderSinglePage(source, { mermaid: false }, [
+    { name: 'first', prepare: () => output }, { name: 'second', prepare: () => ({ data: { owner: 'second' } }) },
+  ]);
+  expect([...html.matchAll(/<script type="application\/json" id="([^"]+)">([^<]*)<\/script>/g)].map(match => [match[1], match[2]]))
+    .toEqual([['md-render-extension-data-first', '{"owner":"first"}'], ['md-render-extension-data-second', '{"owner":"second"}']]);
 });
 
 /** Writes a single page with one extension; by default its script records navigation. */

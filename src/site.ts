@@ -184,12 +184,20 @@ async function prepareExtensions(view: SiteView, extensions: RenderExtension[]):
     let output: ExtensionOutput;
     try { output = await extension.prepare(view); }
     catch (error) { throw new Error(`Extension ${extension.name} failed: ${(error as Error).message}`, { cause: error }); }
+    const refuse = (reason: string): Error => new Error(`Extension ${extension.name} failed: ${reason}`);
+    // JavaScript callers reach this point without the types, so check what prepare returned.
+    if (typeof output !== 'object' || output === null || Array.isArray(output)) throw refuse('prepare did not return an object');
+    for (const field of ['styles', 'script'] as const) {
+      if (output[field] !== undefined && typeof output[field] !== 'string') throw refuse(`its ${field} is not a string`);
+    }
+    if (output.connect !== undefined && typeof output.connect !== 'boolean') throw refuse('its connect is not a boolean');
     // HTML parsing turns CR LF and CR into LF before the browser checks the hash, so embed and hash that text.
     const script = output.script?.replace(/\r\n?/g, '\n');
     // </script ends the element early, and <!-- then <script makes the HTML parser take the end tag as script text.
     const unsafe = script && /<\/script|<!--|<script/i.exec(script);
-    if (unsafe) throw new Error(`Extension ${extension.name} failed: its script contains ${unsafe[0]}`);
-    prepared.push({ name: extension.name, ...output, script });
+    if (unsafe) throw refuse(`its script contains ${unsafe[0]}`);
+    // Copy only the declared fields, so a returned name never replaces the registered one.
+    prepared.push({ name: extension.name, styles: output.styles, script, data: output.data, connect: output.connect });
   }
   return prepared;
 }
