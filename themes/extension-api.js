@@ -43,6 +43,9 @@ Object.defineProperty(globalThis, 'mdRender', { enumerable: false, value: Object
   async show(target) {
     const element = findTarget(target);
     if (!element) return null;
+    // The fragment names the shown chapter, as find-in-page does, so a later link back to the
+    // previous chapter changes the hash and navigation.js routes it.
+    history.replaceState(history.state, '', '#' + encodeURIComponent(element.closest('.single-page').id));
     selectSinglePage(element, false);
     notifyNavigate();
     element.scrollIntoView({ block: 'center' });

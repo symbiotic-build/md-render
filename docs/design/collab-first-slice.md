@@ -90,7 +90,7 @@ interface MdRender {
 declare const mdRender: MdRender;
 ```
 
-Extensions apply to the single page only, where every document is present, so `blocks`, `block` and `show` reach any document. Folder output and its viewer take no extensions.
+Extensions apply to the single page only, where every document is present, so `blocks`, `block` and `show` reach any document. Folder output and its viewer take no extensions. `show` also sets the fragment to the shown chapter, as find-in-page does, so a later link back to the previous chapter still navigates.
 
 ## md-collab
 

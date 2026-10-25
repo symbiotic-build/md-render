@@ -162,3 +162,17 @@ it('lets an extension find blocks by source line and show them in the single pag
     expect(await browser.evaluate(`mdRender.show({ path: 'missing.md' })`)).toBeNull();
   });
 });
+
+it('follows a link back to the previous chapter after show() opened another one', async () => {
+  const url = await singleFile('single-return.html');
+  await withBrowser(async browser => {
+    await browser.navigate(url + '#page-0');
+    expect(await browser.evaluate(`mdRender.show({ path: 'nested/b.md', anchor: 'limits' }).then(() => mdRender.currentDocument())`)).toBe('nested/b.md');
+    // A chapter link sets the hash; the page must route it even though that chapter was shown before.
+    expect(await browser.evaluate(`new Promise(resolve => {
+      addEventListener('hashchange', () => resolve(mdRender.currentDocument()), { once: true });
+      setTimeout(() => resolve('no hash change; still ' + mdRender.currentDocument()), 2000);
+      document.querySelector('.sidebar a[href="#page-0"]').click();
+    })`)).toBe('index.md');
+  });
+});

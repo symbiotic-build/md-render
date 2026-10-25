@@ -510,7 +510,7 @@ This case checks the browser interface through the real browser fixture.
 
 **Inputs:** A single-file page with two documents and an extension that records navigation.
 
-**Expected:** The interface is frozen at version 1, lists the documents, finds blocks by source lines and by ID, shows a block or an anchor in another document and reports the change, and returns null for an unknown document.
+**Expected:** The interface is frozen at version 1, lists the documents, finds blocks by source lines and by ID, shows a block or an anchor in another document and reports the change, and returns null for an unknown document. After `show` opens another chapter, a link back to the previous chapter opens it.
 
-**Implementation:** [test/extensions.test.ts::lets an extension find blocks by source line and show them in the single page](../../../test/extensions.test.ts)
+**Implementation:** [test/extensions.test.ts::lets an extension find blocks by source line and show them in the single page](../../../test/extensions.test.ts), [test/extensions.test.ts::follows a link back to the previous chapter after show() opened another one](../../../test/extensions.test.ts)
 
