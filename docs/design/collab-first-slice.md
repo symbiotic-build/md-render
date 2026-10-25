@@ -202,6 +202,7 @@ One function in `store.ts` owns every write to a collection. It holds the collec
 - There is no token. Any program on the same computer can write through the server; the operator accepted that on 2026-10-24 to keep the address simple.
 - Annotation text is rendered through the same sanitizer as documents; raw HTML stays escaped.
 - The page reads threads from `GET /api/state` and receives changes over server-sent events from `/api/events`: a store change, such as an agent's new question, reloads the threads, and a change to the documents re-renders the page and reloads it. The operator confirmed on 2026-10-24 that live updates are needed.
+- One render runs at a time; a change during a render starts one more after it. A render publishes its page, view and commit together, and only when it succeeds. A failed render keeps the last good page and sends `failed` with the error, which the page shows.
 - The sidebar has the approved Questions view and the History view of the 2026-10-24 prototype. Comments on a text selection anchor to the selected blocks.
 
 ## Key decisions

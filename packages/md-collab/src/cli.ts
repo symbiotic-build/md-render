@@ -5,11 +5,11 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { loadCorpus, renderSinglePage } from 'md-render';
+import { renderView } from 'md-render';
 import { resolveAnchor } from './anchors.js';
 import { parseQuestionList, questionThreads } from './import.js';
 import { serve } from './server.js';
-import { FileStore } from './store.js';
+import { checkStoreOutside, FileStore } from './store.js';
 import { threadStatus, type Entry } from './thread.js';
 
 const usage = `Usage:
@@ -67,17 +67,15 @@ async function main(argv: string[]): Promise<number> {
       const [file, documents] = positionals;
       if (!file || !documents) throw new Error(`import needs the question file and the documents\n\n${usage}`);
       const info = await store.collection(collection);
-      const corpus = await loadCorpus(documents);
-      const { view } = await renderSinglePage(documents, { mermaid: false });
+      const { view, root } = await renderView(documents, { mermaid: false });
+      await checkStoreOutside(store.root, root);
       const skipped: string[] = [];
       const threads = questionThreads(parseQuestionList(await readFile(file, 'utf8'), path.resolve(file)), {
         skipped,
-        view, corpusRoot: corpus.root, commit: await headCommit(corpus.root), actor: need('by'), at: values.at ?? now(), settled: info.settled, base: path.dirname(path.resolve(file)),
+        view, corpusRoot: root, commit: await headCommit(root), actor: need('by'), at: values.at ?? now(), settled: info.settled, base: path.dirname(path.resolve(file)),
       });
-      const existing = new Set((await store.list(collection)).map(({ thread }) => thread.number).filter(n => n !== undefined));
-      const clash = threads.find(thread => thread.number !== undefined && existing.has(thread.number));
-      if (clash) throw new Error(`Question number ${clash.number} already exists in ${collection}; nothing was imported`);
-      for (const thread of threads) await store.create(collection, thread);
+      // Refuses the whole list, before writing, when a number repeats in it or is already in the collection.
+      await store.createAll(collection, threads);
       console.log(`Imported ${threads.length} questions into ${collection}`);
       for (const line of skipped) console.log(`  kept as text, no anchor: ${line}`);
       return 0;
@@ -107,10 +105,8 @@ async function main(argv: string[]): Promise<number> {
       await append(positionals[0] ?? '', { at: now(), actor: need('by'), kind: 'settled', settledAs: need('settled-as'), note: values.note ?? '' });
       return 0;
     case 'check': {
-      const documents = positionals[0] ?? '.';
-      const corpus = await loadCorpus(documents);
-      const { view } = await renderSinglePage(documents, { mermaid: false });
-      const commit = await headCommit(corpus.root);
+      const { view, root } = await renderView(positionals[0] ?? '.', { mermaid: false });
+      const commit = await headCommit(root);
       let orphans = 0;
       for (const { thread } of await store.list(collection)) {
         for (const anchor of thread.anchors) {

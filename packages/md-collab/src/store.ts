@@ -1,9 +1,11 @@
 // The file store: <store>/<collection>/collection.yaml and <store>/<collection>/threads/<id>.md.
 // Every write holds the collection's lock file, so one process at a time reads, checks and writes.
+import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { link, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { link, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { promisify } from 'node:util';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { parseThread, serializeThread, threadStatus, type Entry, type Thread } from './thread.js';
 
@@ -182,6 +184,20 @@ export class FileStore {
       } finally { await rm(draft, { force: true }); }
       return { thread: next, version: version(text) };
     });
+  }
+}
+
+/**
+ * Refuses a store inside the documents' git working tree, or inside the documents' folder when it
+ * has no git: annotations must never ride on the documents' branches.
+ */
+export async function checkStoreOutside(store: string, documentsRoot: string): Promise<void> {
+  let top = documentsRoot;
+  try { top = (await promisify(execFile)('git', ['-C', documentsRoot, 'rev-parse', '--show-toplevel'])).stdout.trim() || documentsRoot; }
+  catch { /* not in git: the documents' folder is the boundary */ }
+  const relative = path.relative(await realpath(top), await realpath(store));
+  if (relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep))) {
+    throw new Error(`The store ${store} is inside the documents' working tree ${top}; keep annotations in a separate folder`);
   }
 }
 

@@ -397,6 +397,7 @@ document.addEventListener('selectionchange', () => {
 });
 $('#ov-selbtn').addEventListener('mousedown', event => event.preventDefault());
 $('#ov-selbtn').addEventListener('click', () => {
+events.addEventListener('failed', event => status(`The documents changed, but rendering them failed: ${JSON.parse(event.data).error}. This page shows the last good version.`, true));
   const composer = $('#ov-composer');
   composer.style.top = $('#ov-sel').style.top; composer.style.left = $('#ov-sel').style.left;
   composer.hidden = false; $('#ov-sel').style.display = 'none'; $('#ov-comment').focus();

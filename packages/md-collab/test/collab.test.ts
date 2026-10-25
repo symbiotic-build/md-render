@@ -5,8 +5,9 @@ import http from 'node:http';
 import { mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
-import { renderSinglePage, type SiteView } from 'md-render';
+import { renderView, type SiteView } from 'md-render';
 import { anchorAt, resolveAnchor } from '../src/anchors.js';
 import { parseQuestionList, questionThreads } from '../src/import.js';
 import { serve } from '../src/server.js';
@@ -97,7 +98,7 @@ beforeAll(async () => {
   await writeFile(path.join(docs, 'docs/long.md'), long);
   for (const args of [['init', '-q'], ['add', '.'], ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'docs']]) await run('git', ['-C', docs, ...args]);
   commit = (await run('git', ['-C', docs, 'rev-parse', 'HEAD'])).stdout.trim();
-  view = (await renderSinglePage(path.join(docs, 'docs'), { mermaid: false })).view;
+  view = (await renderView(path.join(docs, 'docs'), { mermaid: false })).view;
 });
 afterAll(async () => { if (root) await rm(root, { recursive: true, force: true }); });
 
@@ -108,6 +109,18 @@ const question = (): Thread => ({
   options: [{ n: 1, text: '**Cap at 256 bytes (recommended).**', recommended: true }, { n: 2, text: 'No cap.', recommended: false }],
   entries: [{ at: '2026-10-22T13:09:00Z', actor: 'agent:claude-code/memory', kind: 'raised', note: '' }],
 });
+
+const decode = new TextDecoder();
+/** Reads a server-sent event stream until `text` arrives, or fails after `ms`. */
+async function heard(reader: ReadableStreamDefaultReader<Uint8Array>, text: string, ms = 10_000): Promise<string> {
+  let received = '';
+  const deadline = Date.now() + ms;
+  while (!received.includes(text)) {
+    const timeout = delay(Math.max(0, deadline - Date.now())).then(() => { throw new Error(`Timed out waiting for ${text}; heard ${JSON.stringify(received)}`); });
+    received += decode.decode((await Promise.race([reader.read(), timeout])).value);
+  }
+  return received;
+}
 
 it('writes and reads a thread file without loss, and derives status from its entries', () => {
   const thread = question();
@@ -282,6 +295,56 @@ it('serves the page only under its own host and accepts writes only from its own
     expect(comment.status).toBe(200);
     const after = await (await fetch(origin + '/api/state', { headers })).json();
     expect(after.threads.map((item: { kind: string; status: string }) => [item.kind, item.status])).toEqual([['comment', 'open'], ['question', 'answered']]);
+  } finally { await session.close(); }
+});
+
+it('refuses a store inside the documents\' working tree', async () => {
+  const inside = path.join(docs, 'annotations');
+  await new FileStore(inside).createCollection({ name: 'spec', title: 'Inside', settled: [] });
+  await expect(serve({ documents: path.join(docs, 'docs'), store: inside, collection: 'spec', person: 'person:operator', mermaid: false }))
+    .rejects.toThrow(`The store ${inside} is inside the documents' working tree ${docs}; keep annotations in a separate folder`);
+});
+
+it('releases its file watchers when it cannot listen', async () => {
+  const storeRoot = path.join(root, 'store-port');
+  await new FileStore(storeRoot).createCollection({ name: 'spec', title: 'Port', settled: [] });
+  const blocker = http.createServer();
+  await new Promise<void>(resolve => blocker.listen(0, '127.0.0.1', resolve));
+  const watchers = () => process.getActiveResourcesInfo().filter(name => name === 'FSEventWrap').length;
+  const before = watchers();
+  try {
+    await expect(serve({ documents: path.join(docs, 'docs'), store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false, port: (blocker.address() as { port: number }).port }))
+      .rejects.toMatchObject({ code: 'EADDRINUSE' });
+    // A closed watcher leaves the list on the next turn of the event loop.
+    for (let turn = 0; turn < 100 && watchers() !== before; turn++) await delay(10);
+    expect(watchers()).toBe(before);
+  } finally { await new Promise(resolve => blocker.close(resolve)); }
+});
+
+it('keeps the last good page when a re-render fails and tells the open page', async () => {
+  const documents = path.join(root, 'render-docs');
+  await mkdir(documents, { recursive: true });
+  await writeFile(path.join(documents, 'a.md'), '# A\n\nFirst text.\n');
+  const storeRoot = path.join(root, 'store-render');
+  await new FileStore(storeRoot).createCollection({ name: 'spec', title: 'Render', settled: [] });
+  const session = await serve({ documents, store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
+  try {
+    const reader = (await fetch(session.url + 'api/events')).body!.getReader();
+    await heard(reader, ': connected');
+    // The file watcher starts asynchronously: rewrite the file until a re-render shows it is live.
+    let live = false;
+    const touching = (async () => { for (let attempt = 0; attempt < 30 && !live; attempt++) { await writeFile(path.join(documents, 'a.md'), '# A\n\nFirst text.\n'); await delay(300); } })();
+    await heard(reader, 'event: reload');
+    live = true;
+    await touching;
+    await writeFile(path.join(documents, 'a.md'), '---\ntitle: [1]\n---\n# A\n\nBroken text.\n');
+    expect(await heard(reader, 'event: failed')).toContain('data: {"error":"');
+    const page = await (await fetch(session.url)).text();
+    expect([page.includes('First text.'), page.includes('Broken text.')]).toEqual([true, false]);
+    await writeFile(path.join(documents, 'a.md'), '# A\n\nSecond text.\n');
+    await heard(reader, 'event: reload');
+    expect(await (await fetch(session.url)).text()).toContain('Second text.');
+    await reader.cancel();
   } finally { await session.close(); }
 });
 

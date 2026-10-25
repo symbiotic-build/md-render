@@ -8,9 +8,9 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { loadCorpus, renderSinglePage, type RenderExtension, type SiteView } from 'md-render';
+import { renderSinglePage, type RenderExtension, type SiteView } from 'md-render';
 import { pageState } from './state.js';
-import { ConflictError, FileStore } from './store.js';
+import { checkStoreOutside, ConflictError, FileStore } from './store.js';
 import type { Anchor, Entry, Thread } from './thread.js';
 
 const run = promisify(execFile);
@@ -32,11 +32,14 @@ async function documentsCommit(root: string): Promise<string | null> {
   catch { return null; }
 }
 
-/** The md-render extension that adds the sidebar; `onView` receives the corpus view of each render. */
-export async function collabExtension(data: unknown, onView: (view: SiteView) => void): Promise<RenderExtension> {
+/** The md-render extension that adds the sidebar. */
+export async function collabExtension(): Promise<RenderExtension> {
   const [styles, script] = await Promise.all([readFile(browserFile('sidebar.css'), 'utf8'), readFile(browserFile('sidebar.js'), 'utf8')]);
-  return { name: 'md-collab', prepare(view) { onView(view); return { styles, script, data, connect: true }; } };
+  return { name: 'md-collab', prepare: () => ({ styles, script, connect: true }) };
 }
+
+/** One rendered generation: the page and the view and commit its anchors resolve against. */
+interface Snapshot { html: string; view: SiteView; root: string; commit: string | null }
 
 function send(response: ServerResponse, status: number, body: unknown, type = 'application/json; charset=utf-8'): void {
   response.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -60,22 +63,46 @@ export async function serve(options: ServeOptions): Promise<Session> {
   if (!/^person:\S+$/.test(options.person)) throw new Error(`--person must be person:<login>, not ${options.person}`);
   const store = new FileStore(path.resolve(options.store));
   const collection = await store.collection(options.collection);
-  const corpus = await loadCorpus(options.documents);
-  let view: SiteView | undefined;
-  const extension = await collabExtension({ collection: collection.name }, next => { view = next; });
-  let html = '';
-  let commit: string | null = null;
-  async function render(): Promise<void> {
-    commit = await documentsCommit(corpus.root);
-    html = (await renderSinglePage(options.documents, { mermaid: options.mermaid }, [extension])).html;
+  const extension = await collabExtension();
+  // A render builds a whole snapshot; only a successful one replaces the current snapshot.
+  async function render(): Promise<Snapshot> {
+    const { html, view, root } = await renderSinglePage(options.documents, { mermaid: options.mermaid }, [extension]);
+    return { html, view, root, commit: await documentsCommit(root) };
   }
-  await render();
+  let snapshot = await render();
+  const root = snapshot.root;
+  await checkStoreOutside(store.root, root);
   // Checks every anchor once at start, so a broken collection fails before the page opens.
-  await pageState({ store, collection, view: view!, corpusRoot: corpus.root, commit, person: options.person });
+  await pageState({ store, collection, view: snapshot.view, corpusRoot: root, commit: snapshot.commit, person: options.person });
 
-  // Open pages hear about changes: "changed" after a store write, "reload" after the documents change.
+  // Open pages hear about changes: "changed" after a store write, "reload" after the documents change,
+  // "failed" when a re-render fails. A page that stops reading is disconnected; it reloads its state
+  // when it reconnects.
   const listeners = new Set<ServerResponse>();
-  const notify = (event: string) => { for (const listener of listeners) listener.write(`event: ${event}\ndata: {}\n\n`); };
+  const notify = (event: string, data: unknown = {}) => {
+    for (const listener of listeners) {
+      if (listener.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)) continue;
+      listeners.delete(listener);
+      listener.destroy();
+    }
+  };
+  // One render at a time; changes that arrive during a render start one more render after it.
+  let rendering: Promise<void> | undefined;
+  let again = false;
+  function rerender(): void {
+    if (rendering) { again = true; return; }
+    rendering = (async () => {
+      do {
+        again = false;
+        try { snapshot = await render(); notify('reload'); }
+        catch (error) {
+          console.error(`md-collab: re-render failed: ${(error as Error).message}`);
+          notify('failed', { error: (error as Error).message });
+        }
+      } while (again);
+      rendering = undefined;
+    })();
+  }
   let origin = '';
   const server = createServer((request, response) => {
     handle(request, response).catch(error => {
@@ -88,9 +115,10 @@ export async function serve(options: ServeOptions): Promise<Session> {
     // This computer's two names; any other Host is a site that rebinds its name to 127.0.0.1.
     const host = request.headers.host ?? '';
     if (host !== new URL(origin).host && host !== `localhost:${new URL(origin).port}`) return send(response, 403, { error: `Open ${origin}` });
-    if (request.method === 'GET' && url.pathname === '/') return send(response, 200, html, 'text/html; charset=utf-8');
+    if (request.method === 'GET' && url.pathname === '/') return send(response, 200, snapshot.html, 'text/html; charset=utf-8');
     if (request.method === 'GET' && url.pathname === '/api/state') {
-      return send(response, 200, await pageState({ store, collection, view: view!, corpusRoot: corpus.root, commit, person: options.person }));
+      const { view, commit } = snapshot;
+      return send(response, 200, await pageState({ store, collection, view, corpusRoot: root, commit, person: options.person }));
     }
     if (request.method === 'GET' && url.pathname === '/api/events') {
       response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });
@@ -121,33 +149,39 @@ export async function serve(options: ServeOptions): Promise<Session> {
         id: `c-${at.replace(/[^0-9]/g, '').slice(0, 14)}-${randomBytes(2).toString('hex')}`,
         kind: 'comment', title: note.split('\n')[0]!.slice(0, 80),
         anchors: anchors.map((anchor, index) => ({
-          role: index === 0 ? 'main' : 'also', path: String(anchor.path), commit: commit ?? 'unknown',
+          role: index === 0 ? 'main' : 'also', path: String(anchor.path), commit: snapshot.commit ?? 'unknown',
           lines: [Number(anchor.lines?.[0]), Number(anchor.lines?.[1])],
           ...(anchor.block ? { block: String(anchor.block) } : {}), ...(anchor.quote ? { quote: String(anchor.quote).slice(0, 200) } : {}),
         })),
         context: '', options: [], entries: [{ at, actor: options.person, kind: 'comment', note }],
       };
-      if (!thread.anchors.every(anchor => view!.documents.some(document => document.path === anchor.path))) return send(response, 400, { error: 'The selection is not in a rendered document' });
+      if (!thread.anchors.every(anchor => snapshot.view.documents.some(document => document.path === anchor.path))) return send(response, 400, { error: 'The selection is not in a rendered document' });
       const saved = await store.create(collection.name, thread);
       return send(response, 200, { id: saved.thread.id, version: saved.version });
     }
     return send(response, 404, { error: 'Not found' });
   }
 
-  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(options.port ?? 0, '127.0.0.1', resolve); });
-  const port = (server.address() as AddressInfo).port;
-  origin = `http://127.0.0.1:${port}`;
-
   // Agents write threads with the command line, so the page learns of changes from the store itself.
+  // The lock and drafts of a write start with a dot; only finished files are changes.
   let timer: NodeJS.Timeout | undefined;
-  const watchers: FSWatcher[] = [
-    watch(path.join(store.root, collection.name), { recursive: true }, () => notify('changed')),
-    watch(corpus.root, { recursive: true }, (_event, file) => {
+  const watchers: FSWatcher[] = [];
+  try {
+    watchers.push(watch(path.join(store.root, collection.name), { recursive: true }, (_event, file) => {
+      if (file && !path.basename(String(file)).startsWith('.')) notify('changed');
+    }));
+    watchers.push(watch(root, { recursive: true }, (_event, file) => {
       if (!file || !/\.md$/i.test(String(file)) || String(file).split(path.sep).includes('.git')) return;
       clearTimeout(timer);
-      timer = setTimeout(() => { render().then(() => notify('reload'), error => console.error(`md-collab: re-render failed: ${(error as Error).message}`)); }, 300);
-    }),
-  ];
+      timer = setTimeout(rerender, 300);
+    }));
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(options.port ?? 0, '127.0.0.1', resolve); });
+  } catch (error) {
+    for (const watcher of watchers) watcher.close();
+    throw error;
+  }
+  const port = (server.address() as AddressInfo).port;
+  origin = `http://127.0.0.1:${port}`;
   return {
     url: `${origin}/`,
     async close() {
