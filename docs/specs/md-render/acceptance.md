@@ -499,6 +499,21 @@ This case checks block attributes, the corpus view and embedded extension output
 
 **Implementation:** [test/extensions.test.ts::marks every Markdown block with its source lines and a stable block ID](../../../test/extensions.test.ts), [test/extensions.test.ts::names blocks after an explicit anchor before a heading and numbers repeated text](../../../test/extensions.test.ts), [test/extensions.test.ts::gives source pages of plain text files no blocks](../../../test/extensions.test.ts), [test/extensions.test.ts::gives a Mermaid figure and its source the fence lines, with and without the diagram renderer](../../../test/extensions.test.ts), [test/extensions.test.ts::keeps main's output bytes for renders without extensions (recorded from main at dd43046)](../../../test/extensions.test.ts), [test/extensions.test.ts::passes the rendered corpus to an extension and embeds its output in the single page](../../../test/extensions.test.ts), [test/extensions.test.ts::gives every extension the same read-only view, whatever an earlier one tries to change](../../../test/extensions.test.ts), [test/extensions.test.ts::stops the render when an extension fails or is malformed](../../../test/extensions.test.ts)
 
+<a id="test-extension-source"></a>
+## Acceptance test: document text in the view
+
+This case checks that the view gives extensions the text md-render rendered.
+
+**Method:** test.
+
+**Requirements:** [Let extensions find rendered blocks](requirements.md#req-extensions).
+
+**Inputs:** The two synthetic pages and the linked text file of the block identity case, with a probe extension.
+
+**Expected:** Each document in the view carries in `markdown` the text of its file as md-render read it; the source page of the linked text file carries that file's text.
+
+**Implementation:** [test/extensions.test.ts::gives an extension the text of each document as md-render read it](../../../test/extensions.test.ts)
+
 <a id="test-extension-browser"></a>
 ## Acceptance test: extension browser interface
 

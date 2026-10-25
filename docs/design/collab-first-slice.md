@@ -45,7 +45,11 @@ export interface Block {
 
 /** Read-only view of the rendered corpus; md-render freezes it, so no extension changes what another sees. */
 export interface SiteView {
-  readonly documents: readonly { readonly path: string; readonly title: string; readonly anchors: readonly string[]; readonly blocks: readonly Block[] }[];
+  readonly documents: readonly {
+    readonly path: string; readonly title: string;
+    readonly markdown: string;         // the text md-render read and rendered
+    readonly anchors: readonly string[]; readonly blocks: readonly Block[];
+  }[];
 }
 
 /** What an extension adds to every rendered page. */

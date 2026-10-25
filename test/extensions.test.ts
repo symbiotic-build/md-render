@@ -122,6 +122,14 @@ it('passes the rendered corpus to an extension and embeds its output in the sing
   expect(html).toContain('data-source-path="nested/b.md"');
 });
 
+it('gives an extension the text of each document as md-render read it', async () => {
+  const { view } = await probe();
+  const read = (file: string) => readFile(path.join(source, file), 'utf8');
+  expect(view.documents.map(document => [document.path, document.markdown])).toEqual([
+    ['index.md', await read('index.md')], ['nested/b.md', await read('nested/b.md')], ['_md-render/references/0/notes.txt.md', 'one\ntwo\n'],
+  ]);
+});
+
 it('gives every extension the same read-only view, whatever an earlier one tries to change', async () => {
   const attempts: string[] = [];
   const tryTo = (name: string, change: () => void) => { try { change(); attempts.push(`${name} changed`); } catch { attempts.push(`${name} refused`); } };

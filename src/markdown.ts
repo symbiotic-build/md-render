@@ -33,6 +33,8 @@ export interface ParsedDocument {
   displayPath?: string;
   /** Number of source lines when this is a read-only text page. */
   sourceLines?: number;
+  /** The text this document was parsed from, as read; for a plain-text source page, that file's text. */
+  markdown: string;
   tree: Root;
   anchors: Set<string>;
   headings: { id: string; title: string; depth: number }[];
@@ -185,7 +187,7 @@ export function parseDocument(markdown: string, fallbackTitle: string): ParsedDo
       node.data = { ...node.data };
     }
   });
-  return { title: title || fallbackTitle, tree, anchors, headings, meanings };
+  return { title: title || fallbackTitle, markdown, tree, anchors, headings, meanings };
 }
 
 /** A plain-text heading link with its nested subsection links. */
@@ -212,6 +214,7 @@ export function documentOutline(doc: ParsedDocument): OutlineEntry[] {
 export function textDocument(text: string, label: string): ParsedDocument {
   const lines = text.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n');
   const doc = parseDocument('', label);
+  doc.markdown = text;
   doc.sourceLines = lines.length;
   for (let index = 0; index < lines.length; index++) doc.anchors.add(`L${index + 1}`);
   doc.tree.children = [

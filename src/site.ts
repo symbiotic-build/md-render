@@ -28,9 +28,12 @@ export interface Block {
   readonly text: string;
   readonly heading: string | null;
 }
-/** Read-only view of the rendered corpus, in reading order; md-render freezes it. */
+/**
+ * Read-only view of the rendered corpus, in reading order; md-render freezes it. `markdown` is the
+ * text md-render read and rendered, so an extension never reads the file again.
+ */
 export interface SiteView {
-  readonly documents: readonly { readonly path: string; readonly title: string; readonly anchors: readonly string[]; readonly blocks: readonly Block[] }[];
+  readonly documents: readonly { readonly path: string; readonly title: string; readonly markdown: string; readonly anchors: readonly string[]; readonly blocks: readonly Block[] }[];
 }
 /** What an extension adds to every page. `connect` allows fetch to the page's own origin. */
 export interface ExtensionOutput { styles?: string; script?: string; data?: unknown; connect?: boolean }
@@ -364,7 +367,7 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
   }
   const rendered = await Promise.all([...docs.values()].map(doc => renderDocument(doc, { blocks: withView, mark: extensionList.length > 0, html: page })));
   const view: SiteView | undefined = withView ? freeze({ documents: [...docs].map(([path, doc], index) => ({
-    path, title: doc.title, anchors: [...doc.anchors], blocks: rendered[index]!.blocks.map(block => ({ ...block, path })),
+    path, title: doc.title, markdown: doc.markdown, anchors: [...doc.anchors], blocks: rendered[index]!.blocks.map(block => ({ ...block, path })),
   })) }) : undefined;
   const extensions = view ? await prepareExtensions(view, extensionList) : [];
   const diagrams = page ? await renderDiagrams(rendered.map(result => result.html), options.mermaid !== false) : { pages: rendered.map(result => result.html), available: false };
