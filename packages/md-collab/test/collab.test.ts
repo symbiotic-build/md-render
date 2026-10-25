@@ -545,3 +545,17 @@ it('keeps what the reader typed while a save was running', async () => {
   });
 });
 
+it("opens the comment box even when an annotation carries the box's ID", async () => {
+  await sidebar('store-control-id', async (page, store) => {
+    await store.create('spec', { ...imported()[0]!, id: 'q02-control-id', title: 'Control ID', number: 2, context: 'An anchor <a id="ov-composer"></a>in the context.' });
+    await until(page, `document.getElementById('ov-count').textContent === '0 / 2 answered'`);
+    await page.evaluate(`(() => {
+      document.querySelector('#ov-card-2 .ov-qh').click();
+      const paragraph = [...document.querySelectorAll('[data-source-path="docs/storage.md"] p')].find(p => p.textContent.includes('4 MiB'));
+      const range = document.createRange(); range.selectNodeContents(paragraph);
+      getSelection().removeAllRanges(); getSelection().addRange(range);
+    })()`);
+    await until(page, `getComputedStyle(document.getElementById('ov-sel')).display === 'block'`);
+    expect(await page.evaluate(`(() => { document.getElementById('ov-selbtn').click(); return document.querySelector('div.ov-composer').checkVisibility(); })()`)).toBe(true);
+  });
+});

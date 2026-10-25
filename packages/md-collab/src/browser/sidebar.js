@@ -2,10 +2,10 @@
 // It reads and writes only through the md-collab server and finds text only through mdRender (version 1).
 (() => {
 const headers = { 'content-type': 'application/json' };
-const $ = selector => document.querySelector(selector);
 const esc = text => String(text ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-document.body.insertAdjacentHTML('beforeend', `
+const shell = document.createElement('template');
+shell.innerHTML = `
 <aside class="ov-panel" id="ov-panel" aria-label="Decisions">
   <div class="ov-head">
     <div class="ov-row"><h2 id="ov-heading">Decisions</h2><button class="ov-btn ov-primary" id="ov-next">Next open</button><button class="ov-btn ov-close" id="ov-close" aria-label="Close">✕</button></div>
@@ -38,8 +38,15 @@ document.body.insertAdjacentHTML('beforeend', `
 <button class="ov-btn ov-primary ov-fab" id="ov-fab">Decisions</button>
 <div class="ov-sel" id="ov-sel"><button class="ov-btn ov-primary" id="ov-selbtn">Comment</button></div>
 <div class="ov-composer" id="ov-composer" hidden><label class="ov-note-l" for="ov-comment">Comment on the selected text</label><textarea class="ov-note" id="ov-comment"></textarea><div class="ov-foot"><button class="ov-clear" id="ov-comment-cancel">Cancel</button><button class="ov-btn ov-primary" id="ov-comment-save">Save comment</button></div></div>
-<div class="ov-toast" id="ov-toast"></div>`);
+<div class="ov-toast" id="ov-toast"></div>`;
+// The sidebar's own elements are found once, before any annotation HTML is on the page: an anchor
+// in an annotation may carry the same ID as one of them.
+const controls = new Map([...shell.content.querySelectorAll('[id]')].map(element => [element.id, element]));
+const $ = selector => controls.get(selector.slice(1)) ?? document.querySelector(selector);
+document.body.append(shell.content);
 document.body.classList.add('ov-on');
+// Cards and history rows are the list's own children; annotation HTML sits deeper inside them.
+const listItem = id => [...$('#ov-list').children].find(element => element.id === id);
 
 let state = null, items = [], view = 'q', openQ = null, openH = null, filter = 'all';
 const hf = { who: '', status: '', topic: '', chapter: '' };
@@ -345,14 +352,14 @@ function openQuestion(number, fromPanel) {
   renderList(); markDocument();
   if (number == null) return;
   if (innerWidth < 900 && !fromPanel) $('#ov-panel').classList.add('ov-show');
-  document.getElementById('ov-card-' + number)?.scrollIntoView({ block: 'start' });
+  listItem('ov-card-' + number)?.scrollIntoView({ block: 'start' });
   if (fromPanel) showAnchor(byNumber(number).anchors.find(a => a.role === 'main'));
 }
 function openItem(id) {
   openH = id; const item = byId(id);
   lightItem(item); renderList(); refreshMarks();
   if (!item) return;
-  document.getElementById('ov-h-' + id)?.scrollIntoView({ block: 'nearest' });
+  listItem('ov-h-' + id)?.scrollIntoView({ block: 'nearest' });
   showAnchor(item.anchors.find(a => a.role === 'main') || item.anchors[0]);
 }
 function setView(next) {
