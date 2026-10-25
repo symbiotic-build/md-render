@@ -58,8 +58,10 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     case 'serve': {
       const session = await serve({ documents: positionals[0] ?? '.', store: store.root, collection, person: need('person'), mermaid: !values['no-mermaid'], ...(values.port ? { port: Number(values.port) } : {}) });
+      // Listen for Ctrl+C before printing the address, so a stop request made as soon as it appears closes the session.
+      const stop = new Promise<void>(resolve => { process.once('SIGINT', resolve); process.once('SIGTERM', resolve); });
       console.log(`md-collab: open ${session.url}\nPress Ctrl+C to stop.`);
-      await new Promise<void>(resolve => { process.once('SIGINT', resolve); process.once('SIGTERM', resolve); });
+      await stop;
       await session.close();
       return 0;
     }
