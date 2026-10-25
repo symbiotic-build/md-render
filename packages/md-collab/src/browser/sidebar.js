@@ -159,6 +159,7 @@ async function post(url, body) {
 }
 async function addEntry(item, entry) {
   try {
+    drafts.delete('ov-note-' + item.number); drafts.delete('ov-reply-' + item.id);
     await post(`/api/threads/${item.id}/entries`, { ...entry, version: item.version });
     await load();
   } catch (error) {
@@ -202,7 +203,7 @@ function renderQuestions(list) {
     card.querySelector('.ov-qh').addEventListener('click', () => openQuestion(open ? null : item.number, true));
     card.querySelector('.ov-ctx').after(passageLinks(item));
     wireLinks(card.querySelector('.ov-ctx'), item);
-    const note = card.querySelector('textarea'); note.value = answer?.note || '';
+    const note = card.querySelector('textarea'); note.value = drafts.get(note.id) ?? answer?.note ?? '';
     for (const option of item.options) {
       const button = document.createElement('button');
       button.className = 'ov-opt'; button.setAttribute('aria-pressed', answer?.choice === option.n);
@@ -288,6 +289,7 @@ function historyBody(item) {
       const note = box.querySelector('textarea').value.trim();
       if (note) addEntry(item, { kind: 'comment', note });
     });
+    box.querySelector('textarea').value = drafts.get(`ov-reply-${item.id}`) ?? '';
     detail.append(box);
   }
   more.addEventListener('click', () => { detail.hidden = !detail.hidden; more.setAttribute('aria-expanded', !detail.hidden); more.textContent = detail.hidden ? 'Details' : 'Hide details'; });
@@ -310,8 +312,17 @@ const typing = () => document.activeElement?.classList.contains('ov-note');
 function renderList() {
   const list = $('#ov-list'), keep = list.scrollTop;
   list.innerHTML = '';
+// Notes being written survive a redraw. A redraw that arrives while the reader types waits until
+// the focus leaves the sidebar, or until the reader's own save redraws it.
+const drafts = new Map();
+let redrawPending = false;
   if (view === 'q') renderQuestions(list); else renderHistory(list);
+$('#ov-list').addEventListener('input', event => { if (event.target.classList.contains('ov-note')) drafts.set(event.target.id, event.target.value); });
+$('#ov-list').addEventListener('focusout', event => {
+  if (redrawPending && event.target.classList.contains('ov-note') && !$('#ov-panel').contains(event.relatedTarget)) renderList();
+});
   list.scrollTop = keep;
+  redrawPending = false;
 }
 function renderCounts() {
   const all = questions(), done = all.filter(isDone).length;
@@ -348,7 +359,19 @@ function setView(next) {
 function setFilter(next) { filter = next; document.querySelectorAll('.ov-chip').forEach(c => c.setAttribute('aria-pressed', c.dataset.f === next)); renderList(); }
 
 /* ---------- loading ---------- */
-async function load() {
+// One state request at a time, so an older response never replaces a newer one; a request asked
+// for meanwhile runs once more after it.
+let loading = null, loadAgain = false;
+function load() {
+  if (loading) { loadAgain = true; return loading; }
+  loading = (async () => {
+    try { do { loadAgain = false; await loadOnce(); } while (loadAgain); }
+    catch (error) { status(`Could not load decisions (${error.message}). Is md-collab still running?`, true); }
+    finally { loading = null; }
+  })();
+  return loading;
+}
+async function loadOnce() {
   const response = await fetch('/api/state', { headers });
   if (!response.ok) { status(`Could not load decisions (${response.status}). Is md-collab still running?`, true); return; }
   state = await response.json();
@@ -361,7 +384,7 @@ async function load() {
     })),
   ];
   fillFilters();
-  if (!typing()) renderList();
+  if (typing()) redrawPending = true; else renderList();
   renderCounts(); markDocument();
   status(`Answers are saved to ${state.collection.title} as ${state.person.replace(/^person:/, '')}.${state.orphans.length ? ` ${state.orphans.length} passages are no longer found.` : ''}`, state.orphans.length > 0);
 }
@@ -369,6 +392,9 @@ const events = new EventSource('/api/events');
 events.addEventListener('changed', () => { load(); });
 events.addEventListener('reload', () => { location.reload(); });
 events.onerror = () => status('Lost the connection to md-collab. Answers made now are not saved; restart it and reload.', true);
+// Each connection, the first and every reconnection, starts with a fresh state: writes made while
+// disconnected sent no event to this page.
+events.onopen = () => { load(); };
 mdRender.onNavigate(() => { if (view === 'q' && filter === 'page') renderList(); });
 
 /* ---------- comments on selected text ---------- */
