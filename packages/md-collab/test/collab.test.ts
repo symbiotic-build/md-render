@@ -645,3 +645,42 @@ it('shows the documents of a server restarted on the same port once the page con
     } finally { await restarted.close(); }
   }, path.join(copy, 'docs'));
 });
+
+/** Selects the storage chapter's 4 MiB paragraph and opens the comment box on it. */
+async function openComposer(page: BrowserSession): Promise<void> {
+  await page.evaluate(`(() => {
+    const paragraph = [...document.querySelectorAll('[data-source-path="docs/storage.md"] p')].find(p => p.textContent.includes('4 MiB'));
+    const range = document.createRange(); range.selectNodeContents(paragraph);
+    getSelection().removeAllRanges(); getSelection().addRange(range);
+  })()`);
+  await until(page, `getComputedStyle(document.getElementById('ov-sel')).display === 'block'`);
+  await page.evaluate(`document.getElementById('ov-selbtn').click()`);
+}
+
+it('shows a question that arrives while the reader writes a comment on selected text, keeping the comment', async () => {
+  await sidebar('store-typing-comment', async (page, store) => {
+    await openComposer(page);
+    await page.evaluate(`(() => { const box = document.getElementById('ov-comment'); box.value = 'Draft comment'; box.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await store.create('spec', { ...imported()[0]!, id: 'q02-second-question', title: 'Second question', number: 2 });
+    await until(page, `document.getElementById('ov-count').textContent === '0 / 2 answered'`);
+    expect(await page.evaluate(`({ card: !!document.getElementById('ov-card-2'), typing: document.activeElement === document.getElementById('ov-comment'), comment: document.getElementById('ov-comment').value })`))
+      .toEqual({ card: true, typing: true, comment: 'Draft comment' });
+  });
+});
+
+it('keeps what the reader typed in the comment box while its save was running', async () => {
+  await sidebar('store-comment-typing', async page => {
+    await openComposer(page);
+    await page.evaluate(`(() => {
+      const box = document.getElementById('ov-comment');
+      box.value = 'First comment';
+      window.postGate = new Promise(resolve => { window.releasePosts = resolve; });
+      document.getElementById('ov-comment-save').click();
+      box.value = 'First comment, then more';
+      window.releasePosts();
+    })()`);
+    await until(page, `document.getElementById('ov-toast').textContent === 'Comment saved.'`);
+    expect(await page.evaluate(`({ open: !document.getElementById('ov-composer').hidden, comment: document.getElementById('ov-comment').value })`))
+      .toEqual({ open: true, comment: 'First comment, then more' });
+  });
+});

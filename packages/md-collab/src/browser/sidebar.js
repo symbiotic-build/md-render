@@ -321,11 +321,12 @@ function fillFilters() {
 }
 
 /* ---------- shared rendering ---------- */
-// Notes being written survive a redraw. A redraw that arrives while the reader types waits until
-// the focus leaves the sidebar, or until the reader's own save redraws it.
+// Notes being written survive a redraw. A redraw that arrives while the reader types a note in the
+// list waits until the focus leaves the sidebar, or until the reader's own save redraws it. The
+// comment box is not in the list, so a redraw never waits for it.
 const drafts = new Map();
 let redrawPending = false;
-const typing = () => document.activeElement?.classList.contains('ov-note');
+const typing = () => document.activeElement?.classList.contains('ov-note') && $('#ov-list').contains(document.activeElement);
 $('#ov-list').addEventListener('input', event => { if (event.target.classList.contains('ov-note')) drafts.set(event.target.id, event.target.value); });
 // Focus may pass from the note to a button in the sidebar first; the redraw waits until it leaves the sidebar.
 $('#ov-panel').addEventListener('focusout', event => {
@@ -446,10 +447,15 @@ $('#ov-selbtn').addEventListener('click', () => {
 });
 $('#ov-comment-cancel').addEventListener('click', () => { $('#ov-composer').hidden = true; $('#ov-comment').value = ''; });
 $('#ov-comment-save').addEventListener('click', async () => {
-  const note = $('#ov-comment').value.trim();
-  if (!note || !selection) { toast('Write the comment first.'); return; }
-  try { await post('/api/comments', { anchors: selection, note }); $('#ov-composer').hidden = true; $('#ov-comment').value = ''; toast('Comment saved.'); await load(); }
-  catch (error) { toast(error.message); }
+  // As with a note's draft, a completed save closes and empties the box only when it still holds
+  // the text and the passage that were saved: typing during the save stays.
+  const text = $('#ov-comment').value, anchors = selection, note = text.trim();
+  if (!note || !anchors) { toast('Write the comment first.'); return; }
+  try {
+    await post('/api/comments', { anchors, note });
+    if ($('#ov-comment').value === text && selection === anchors) { $('#ov-composer').hidden = true; $('#ov-comment').value = ''; }
+    toast('Comment saved.'); await load();
+  } catch (error) { toast(error.message); }
 });
 document.addEventListener('click', event => {
   const marked = event.target.closest?.('.ov-cm');
