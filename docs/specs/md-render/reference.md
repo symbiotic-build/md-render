@@ -51,7 +51,7 @@ A document's `markdown` is the text md-render read and rendered; for a plain-tex
 
 md-render embeds the style, the JSON data and the inline script in the page, and adds the script's SHA-256 hash to the page policy. `connect: true` allows requests to the page's own origin. A failing `prepare` stops the render with `Extension <name> failed: <message>`, and a script that contains `</script` is refused.
 
-`renderSinglePage` returns `{ html, view, root, warnings }` without writing a file; `root` is the corpus root. `renderView(input, options)` returns `{ view, root, warnings }` without building a page: it reads no theme files and draws no diagrams. It does not read the images and other files a page would embed, but checks that each is a regular file in the input.
+`renderSinglePage` returns `{ html, view, root, warnings }` without writing a file; `root` is the corpus root. `renderView(input, options)` returns `{ view, root, warnings }` without building a page. It skips the theme and page asset files, the page HTML and the transforms that only shape it, and the diagrams. It still reads every Markdown document and the corpus metadata. It also reads every file a document links to, images included, as a page render does.
 
 Page scripts of a single page with extensions use the frozen global `mdRender`, version 1. `documents()` lists path and title, and `currentDocument()` names the shown document. `blocks(path, first, last)` and `block(path, id)` return shown elements. `show({ path, block?, anchor? })` opens a document of the page and scrolls to the target, resolving to the element or null. It also sets the fragment to that chapter. `onNavigate(listener)` reports the shown document after it changes, and `extensionData(name)` returns an extension's data.
 

@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { checkSource, loadCorpus, readSource, within, type Corpus } from './corpus.js';
+import { loadCorpus, readSource, within, type Corpus } from './corpus.js';
 import { bundleReferences, type ReferenceTarget } from './references.js';
 import { renderDiagrams } from './diagrams.js';
 import { documentOutline, parseDocument, renderDocument, transformUrls, type OutlineEntry, type ParsedDocument } from './markdown.js';
@@ -362,8 +362,6 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
     });
   }
   for (const file of copiedAssets) {
-    // Without a page, a linked file is checked but not read: nothing would embed its bytes.
-    if (!page) { if (!references?.bytes(path.resolve(corpus.root, file))) await checkSource(corpus.root, file); continue; }
     const bytes = references?.bytes(path.resolve(corpus.root, file)) ?? await readSource(corpus.root, file);
     files.set(file, bytes);
   }
