@@ -523,9 +523,9 @@ This case checks the browser interface through the real browser fixture.
 
 **Requirements:** [Let extensions find rendered blocks](requirements.md#req-extensions).
 
-**Inputs:** A single-file page with two documents and an extension that records navigation; a page with an inline anchor and anchors that stand alone before headings.
+**Inputs:** A single-file page with two documents and an extension that records navigation; a page with an inline anchor and anchors that stand alone before headings; a page with a drawn diagram.
 
-**Expected:** The interface is frozen at version 1, lists the documents, finds blocks by source lines and by ID, shows a block or an anchor in another document and reports the change, and returns null for an unknown document. An inline anchor shows the paragraph that holds it; an anchor that stands alone shows the heading after it. After `show` opens another chapter, a link back to the previous chapter opens it.
+**Expected:** The interface is frozen at version 1, lists the documents, finds blocks by source lines and by ID, shows a block or an anchor in another document and reports the change, and returns null for an unknown document. An inline anchor shows the paragraph that holds it; an anchor that stands alone shows the heading after it. Showing a drawn diagram's source opens the disclosure that holds it. After `show` opens another chapter, a link back to the previous chapter opens it.
 
-**Implementation:** [test/extensions.test.ts::lets an extension find blocks by source line and show them in the single page](../../../test/extensions.test.ts), [test/extensions.test.ts::shows the passage that holds an anchor, or the heading after an anchor that stands alone](../../../test/extensions.test.ts), [test/extensions.test.ts::follows a link back to the previous chapter after show() opened another one](../../../test/extensions.test.ts)
+**Implementation:** [test/extensions.test.ts::lets an extension find blocks by source line and show them in the single page](../../../test/extensions.test.ts), [test/extensions.test.ts::shows the passage that holds an anchor, or the heading after an anchor that stands alone](../../../test/extensions.test.ts), [test/extensions.test.ts::opens the collapsed Mermaid source that show() selects](../../../test/extensions.test.ts), [test/extensions.test.ts::follows a link back to the previous chapter after show() opened another one](../../../test/extensions.test.ts)
 

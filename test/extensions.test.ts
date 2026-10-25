@@ -228,6 +228,15 @@ it('shows the passage that holds an anchor, or the heading after an anchor that 
   });
 });
 
+it('opens the collapsed Mermaid source that show() selects', async () => {
+  const url = await singleFile('single-mermaid.html', { mermaid: true });
+  await withBrowser(async browser => {
+    await browser.navigate(url);
+    expect(await browser.evaluate(`mdRender.show({ path: 'index.md', block: mdRender.blocks('index.md', 15, 15).find(e => e.localName === 'pre').dataset.block }).then(e => ({ tag: e.localName, visible: e.checkVisibility() }))`))
+      .toEqual({ tag: 'pre', visible: true });
+  });
+});
+
 it('follows a link back to the previous chapter after show() opened another one', async () => {
   const url = await singleFile('single-return.html');
   await withBrowser(async browser => {
