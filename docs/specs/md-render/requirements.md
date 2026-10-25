@@ -309,3 +309,23 @@ Bundling makes the input pages’ direct local references usable on another mach
 **Status:** operator-settled bundling; line-fragment and policy details proposed for lead acceptance.
 
 **Basis:** [Bundle local files for sharing](decisions-and-questions.md#bundle-local-files-choice).
+
+<a id="req-extensions"></a>
+## Requirement: let extensions find rendered blocks
+
+Extensions point at rendered text by its source lines, so no program has to change md-render's output afterwards.
+
+**Actor:** md-render and the calling program.
+
+**Condition:** The caller passes extensions to `renderSinglePage`, or a page script runs in a rendered page.
+
+**Result:** Follow [Blocks and extensions](reference.md#extension-reference). In a render with extensions, mark every Markdown block with its source lines and block ID; leave the bytes of other renders unchanged. Run each extension once on the rendered corpus, with the text of each document as rendered, and stop the render when one fails. Embed its style, script and data in the page, with the script's hash in the page policy. Give page scripts the version-1 browser interface.
+
+**Verification:** Render synthetic pages with a probe extension, inspect markup and policy, and call the browser interface in the real browser fixture.
+
+**Tests:** [Block identity and extensions](acceptance.md#test-extension-render), [Document text in the view](acceptance.md#test-extension-source), [Extension browser interface](acceptance.md#test-extension-browser).
+
+**Status:** operator-approved framework of 2026-10-24; interface details proposed for lead acceptance.
+
+**Basis:** [Expose blocks to extensions](decisions-and-questions.md#extension-choice).
+

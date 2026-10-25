@@ -1,4 +1,5 @@
 // unified/remark -> explicit AST transforms -> sanitized HTML.
+import { createHash } from 'node:crypto';
 import type { Definition, Nodes, Root, RootContent } from 'mdast';
 import type { Root as HtmlRoot, Element } from 'hast';
 import { toString } from 'mdast-util-to-string';
@@ -32,6 +33,8 @@ export interface ParsedDocument {
   displayPath?: string;
   /** Number of source lines when this is a read-only text page. */
   sourceLines?: number;
+  /** The text this document was parsed from, as read; for a plain-text source page, that file's text. */
+  markdown: string;
   tree: Root;
   anchors: Set<string>;
   headings: { id: string; title: string; depth: number }[];
@@ -169,21 +172,22 @@ export function parseDocument(markdown: string, fallbackTitle: string): ParsedDo
       return index + replacements.length;
     }
     if (node.type === 'code' && node.lang === 'mermaid') {
-      parent.children[index] = element('figure', { className: ['mermaid-diagram'] }, [
+      // The figure and its source keep the fence's position, so both are blocks with source lines.
+      parent.children[index] = { ...element('figure', { className: ['mermaid-diagram'] }, [
         { type: 'element', tagName: 'figcaption', properties: {}, children: [
           { type: 'text', value: 'Mermaid diagram — source (offline renderer unavailable)' },
         ] },
-        { type: 'element', tagName: 'pre', properties: {}, children: [
+        { type: 'element', tagName: 'pre', properties: {}, position: node.position, children: [
           { type: 'element', tagName: 'code', properties: {}, children: [{ type: 'text', value: node.value }] },
         ] },
-      ]) as never;
+      ]), position: node.position } as never;
     }
     if (node.type === 'table') {
       // Preserve native GFM handling; wrap the resulting table in the HTML stage below.
       node.data = { ...node.data };
     }
   });
-  return { title: title || fallbackTitle, tree, anchors, headings, meanings };
+  return { title: title || fallbackTitle, markdown, tree, anchors, headings, meanings };
 }
 
 /** A plain-text heading link with its nested subsection links. */
@@ -210,6 +214,7 @@ export function documentOutline(doc: ParsedDocument): OutlineEntry[] {
 export function textDocument(text: string, label: string): ParsedDocument {
   const lines = text.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n');
   const doc = parseDocument('', label);
+  doc.markdown = text;
   doc.sourceLines = lines.length;
   for (let index = 0; index < lines.length; index++) doc.anchors.add(`L${index + 1}`);
   doc.tree.children = [
@@ -253,9 +258,76 @@ export function transformUrls(doc: ParsedDocument, transform: (url: string, imag
   });
 }
 
+/** One rendered Markdown block: its stable ID, source lines and text. */
+export interface RenderedBlock {
+  id: string;
+  lines: [number, number];
+  tag: string;
+  text: string;
+  heading: string | null;
+}
+
+const blockTags = new Set(['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'tr', 'pre', 'blockquote', 'figure']);
+function textContent(node: HtmlRoot | Element): string {
+  return node.children.map(child => child.type === 'text' ? child.value : child.type === 'element' ? textContent(child) : '').join('');
+}
+function anchorOnly(node: Element): string | undefined {
+  const anchors = node.children.filter(child => child.type !== 'text' || child.value.trim());
+  const last = anchors.at(-1);
+  return anchors.length && anchors.every(child => child.type === 'element' && child.tagName === 'a' && typeof child.properties.id === 'string' && !child.children.length)
+    ? String((last as Element).properties.id) : undefined;
+}
+
+/**
+ * Marks every Markdown block with its source lines and a block ID: the nearest heading's ID
+ * (an explicit anchor before the heading wins), "~", and six hex digits of the SHA-256 of
+ * the block's whitespace-normalised text. Repeats in one document get "-2", "-3".
+ */
+function markBlocks(tree: HtmlRoot, mark: boolean): RenderedBlock[] {
+  const blocks: RenderedBlock[] = [];
+  const seen = new Map<string, number>();
+  let heading: string | null = null;
+  let pendingAnchor: string | undefined;
+  visit(tree, 'element', (node) => {
+    if (node.tagName === 'p') {
+      const anchor = anchorOnly(node);
+      if (anchor) { pendingAnchor = anchor; return; }
+    }
+    if (!blockTags.has(node.tagName) || !node.position) return;
+    if (/^h[1-6]$/.test(node.tagName)) {
+      heading = pendingAnchor ?? (typeof node.properties.id === 'string' ? node.properties.id : heading);
+    }
+    pendingAnchor = undefined;
+    const text = textContent(node).replace(/\s+/g, ' ').trim();
+    const base = `${heading ?? 'top'}~${createHash('sha256').update(text).digest('hex').slice(0, 6)}`;
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    const id = count === 1 ? base : `${base}-${count}`;
+    const lines: [number, number] = [node.position.start.line, node.position.end.line];
+    if (mark) {
+      node.properties.dataSourceLines = `${lines[0]}-${lines[1]}`;
+      node.properties.dataBlock = id;
+    }
+    blocks.push({ id, lines, tag: node.tagName, text, heading });
+  });
+  return blocks;
+}
+
 /** Produces sanitized HTML; table wrappers make wide fact tables keyboard-scrollable. */
 export async function documentHtml(doc: ParsedDocument): Promise<string> {
+  return (await renderDocument(doc)).html;
+}
+
+/**
+ * Produces sanitized HTML and, with `blocks`, its blocks; source pages have no blocks. With `mark`,
+ * every block element also carries `data-source-lines` and `data-block`; renders with extensions set it.
+ * With `html: false`, only the blocks are wanted and the HTML is the empty string.
+ */
+export async function renderDocument(doc: ParsedDocument, options: { blocks?: boolean; mark?: boolean; html?: boolean } = {}): Promise<{ html: string; blocks: RenderedBlock[] }> {
   const tree = await writer.run(doc.tree) as HtmlRoot;
+  const blocks = doc.sourceLines === undefined && (options.blocks || options.mark) ? markBlocks(tree, options.mark === true) : [];
+  // The rest only shapes the HTML: a render that wants only blocks skips it.
+  if (options.html === false) return { html: '', blocks };
   visit(tree, 'element', (node, index, parent) => {
     if (doc.sourceLines !== undefined && node.tagName === 'pre') {
       const code = node.children[0];
@@ -277,5 +349,5 @@ export async function documentHtml(doc: ParsedDocument): Promise<string> {
       return SKIP;
     }
   });
-  return writer.stringify(tree);
+  return { html: writer.stringify(tree), blocks };
 }

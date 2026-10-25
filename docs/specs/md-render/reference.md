@@ -25,7 +25,7 @@ With neither option, the command starts the [temporary viewer](serving-and-expor
 
 The optional environment variable `MD_RENDER_BROWSER` selects an installed Chromium executable for diagram builds.
 
-The package exports `loadCorpus`, `parseDocument`, `documentHtml`, `renderSite`, `exportSite` and `startViewer` from [src/index.ts](../../../src/index.ts).
+The package exports `loadCorpus`, `parseDocument`, `documentHtml`, `renderSite`, `exportSite`, `renderSinglePage`, `renderView` and `startViewer` from [src/index.ts](../../../src/index.ts).
 `renderSite(input, output, options)` returns directory, pages, checked local-link count, Mermaid availability and warnings.
 It retains [local-reading behavior](serving-and-export.md#single-file-export), including links to original local files.
 Its options include `theme?: string` and `mermaid?: boolean`.
@@ -37,6 +37,25 @@ It produces portable retained output with [bundled local references](serving-and
 `startViewer(input, options)` adds a local URL and asynchronous `close()`.
 Both report failures by rejecting their promises.
 The CLI prints each warning and reports unavailable Mermaid explicitly.
+
+<a id="extension-reference"></a>
+## Blocks and extensions
+
+In a render with at least one extension, every Markdown block, a `p`, `li`, `h1`–`h6`, `tr`, `pre`, `blockquote` or `figure` element, carries two attributes. A Mermaid fence's `figure` and its source `pre` both carry the fence's lines. Folder output and the single-file export take no extensions; their bytes are unchanged and they do no block work. `renderSinglePage` and `renderView` return a view, so they collect blocks with or without extensions.
+
+`data-source-lines="3-4"` names its first and last source line. `data-block` names its block ID: the nearest heading's ID, `~` and six hexadecimal digits of the SHA-256 of its whitespace-normalised text. An explicit anchor before a heading names that section instead of the heading's own ID. A repeated ID in one document gets `-2`, `-3`. Plain-text source pages keep their `L<n>` line IDs and have no blocks. In a single page with extensions, each chapter's section carries `data-source-path` with the document's corpus path.
+
+`renderSinglePage(input, options, extensions)` accepts `extensions`, a list of `{ name, prepare(view) }`; the folder and file exports take none. A name matches `[a-z][a-z0-9-]*` and is unique. `prepare` runs once, after every page is rendered and before the page is written. It receives the documents in reading order with their path, title, `markdown`, anchors and blocks, frozen, so no extension changes what a later one sees. It returns optional `styles`, `script`, `data` and `connect`.
+
+A document's `markdown` is the text md-render read and rendered; for a plain-text source page it is that file's text. An extension that needs the source takes it from there, so it sees the page's text and reads no file again.
+
+md-render embeds the style, the JSON data and the inline script in the page, and adds the script's SHA-256 hash to the page policy. `connect: true` allows requests to the page's own origin. A failing `prepare` stops the render with `Extension <name> failed: <message>`, and a script that contains `</script` is refused.
+
+`renderSinglePage` returns `{ html, view, root, warnings }` without writing a file; `root` is the corpus root. `renderView(input, options)` returns `{ view, root, warnings }` without building a page. It skips the theme and page asset files, the page HTML and the transforms that only shape it, and the diagrams.
+
+A view-only render still reads every Markdown document and the corpus metadata. It also reads each file a document links to directly, images included, as a page render does. A linked file larger than `options.bundle.maxFileBytes` is listed as omitted without being read. Files that a linked file links to in turn are not read.
+
+Page scripts of a single page with extensions use the frozen global `mdRender`, version 1. `documents()` lists path and title, and `currentDocument()` names the shown document. `blocks(path, first, last)` and `block(path, id)` return shown elements. `show({ path, block?, anchor? })` opens a document of the page and scrolls to the target, resolving to the element or null. It also sets the fragment to that chapter. `onNavigate(listener)` reports the shown document after it changes, and `extensionData(name)` returns an extension's data.
 
 <a id="selector-reference"></a>
 ## Selector execution

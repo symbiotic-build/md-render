@@ -85,6 +85,7 @@ Use this map to choose the next explanation to read.
   - [Requirement: change rendered pages without a full load](requirements.md#req-instant-navigation)
   - [Requirement: export one self-contained document](requirements.md#req-single-file-export)
   - [Requirement: bundle portable local references](requirements.md#req-bundled-references)
+  - [Requirement: let extensions find rendered blocks](requirements.md#req-extensions)
 - [Decisions and questions](decisions-and-questions.md#decisions-and-questions) — Review settled scope decisions and remaining implementation gaps.
   - [Rebuild from local sources](decisions-and-questions.md#derived-output-choice)
   - [Keep one reading menu](decisions-and-questions.md#navigation-choice)
@@ -94,9 +95,11 @@ Use this map to choose the next explanation to read.
   - [Bundle local files for sharing](decisions-and-questions.md#bundle-local-files-choice)
   - [Bundle one level of local references](decisions-and-questions.md#bundle-depth-choice)
   - [Warn for broken fragments in bundled references](decisions-and-questions.md#bundle-fragment-choice)
+  - [Expose blocks to extensions](decisions-and-questions.md#extension-choice)
   - [Open questions and implementation evidence](decisions-and-questions.md#open-questions)
 - [Reference](reference.md#reference) — Look up command arguments, metadata fields and implementation entry points.
   - [Command and API](reference.md#command-reference)
+  - [Blocks and extensions](reference.md#extension-reference)
   - [Selector execution](reference.md#selector-reference)
   - [Metadata lookup](reference.md#metadata-reference)
   - [Anchor and navigation markers](reference.md#anchor-reference)
@@ -115,6 +118,9 @@ Use this map to choose the next explanation to read.
   - [Acceptance test: single-file reading](acceptance.md#test-single-file-reading)
   - [Acceptance test: portable references](acceptance.md#test-bundled-references)
   - [Acceptance test: bundle omissions](acceptance.md#test-bundle-omissions)
+  - [Acceptance test: block identity and extensions](acceptance.md#test-extension-render)
+  - [Acceptance test: document text in the view](acceptance.md#test-extension-source)
+  - [Acceptance test: extension browser interface](acceptance.md#test-extension-browser)
 
 ## Entity index
 
