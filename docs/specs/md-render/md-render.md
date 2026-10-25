@@ -119,6 +119,7 @@ Use this map to choose the next explanation to read.
   - [Acceptance test: portable references](acceptance.md#test-bundled-references)
   - [Acceptance test: bundle omissions](acceptance.md#test-bundle-omissions)
   - [Acceptance test: block identity and extensions](acceptance.md#test-extension-render)
+  - [Acceptance test: document text in the view](acceptance.md#test-extension-source)
   - [Acceptance test: extension browser interface](acceptance.md#test-extension-browser)
 
 ## Entity index
