@@ -277,8 +277,10 @@ export interface RenderedBlock {
 }
 
 const blockTags = new Set(['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'tr', 'pre', 'blockquote', 'figure']);
+// A Mermaid figure's caption says only whether the diagram renderer drew it; leaving it out gives the
+// figure its fence's text, and so the same ID, in every render and in a view without diagrams.
 function textContent(node: HtmlRoot | Element): string {
-  return node.children.map(child => child.type === 'text' ? child.value : child.type === 'element' ? textContent(child) : '').join('');
+  return node.children.map(child => child.type === 'text' ? child.value : child.type === 'element' && child.tagName !== 'figcaption' ? textContent(child) : '').join('');
 }
 
 /**

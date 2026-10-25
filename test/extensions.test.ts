@@ -78,11 +78,20 @@ it('gives a Mermaid figure and its source the fence lines, with and without the 
   for (const mermaid of [false, true]) {
     const { view, html } = await probe({ mermaid });
     const id = (tag: string) => blocksOf(view, 'index.md').find(block => block.tag === tag && block.lines[0] === 15)?.id;
-    expect([id('figure'), id('pre')]).toEqual([expect.stringMatching(/^rules~[0-9a-f]{6}$/), expect.stringMatching(/^rules~[0-9a-f]{6}$/)]);
+    // The figure and its source have the same text, the fence's, so the source is the repeat.
+    expect([id('figure'), id('pre')]).toEqual([expect.stringMatching(/^rules~[0-9a-f]{6}$/), expect.stringMatching(/^rules~[0-9a-f]{6}-2$/)]);
     expect(html).toMatch(new RegExp(`<figure class="mermaid-diagram" data-source-lines="15-17" data-block="${id('figure')}">`));
     expect(html).toContain(`<pre data-source-lines="15-17" data-block="${id('pre')}">`);
     if (mermaid) expect(html).toMatch(/<figure class="mermaid-diagram"[^>]*><div><svg/);
   }
+});
+
+// The figure's text and ID must not depend on whether the renderer drew it: renderView never draws.
+it('gives a Mermaid figure the text of its fence, whatever the diagram renderer drew', async () => {
+  const figure = (view: SiteView) => blocksOf(view, 'index.md').find(block => block.tag === 'figure');
+  const expected = { lines: [15, 17], text: 'graph TD; A-->B', id: `rules~${hex('graph TD; A-->B')}` };
+  expect(figure((await probe({ mermaid: true })).view)).toMatchObject(expected);
+  expect(figure((await renderView(source, { mermaid: false })).view)).toMatchObject(expected);
 });
 
 // A view needs no theme file and no diagram browser: with either missing, renderView still returns it.

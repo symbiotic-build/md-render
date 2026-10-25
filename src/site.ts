@@ -369,8 +369,8 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
   const view: SiteView | undefined = withView ? freeze({ documents: [...docs].map(([path, doc], index) => ({
     path, title: doc.title, markdown: doc.markdown, anchors: [...doc.anchors], blocks: rendered[index]!.blocks.map(block => ({ ...block, path })),
   })) }) : undefined;
-  const extensions = view ? await prepareExtensions(view, extensionList) : [];
   const diagrams = page ? await renderDiagrams(rendered.map(result => result.html), options.mermaid !== false) : { pages: rendered.map(result => result.html), available: false };
+  const extensions = view ? await prepareExtensions(view, extensionList) : [];
   return { corpus, docs, bodies: diagrams.pages.map(html => bundle ? html.replace(/file:/gi, value => value.slice(0, -1) + '&#58;') : html), files, logo, themeInit, cachePages, links, mermaid: diagrams.available, warnings, view, extensions };
 }
 
