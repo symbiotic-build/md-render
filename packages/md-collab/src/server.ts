@@ -209,7 +209,10 @@ export async function serve(options: ServeOptions): Promise<Session> {
     url: `${origin}/`,
     async close() {
       await stop();
-      await new Promise<void>(resolve => server.close(() => resolve()));
+      // A page that reconnects while the session stops holds a connection close would wait for.
+      const stopped = new Promise<void>(resolve => server.close(() => resolve()));
+      server.closeAllConnections();
+      await stopped;
     },
   };
 }
