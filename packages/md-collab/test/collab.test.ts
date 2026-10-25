@@ -97,12 +97,15 @@ const question = (): Thread => ({
 
 it('writes and reads a thread file without loss, and derives status from its entries', () => {
   const thread = question();
-  thread.entries.push({ at: '2026-10-24T09:41:12Z', actor: 'person:operator', kind: 'answer', choice: 1, note: 'Keep it short.\n## not a heading' });
+  thread.context = 'A fenced example:\n\n```markdown\n## Entries\n\n### Example\n```\n\nChoice: not a field';
+  const notes = ['Choice: 2 reads well', 'Source: the meeting', 'Settled as: nothing yet', '### Not an entry\nbody', 'Example:\n\n```\n## Entries\n### 2026-01-01T00:00:00Z person:x answer\n```', '\\## written with a backslash'];
+  notes.forEach((note, index) => thread.entries.push({ at: `2026-10-24T09:4${index}:00Z`, actor: 'person:operator', kind: 'comment', note }));
+  thread.entries.push({ at: '2026-10-24T09:50:00Z', actor: 'person:operator', kind: 'answer', choice: 1, note: 'Choice: 2\nKeep it short.' });
   const text = serializeThread(thread);
-  expect(text).toContain('### 2026-10-24T09:41:12Z person:operator answer\n\nChoice: 1\n\nKeep it short.\n\\## not a heading');
+  // Fields end at the first line that is not a field; a note line that looks like one carries a backslash.
+  expect(text).toContain('### 2026-10-24T09:50:00Z person:operator answer\n\nChoice: 1\n\n\\Choice: 2\nKeep it short.');
   const back = parseThread(text);
-  expect(back.entries[1]).toEqual({ ...thread.entries[1], note: 'Keep it short.\n\\## not a heading' });
-  expect(back.options).toEqual(thread.options);
+  expect(back).toEqual(thread);
   expect(threadStatus(back)).toBe('answered');
   expect(threadStatus({ entries: [...back.entries, { at: '2026-10-25T00:00:00Z', actor: 'person:operator', kind: 'reopened', note: '' }] })).toBe('open');
 });

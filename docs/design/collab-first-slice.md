@@ -146,6 +146,8 @@ Keep the annotation names short.
 ```
 
 - Field and file names are lower snake case. The front matter is YAML.
+- The body has the context, then `## Options` and `## Entries`. Each entry starts with `### <time> <actor> <kind>`, then its fields (`Choice:`, `Source:`, `Settled as:`), one per line, then a blank line and the note.
+- A line of context or note text that starts with `#`, `Choice: `, `Source: ` or `Settled as: `, after any number of backslashes, is written with one more backslash, inside fenced code too; reading removes exactly one. So no text can end a section or an entry or be read as a field, the parser never tracks fences, and an unclosed fence cannot swallow the entries. An option is one line.
 - `kind` is `comment` or `question` in this slice. A comment has no options, `decides` or `number`.
 - `decides` is `operator`, `lead` or `measurement`. `number` is the operator question number in its collection, unique there.
 - An anchor needs `path`, `commit` and `lines`; `block` and `quote` are written by the tool when it can.

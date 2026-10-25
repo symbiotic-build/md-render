@@ -50,6 +50,13 @@ const entryKinds: EntryKind[] = ['raised', 'comment', 'answer', 'settled', 'reop
 const timestamp = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/;
 const frontKeys = new Set(['id', 'kind', 'title', 'decides', 'number', 'priority', 'topic', 'anchors', 'settled_as']);
 
+// Text that could be read as file structure: a heading, which ends a section or an entry, or an
+// entry field. Context and note lines that start so get one more backslash in the file, fenced
+// code included, so the parser never needs to track fences; reading removes exactly one.
+const structure = /^\\*(?:#|Choice: |Source: |Settled as: )/;
+const escapeText = (text: string): string => text.split('\n').map(line => structure.test(line) ? '\\' + line : line).join('\n');
+const unescapeText = (text: string): string => text.split('\n').map(line => /^\\/.test(line) && structure.test(line.slice(1)) ? line.slice(1) : line).join('\n');
+
 /** The status the entries give: the latest of raised, reopened, answer, settled and withdrawn decides. */
 export function threadStatus(thread: Pick<Thread, 'entries'>): Status {
   let status: Status = 'open';
@@ -75,6 +82,7 @@ export function validateThread(thread: Thread): void {
     }
     if (thread.options.filter(option => option.recommended).length > 1) fail('more than one option is recommended');
     thread.options.forEach((option, index) => { if (option.n !== index + 1) fail('options are numbered 1, 2, 3 without gaps'); });
+    if (thread.options.some(option => option.text.includes('\n'))) fail('an option is one line of text');
   } else if (thread.decides || thread.number !== undefined || thread.options.length) {
     fail('a comment has no decides, number or options');
   }
@@ -109,7 +117,7 @@ export function parseThread(source: string): Thread {
   for (const key of Object.keys(front)) if (!frontKeys.has(key)) throw new Error(`Thread ${String(front.id)}: unknown field ${key}`);
   const body = match[2]!;
   const sections = body.split(/^## (Options|Entries)\n/m);
-  const context = sections[0]!.trim();
+  const context = unescapeText(sections[0]!.trim());
   let options: Option[] = [];
   let entries: Entry[] = [];
   for (let index = 1; index < sections.length; index += 2) {
@@ -133,7 +141,7 @@ export function parseThread(source: string): Thread {
           else entry.settledAs = field[2]!;
           lines.shift();
         }
-        entry.note = lines.join('\n').trim();
+        entry.note = unescapeText(lines.join('\n').trim());
         return entry;
       });
     }
@@ -166,7 +174,7 @@ export function serializeThread(thread: Thread): string {
   }));
   if (thread.settledAs) front.settled_as = thread.settledAs;
   const parts = [`---\n${stringifyYaml(front, { lineWidth: 0, flowCollectionPadding: false }).trimEnd()}\n---`, ''];
-  if (thread.context) parts.push(thread.context, '');
+  if (thread.context) parts.push(escapeText(thread.context), '');
   if (thread.options.length) parts.push('## Options', '', ...thread.options.map(option => `${option.n}. ${option.text}`), '');
   parts.push('## Entries', '');
   for (const entry of thread.entries) {
@@ -177,8 +185,7 @@ export function serializeThread(thread: Thread): string {
       entry.settledAs ? `Settled as: ${entry.settledAs}` : '',
     ].filter(Boolean);
     if (fields.length) parts.push(fields.join('\n'), '');
-    // A note line that starts like a heading is escaped, so it cannot end the entry.
-    if (entry.note) parts.push(entry.note.replace(/^(#{1,6} )/gm, '\\$1'), '');
+    if (entry.note) parts.push(escapeText(entry.note), '');
   }
   return parts.join('\n').replace(/\n+$/, '\n');
 }
