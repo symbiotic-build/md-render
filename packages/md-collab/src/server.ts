@@ -1,14 +1,13 @@
 // The local page: one loopback server. Every request needs the server's own Host, so a site that
 // rebinds its name to 127.0.0.1 is refused; writes also need the page's own Origin.
 import { randomBytes } from 'node:crypto';
-import { watch, type FSWatcher } from 'node:fs';
 import { mkdir, readdir, readFile, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { renderSinglePage, type RenderExtension, type SiteView } from 'md-render';
+import { loadCorpus, renderSinglePage, type RenderExtension, type SiteView } from 'md-render';
 import type { SettledDecision } from './settled.js';
 import { pageState, settledDecisions } from './state.js';
 import { checkStoreOutside, ConflictError, FileStore } from './store.js';
@@ -34,18 +33,22 @@ async function documentsCommit(root: string): Promise<string | null> {
 }
 
 /**
- * The modification time of every Markdown file under the root, by path, outside `.git` and
- * `node_modules`: the files whose change the documents' watch reports.
+ * The modification time, by path, of each file in the folder that `pick` accepts, and with `deep`
+ * also in its subfolders other than `.git` and `node_modules`. A folder that cannot be read, and a
+ * file or folder that disappears during the walk, is skipped.
  */
-async function markdownTimes(root: string, folder = ''): Promise<Map<string, number>> {
-  const times = new Map<string, number>();
-  for (const entry of await readdir(path.join(root, folder), { withFileTypes: true })) {
-    const name = path.join(folder, entry.name);
-    if (entry.isDirectory() && entry.name !== '.git' && entry.name !== 'node_modules') for (const [file, time] of await markdownTimes(root, name)) times.set(file, time);
-    else if (entry.isFile() && /\.md$/i.test(entry.name)) times.set(name, (await stat(path.join(root, name))).mtimeMs);
+async function modificationTimes(folder: string, pick: (name: string) => boolean, deep: boolean, times = new Map<string, number>()): Promise<Map<string, number>> {
+  for (const entry of await readdir(folder, { withFileTypes: true }).catch(() => [])) {
+    const file = path.join(folder, entry.name);
+    if (entry.isDirectory()) { if (deep && entry.name !== '.git' && entry.name !== 'node_modules') await modificationTimes(file, pick, deep, times); }
+    else if (entry.isFile() && pick(entry.name)) {
+      const time = await stat(file).then(info => info.mtimeMs, () => undefined);
+      if (time !== undefined) times.set(file, time);
+    }
   }
   return times;
 }
+const sameTimes = (a: Map<string, number>, b: Map<string, number>) => a.size === b.size && [...a].every(([file, time]) => b.get(file) === time);
 
 /** The md-render extension that adds the sidebar. */
 export async function collabExtension(): Promise<RenderExtension> {
@@ -54,12 +57,11 @@ export async function collabExtension(): Promise<RenderExtension> {
 }
 
 /**
- * One rendered generation: the page, the view and commit its anchors resolve against, the settled
- * decisions read with it, and the Markdown files' modification times after it. The page carries its
- * generation, a random identity of its render, so a page can tell it is out of date, also after the
- * server restarted.
+ * One rendered generation: the page, the view and commit its anchors resolve against, and the settled
+ * decisions read with it. The page carries its generation, a random identity of its render, so a page
+ * can tell it is out of date, also after the server restarted.
  */
-interface Snapshot { generation: string; html: string; view: SiteView; root: string; commit: string | null; settled: SettledDecision[]; times: Map<string, number> }
+interface Snapshot { generation: string; html: string; view: SiteView; commit: string | null; settled: SettledDecision[] }
 
 function send(response: ServerResponse, status: number, body: unknown, type = 'application/json; charset=utf-8'): void {
   response.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -84,17 +86,22 @@ export async function serve(options: ServeOptions): Promise<Session> {
   const store = new FileStore(path.resolve(options.store));
   const collection = await store.collection(options.collection);
   const sidebar = await collabExtension();
+  const { root } = await loadCorpus(options.documents);
+  await checkStoreOutside(store.root, root);
   // A render builds a whole snapshot; only a successful one replaces the current snapshot. Its
   // settled decisions come from the text it rendered, so a failed render discards them too.
   async function render(): Promise<Snapshot> {
     const generation = randomBytes(8).toString('hex');
     const extension: RenderExtension = { name: sidebar.name, prepare: async view => ({ ...await sidebar.prepare(view), data: { generation } }) };
-    const { html, view, root } = await renderSinglePage(options.documents, { mermaid: options.mermaid }, [extension]);
-    return { generation, html, view, root, commit: await documentsCommit(root), settled: settledDecisions(collection, view), times: await markdownTimes(root) };
+    const { html, view } = await renderSinglePage(options.documents, { mermaid: options.mermaid }, [extension]);
+    return { generation, html, view, commit: await documentsCommit(root), settled: settledDecisions(collection, view) };
   }
+  // The documents' modification times as last seen: recorded before the first render, and again by
+  // each check that finds a change, before the render it starts reads its files. So an edit made
+  // during a render starts the next one.
+  const markdownTimes = () => modificationTimes(root, name => /\.md$/i.test(name), true);
+  let documentTimes = await markdownTimes();
   let snapshot = await render();
-  const root = snapshot.root;
-  await checkStoreOutside(store.root, root);
   // Checks every anchor once at start, so a broken collection fails before the page opens.
   await pageState({ store, collection, view: snapshot.view, settled: snapshot.settled, commit: snapshot.commit, person: options.person });
 
@@ -151,12 +158,6 @@ export async function serve(options: ServeOptions): Promise<Session> {
       response.write(': connected\n\n');
       listeners.add(response);
       request.on('close', () => listeners.delete(response));
-      // A watch can miss a change, as macOS does in the first moment after it starts. So a page that
-      // connects re-renders the documents when a Markdown file changed, appeared or went since the
-      // current render. The page loads every thread when it connects, so store writes need nothing more.
-      const { times } = snapshot;
-      const changed = await markdownTimes(root).then(now => now.size !== times.size || [...now].some(([file, time]) => times.get(file) !== time), () => true);
-      if (changed) rerender();
       return;
     }
     if (request.method !== 'POST') return send(response, 404, { error: 'Not found' });
@@ -194,42 +195,37 @@ export async function serve(options: ServeOptions): Promise<Session> {
     return send(response, 404, { error: 'Not found' });
   }
 
-  // Agents write threads with the command line, so the page learns of changes from the store itself.
-  // After start only the threads folder changes, so it alone is watched, without recursion: on Linux,
-  // Node's recursive watch misses a thread file that an append renames into place. Drafts start with
-  // a dot; only finished files are changes.
+  // Agents write threads with the command line and authors edit the documents, so every second the
+  // server reads the modification times of the thread files and of the Markdown files. A thread file
+  // that changed, appeared or went sends "changed"; such a Markdown file starts a re-render. Drafts
+  // start with a dot; only finished thread files are changes.
   const threads = path.join(store.root, collection.name, 'threads');
   await mkdir(threads, { recursive: true });
+  const threadTimes = () => modificationTimes(threads, name => !name.startsWith('.'), false);
+  let storeTimes = await threadTimes();
+  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(options.port ?? 0, '127.0.0.1', resolve); });
   let timer: NodeJS.Timeout | undefined;
-  const watchers: FSWatcher[] = [];
-  try {
-    watchers.push(watch(threads, (_event, file) => {
-      if (file && !String(file).startsWith('.')) notify('changed');
-    }));
-    watchers.push(watch(root, { recursive: true }, (_event, file) => {
-      if (!file || !/\.md$/i.test(String(file)) || String(file).split(path.sep).includes('.git')) return;
-      clearTimeout(timer);
-      timer = setTimeout(rerender, 300);
-    }));
-    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(options.port ?? 0, '127.0.0.1', resolve); });
-  } catch (error) {
-    await stop();
-    throw error;
-  }
-  // A failed start and close end the same way: no render starts any more, and the running one ends.
-  async function stop(): Promise<void> {
-    closed = true;
-    clearTimeout(timer);
-    for (const watcher of watchers) watcher.close();
-    for (const listener of listeners) listener.end();
-    await rendering;
-  }
+  let polling: Promise<void> | undefined;
+  const poll = () => {
+    polling = (async () => {
+      const [documentsNow, threadsNow] = await Promise.all([markdownTimes(), threadTimes()]);
+      if (!sameTimes(threadsNow, storeTimes)) { storeTimes = threadsNow; notify('changed'); }
+      if (!sameTimes(documentsNow, documentTimes)) { documentTimes = documentsNow; rerender(); }
+      if (!closed) timer = setTimeout(poll, 1000);
+    })();
+  };
+  timer = setTimeout(poll, 1000);
   const port = (server.address() as AddressInfo).port;
   origin = `http://127.0.0.1:${port}`;
   return {
     url: `${origin}/`,
     async close() {
-      await stop();
+      // No check or render starts any more, and close waits for the ones running.
+      closed = true;
+      clearTimeout(timer);
+      await polling;
+      for (const listener of listeners) listener.end();
+      await rendering;
       // A page that reconnects while the session stops holds a connection close would wait for.
       const stopped = new Promise<void>(resolve => server.close(() => resolve()));
       server.closeAllConnections();

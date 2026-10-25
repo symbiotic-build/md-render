@@ -3,7 +3,7 @@ import { useBrowser } from '../../../test/browser-fixture.js';
 import type { BrowserSession } from '../../../src/browser.js';
 import { execFile, spawnSync } from 'node:child_process';
 import http from 'node:http';
-import { access, cp, mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, cp, mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -392,25 +392,6 @@ it('serves the page only under its own host and accepts writes only from its own
   } finally { await session.close(); }
 });
 
-it('tells an open page about every entry an agent appends to a thread', async () => {
-  const storeRoot = path.join(root, 'store-appends');
-  const store = new FileStore(storeRoot);
-  await store.createCollection({ name: 'spec', title: 'Appends', settled: [] });
-  const created = await store.create('spec', question());
-  const session = await serve({ documents: path.join(docs, 'docs'), store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
-  try {
-    // Each append renames a new file over the thread; every one of them is a change. A fresh
-    // connection per append hears only the changes made after it connected.
-    for (const note of ['First.', 'Second.', 'Third.']) {
-      const reader = (await fetch(session.url + 'api/events')).body!.getReader();
-      await heard(reader, ': connected');
-      await store.append('spec', created.thread.id, { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note });
-      await heard(reader, 'event: changed');
-      await reader.cancel();
-    }
-  } finally { await session.close(); }
-});
-
 it('refuses a store inside the documents\' working tree', async () => {
   const inside = path.join(docs, 'annotations');
   await new FileStore(inside).createCollection({ name: 'spec', title: 'Inside', settled: [] });
@@ -418,20 +399,75 @@ it('refuses a store inside the documents\' working tree', async () => {
     .rejects.toThrow(`The store ${inside} is inside the documents' working tree ${docs}; keep annotations in a separate folder`);
 });
 
-it('releases its file watchers when it cannot listen', async () => {
-  const storeRoot = path.join(root, 'store-port');
-  await new FileStore(storeRoot).createCollection({ name: 'spec', title: 'Port', settled: [] });
-  const blocker = http.createServer();
-  await new Promise<void>(resolve => blocker.listen(0, '127.0.0.1', resolve));
-  const watchers = () => process.getActiveResourcesInfo().filter(name => name === 'FSEventWrap').length;
-  const before = watchers();
+/** Serves a copy of the documents, with a store holding one question, and connects a page to its events. */
+async function connected(name: string, work: (copy: string, store: FileStore, reader: ReadableStreamDefaultReader<Uint8Array>, session: Session) => Promise<void>, prepare?: (copy: string) => Promise<void>): Promise<void> {
+  const copy = path.join(root, 'repo-' + name);
+  await cp(docs, copy, { recursive: true });
+  await prepare?.(copy);
+  const store = new FileStore(path.join(root, 'store-' + name));
+  await store.createCollection({ name: 'spec', title: 'Changes', settled: [] });
+  await store.create('spec', question());
+  const session = await serve({ documents: path.join(copy, 'docs'), store: store.root, collection: 'spec', person: 'person:operator', mermaid: false });
   try {
-    await expect(serve({ documents: path.join(docs, 'docs'), store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false, port: (blocker.address() as { port: number }).port }))
-      .rejects.toMatchObject({ code: 'EADDRINUSE' });
-    // A closed watcher leaves the list on the next turn of the event loop.
-    for (let turn = 0; turn < 100 && watchers() !== before; turn++) await delay(10);
-    expect(watchers()).toBe(before);
-  } finally { await new Promise(resolve => blocker.close(resolve)); }
+    const reader = (await fetch(session.url + 'api/events')).body!.getReader();
+    await heard(reader, ': connected');
+    await work(copy, store, reader, session);
+    await reader.cancel();
+  } finally { await session.close(); }
+}
+
+// One change while a page is connected; the page hears of it within a few seconds, and the page or
+// the state it then loads shows the change.
+it.each([
+  ['an edit to a document', 'reload', 'Identifiers are short.', (copy: string) => writeFile(path.join(copy, 'docs/storage.md'), spec.replace('Identifiers may be long.', 'Identifiers are short.'))],
+  ['a new document', 'reload', 'A new chapter.', (copy: string) => writeFile(path.join(copy, 'docs/new.md'), '# New\n\nA new chapter.\n')],
+  ["an agent's append to a thread", 'changed', 'Seen by the agent.', (_copy: string, store: FileStore) => store.append('spec', 'q01-identifier-length', { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'Seen by the agent.' })],
+  ['a new thread file', 'changed', 'Agent note', (_copy: string, store: FileStore) => store.create('spec', agentComment('c-agent-note'))],
+])('tells an open page about %s within a few seconds', async (name, event, text, change) => {
+  await connected('change-' + name.replace(/\W+/g, '-'), async (copy, store, reader, session) => {
+    await change(copy, store);
+    await heard(reader, `event: ${event}`, 5000);
+    const shown = event === 'reload' ? await (await fetch(session.url)).text() : JSON.stringify(await (await fetch(session.url + 'api/state')).json());
+    expect(shown.includes(text)).toBe(true);
+  });
+});
+
+it('serves the documents and shows an edit beside a folder it cannot read', async () => {
+  let locked = '';
+  try {
+    await connected('unreadable', async (copy, _store, reader, session) => {
+      await writeFile(path.join(copy, 'docs/storage.md'), spec.replace('Identifiers may be long.', 'Identifiers are short.'));
+      await heard(reader, 'event: reload', 5000);
+      expect((await (await fetch(session.url)).text()).includes('Identifiers are short.')).toBe(true);
+    }, async copy => {
+      locked = path.join(copy, 'private');
+      await mkdir(locked);
+      await writeFile(path.join(locked, 'notes.md'), '# Private\n');
+      await chmod(locked, 0);
+    });
+  } finally { if (locked) await chmod(locked, 0o755); }
+});
+
+// A failed start and close leave no change check behind, which would keep the process running.
+it.each([
+  ['a failed start', async (storeRoot: string) => {
+    const blocker = http.createServer();
+    await new Promise<void>(resolve => blocker.listen(0, '127.0.0.1', resolve));
+    try {
+      await expect(serve({ documents: path.join(docs, 'docs'), store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false, port: (blocker.address() as { port: number }).port }))
+        .rejects.toMatchObject({ code: 'EADDRINUSE' });
+    } finally { await new Promise(resolve => blocker.close(resolve)); }
+  }],
+  ['close', async (storeRoot: string) => {
+    await (await serve({ documents: path.join(docs, 'docs'), store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false })).close();
+  }],
+])('leaves no change check running after %s', async (name, start) => {
+  const storeRoot = path.join(root, 'store-stop-' + name.split(' ').pop());
+  await new FileStore(storeRoot).createCollection({ name: 'spec', title: 'Stop', settled: [] });
+  const timers = () => process.getActiveResourcesInfo().filter(resource => resource === 'Timeout').length;
+  const before = timers();
+  await start(storeRoot);
+  expect(timers()).toBe(before);
 });
 
 const sizeDecision = `# Decisions
@@ -459,34 +495,15 @@ it('keeps the last good page and its decisions when a re-render fails, and tells
       const [page, state] = await Promise.all([(await fetch(session.url)).text(), (await fetch(session.url + 'api/state')).json()]);
       return { first: page.includes('First text.'), heading: /Decision: (\w+ size)/.exec(page)?.[1] ?? null, decisions: state.settled.map((decision: { title: string }) => decision.title) };
     };
-    // One edit, before the page connects, renames the decision and breaks the render. The current
-    // render stays, so the connection finds the edit and renders again, which fails again.
-    await writeFile(path.join(documents, 'decisions.md'), '---\ntitle: [1]\n---\n' + sizeDecision.replace('Fixed size', 'Changed size'));
-    const reader = (await fetch(session.url + 'api/events')).body!.getReader();
-    expect(await heard(reader, 'event: failed')).toContain('data: {"error":"');
-    expect(await shown()).toEqual({ first: true, heading: 'Fixed size', decisions: ['Fixed size'] });
-    await writeFile(path.join(documents, 'decisions.md'), sizeDecision.replace('Fixed size', 'Changed size'));
-    await heard(reader, 'event: reload');
-    expect(await shown()).toEqual({ first: true, heading: 'Changed size', decisions: ['Changed size'] });
-    await reader.cancel();
-  } finally { await session.close(); }
-});
-
-it('shows a document edit made before any page connected', async () => {
-  const documents = path.join(root, 'connect-docs');
-  await mkdir(documents, { recursive: true });
-  await writeFile(path.join(documents, 'a.md'), '# A\n\nOld text.\n');
-  const storeRoot = path.join(root, 'store-connect');
-  await new FileStore(storeRoot).createCollection({ name: 'spec', title: 'Connect', settled: [] });
-  const session = await serve({ documents, store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
-  try {
-    await writeFile(path.join(documents, 'a.md'), '# A\n\nNew text.\n');
     const reader = (await fetch(session.url + 'api/events')).body!.getReader();
     await heard(reader, ': connected');
-    // The watch may have rendered the edit already; otherwise the connection renders it and sends reload.
-    if (!(await (await fetch(session.url)).text()).includes('New text.')) await heard(reader, 'event: reload');
-    const page = await (await fetch(session.url)).text();
-    expect({ edit: page.includes('New text.'), old: page.includes('Old text.') }).toEqual({ edit: true, old: false });
+    // One edit renames the decision and breaks the render; the current render stays.
+    await writeFile(path.join(documents, 'decisions.md'), '---\ntitle: [1]\n---\n' + sizeDecision.replace('Fixed size', 'Changed size'));
+    expect(await heard(reader, 'event: failed', 5000)).toContain('data: {"error":"');
+    expect(await shown()).toEqual({ first: true, heading: 'Fixed size', decisions: ['Fixed size'] });
+    await writeFile(path.join(documents, 'decisions.md'), sizeDecision.replace('Fixed size', 'Changed size'));
+    await heard(reader, 'event: reload', 5000);
+    expect(await shown()).toEqual({ first: true, heading: 'Changed size', decisions: ['Changed size'] });
     await reader.cancel();
   } finally { await session.close(); }
 });
@@ -504,9 +521,8 @@ it('finishes a running re-render before the session closes', async () => {
   process.env.TMPDIR = profiles;
   try {
     const session = await serve({ documents, store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: true });
-    // One edit adds a diagram; the watch or else a page's connection starts its render.
+    // One edit adds a diagram; the next check starts its render.
     await writeFile(path.join(documents, 'a.md'), '# A\n\n```mermaid\ngraph TD; A-->B\n```\n');
-    await heard((await fetch(session.url + 'api/events')).body!.getReader(), ': connected');
     for (const deadline = Date.now() + 10_000; !(await readdir(profiles)).length; await delay(10)) {
       if (Date.now() > deadline) { await session.close(); throw new Error('The re-render started no browser'); }
     }
