@@ -85,15 +85,18 @@ export function questionThreads(questions: ListedQuestion[], options: {
   return questions.map(question => {
     const anchors: Anchor[] = [];
     const add = (citation: { file: string; lines: [number, number] }, role: Anchor['role']) => {
+    // The cited path and lines of each anchor; saved anchor lines start at their first block.
+    const cites: { path: string; lines: [number, number] }[] = [];
       const target = corpusPath(citation.file);
       // A citation of a file outside the rendered documents stays text in the context.
       if (!options.view.documents.some(document => document.path === target)) {
         options.skipped?.push(`question ${question.number}: ${target}:${citation.lines[0]}-${citation.lines[1]} is not a rendered document`);
         return;
       }
-      if (anchors.some(anchor => anchor.path === target && anchor.lines[0] === citation.lines[0] && anchor.lines[1] === citation.lines[1])) return;
+      if (cites.some(cite => cite.path === target && cite.lines[0] === citation.lines[0] && cite.lines[1] === citation.lines[1])) return;
       anchors.push(anchorAt(options.view, target, citation.lines, options.commit, role));
     };
+      cites.push({ path: target, lines: citation.lines });
     const rendered = (item: { file: string }) => options.view.documents.some(document => document.path === corpusPath(item.file));
     const main = question.main ?? question.citations.find(item => rendered(item) && !options.settled.includes(corpusPath(item.file))) ?? question.citations.find(rendered);
     if (main) add(main, 'main');
@@ -103,7 +106,7 @@ export function questionThreads(questions: ListedQuestion[], options: {
       if (/^[a-z][a-z0-9+.-]*:/i.test(target)) return link;
       const file = corpusPath(path.resolve(options.base, decodeURIComponent(target.split('#')[0]!)));
       const first = spans(lines)[0]!;
-      const index = anchors.findIndex(anchor => anchor.path === file && anchor.lines[0] === first[0] && anchor.lines[1] === first[1]);
+      const index = cites.findIndex(cite => cite.path === file && cite.lines[0] === first[0] && cite.lines[1] === first[1]);
       return index < 0 ? `\`${name}:${lines}\`` : `[${name}:${lines}](#md-collab-anchor-${index})`;
     }).replace(/\[([^\]]+)\]\((?![a-z][a-z0-9+.-]*:|#)[^)\s]+\)/gi, '$1');
     return {

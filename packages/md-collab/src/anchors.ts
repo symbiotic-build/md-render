@@ -54,12 +54,14 @@ export function sameCommit(a: string, b: string): boolean {
 
 /**
  * Makes an anchor for source lines in the current documents: block ID and quote come from the
- * first rendered block the lines cover. Lines that cover no rendered block are refused.
+ * first rendered block with text that the lines cover, and the saved lines run from that block's first line to
+ * the last covered block's last line, so resolution by block or quote covers the same blocks.
+ * Lines that cover no rendered block are refused.
  */
 export function anchorAt(view: SiteView, path: string, lines: [number, number], commit: string, role: Anchor['role']): Anchor {
   if (!view.documents.some(document => document.path === path)) throw new Error(`${path} is not a rendered document`);
   const found = covering(documentBlocks(view, path), lines[0], lines[1]);
   const first = found.find(block => block.text) ?? found[0];
   if (!first) throw new Error(`${path}:${lines[0]}-${lines[1]} covers no rendered text`);
-  return { role, path, commit, lines, block: first.id, quote: first.text.slice(0, 80) };
+  return { role, path, commit, lines: [first.lines[0], found.at(-1)!.lines[1]], block: first.id, quote: first.text.slice(0, 80) };
 }

@@ -57,6 +57,7 @@ const decisions = `# Decisions
 
 **Rejected alternatives:** One call.
 `;
+const long = '# Long\n\nFirst line\nsecond line\nthird line.\n\nNext paragraph.\n';
 const questionList = `# Questions
 
 ## Limits
@@ -81,6 +82,7 @@ beforeAll(async () => {
   await writeFile(path.join(docs, 'docs/storage.md'), spec);
   await writeFile(path.join(docs, 'docs/decisions.md'), decisions);
   await writeFile(path.join(docs, 'questions.md'), questionList);
+  await writeFile(path.join(docs, 'docs/long.md'), long);
   for (const args of [['init', '-q'], ['add', '.'], ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'docs']]) await run('git', ['-C', docs, ...args]);
   commit = (await run('git', ['-C', docs, 'rev-parse', 'HEAD'])).stdout.trim();
   view = (await renderSinglePage(path.join(docs, 'docs'), { mermaid: false })).view;
@@ -181,6 +183,14 @@ it('finds an anchor again by block, then quote, then lines, and reports an orpha
   expect(resolveAnchor({ ...anchor, block: undefined, quote: undefined }, view, commit.slice(0, 7))).toMatchObject({ method: 'lines' });
   expect(resolveAnchor({ ...anchor, block: undefined, quote: 'Gone text.' }, view, 'f'.repeat(40))).toMatchObject({ method: 'orphan', blocks: [] });
   expect(() => anchorAt(view, 'docs/storage.md', [2, 2], commit, 'main')).toThrow('docs/storage.md:2-2 covers no rendered text');
+});
+
+it('covers every passage of a citation that starts inside its first paragraph', () => {
+  // Lines 4-7 start inside the paragraph of lines 3-5 and end in the paragraph on line 7.
+  const anchor = anchorAt(view, 'docs/long.md', [4, 7], commit, 'main');
+  const expected = [{ path: 'docs/long.md', id: expect.stringMatching(/^long~/), lines: [3, 5] }, { path: 'docs/long.md', id: expect.stringMatching(/^long~/), lines: [7, 7] }];
+  expect(resolveAnchor(anchor, view, 'f'.repeat(40))).toEqual({ anchor, method: 'block', blocks: expected });
+  expect(resolveAnchor({ ...anchor, block: undefined }, view, 'f'.repeat(40))).toEqual({ anchor: { ...anchor, block: undefined }, method: 'quote', blocks: expected });
 });
 
 it('reads settled decisions with their dates and deciders from the specification', async () => {

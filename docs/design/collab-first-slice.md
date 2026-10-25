@@ -150,7 +150,7 @@ Keep the annotation names short.
 - A line of context or note text that starts with `#`, `Choice: `, `Source: ` or `Settled as: `, after any number of backslashes, is written with one more backslash, inside fenced code too; reading removes exactly one. So no text can end a section or an entry or be read as a field, the parser never tracks fences, and an unclosed fence cannot swallow the entries. An option is one line.
 - `kind` is `comment` or `question` in this slice. A comment has no options, `decides` or `number`.
 - `decides` is `operator`, `lead` or `measurement`. `number` is the operator question number in its collection, unique there.
-- An anchor needs `path`, `commit` and `lines`; `block` and `quote` are written by the tool when it can.
+- An anchor needs `path`, `commit` and `lines`; `block` and `quote` are written by the tool when it can. The tool saves `lines` from the first line of the block it names to the last line of the last block cited, so resolution by block or quote covers the same blocks.
 - The status comes from the entries: the last of `raised`, `reopened`, `answered`, `settled` and `withdrawn` decides it, and `comment` entries never change it. `answer` makes it `answered`.
 - Only a `person:` actor writes an `answer`. An agent that records an answer the operator gave in chat writes it as the person with the line `Source: chat` in the entry.
 
