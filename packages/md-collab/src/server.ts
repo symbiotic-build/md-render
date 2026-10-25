@@ -2,7 +2,7 @@
 // rebinds its name to 127.0.0.1 is refused; writes also need the page's own Origin.
 import { randomBytes } from 'node:crypto';
 import { watch, type FSWatcher } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
@@ -163,12 +163,16 @@ export async function serve(options: ServeOptions): Promise<Session> {
   }
 
   // Agents write threads with the command line, so the page learns of changes from the store itself.
-  // The lock and drafts of a write start with a dot; only finished files are changes.
+  // After start only the threads folder changes, so it alone is watched, without recursion: on Linux,
+  // Node's recursive watch misses a thread file that an append renames into place. Drafts start with
+  // a dot; only finished files are changes.
+  const threads = path.join(store.root, collection.name, 'threads');
+  await mkdir(threads, { recursive: true });
   let timer: NodeJS.Timeout | undefined;
   const watchers: FSWatcher[] = [];
   try {
-    watchers.push(watch(path.join(store.root, collection.name), { recursive: true }, (_event, file) => {
-      if (file && !path.basename(String(file)).startsWith('.')) notify('changed');
+    watchers.push(watch(threads, (_event, file) => {
+      if (file && !String(file).startsWith('.')) notify('changed');
     }));
     watchers.push(watch(root, { recursive: true }, (_event, file) => {
       if (!file || !/\.md$/i.test(String(file)) || String(file).split(path.sep).includes('.git')) return;

@@ -115,14 +115,19 @@ const question = (): Thread => ({
 // The question list with a citation inside an option, as the import and the page see it.
 const citingList = questionList.replace('2. No cap.', '2. No cap, as [storage.md:7](docs/storage.md) allows.');
 const imported = () => questionThreads(parseQuestionList(citingList, path.join(docs, 'questions.md')), { view, corpusRoot: docs, commit, actor: 'agent:test/1', at: '2026-10-24T00:00:00Z', settled: ['docs/decisions.md'], base: docs });
-const decode = new TextDecoder();
-/** Reads a server-sent event stream until `text` arrives, or fails after `ms`. */
+/** Reads a server-sent event stream until `text` arrives; fails when the stream ends first or after `ms`. */
 async function heard(reader: ReadableStreamDefaultReader<Uint8Array>, text: string, ms = 10_000): Promise<string> {
   let received = '';
+  const decoder = new TextDecoder();
   const deadline = Date.now() + ms;
   while (!received.includes(text)) {
-    const timeout = delay(Math.max(0, deadline - Date.now())).then(() => { throw new Error(`Timed out waiting for ${text}; heard ${JSON.stringify(received)}`); });
-    received += decode.decode((await Promise.race([reader.read(), timeout])).value);
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`Timed out waiting for ${text}; heard ${JSON.stringify(received)}`)), Math.max(0, deadline - Date.now())); });
+    try {
+      const { done, value } = await Promise.race([reader.read(), timeout]);
+      if (done) throw new Error(`The event stream ended before ${text}; heard ${JSON.stringify(received)}`);
+      received += decoder.decode(value, { stream: true });
+    } finally { clearTimeout(timer); }
   }
   return received;
 }
@@ -291,15 +296,33 @@ it('serves the page only under its own host and accepts writes only from its own
     // An open page hears about a change an agent writes straight to the store.
     const events = await fetch(origin + '/api/events');
     const reader = events.body!.getReader();
-    await reader.read();
+    await heard(reader, ': connected');
     await store.append('spec', created.thread.id, { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'Seen?' });
-    let heard = '';
-    while (!heard.includes('event: changed')) heard += new TextDecoder().decode((await reader.read()).value);
+    await heard(reader, 'event: changed');
     await reader.cancel();
     const comment = await fetch(origin + '/api/comments', { method: 'POST', headers: { ...headers, origin }, body: JSON.stringify({ note: 'Is 4 MiB measured?', anchors: [{ path: 'docs/storage.md', lines: [7, 7], quote: 'The write group is 4 MiB.' }] }) });
     expect(comment.status).toBe(200);
     const after = await (await fetch(origin + '/api/state', { headers })).json();
     expect(after.threads.map((item: { kind: string; status: string }) => [item.kind, item.status])).toEqual([['comment', 'open'], ['question', 'answered']]);
+  } finally { await session.close(); }
+});
+
+it('tells an open page about every entry an agent appends to a thread', async () => {
+  const storeRoot = path.join(root, 'store-appends');
+  const store = new FileStore(storeRoot);
+  await store.createCollection({ name: 'spec', title: 'Appends', settled: [] });
+  const created = await store.create('spec', question());
+  const session = await serve({ documents: path.join(docs, 'docs'), store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
+  try {
+    // Each append renames a new file over the thread; every one of them is a change. A fresh
+    // connection per append hears only the changes made after it connected.
+    for (const note of ['First.', 'Second.', 'Third.']) {
+      const reader = (await fetch(session.url + 'api/events')).body!.getReader();
+      await heard(reader, ': connected');
+      await store.append('spec', created.thread.id, { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note });
+      await heard(reader, 'event: changed');
+      await reader.cancel();
+    }
   } finally { await session.close(); }
 });
 
