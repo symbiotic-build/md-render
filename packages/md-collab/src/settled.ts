@@ -9,15 +9,11 @@ export interface SettledDecision {
   title: string;
   topic: string | null;
   path: string;
-  choice: string;
-  reason: string;
-  rejected: string;
-  authority: string;
   date: string | null;
   decidedBy: Decider[];
 }
 
-const fieldNames = ['Choice', 'Authority', 'Reason', 'Rejected alternatives', 'Decided by', 'Date'] as const;
+const fieldNames = ['Authority', 'Decided by', 'Date'] as const;
 type FieldName = (typeof fieldNames)[number];
 const isoDate = /\b(\d{4}-\d\d-\d\d)\b/g;
 
@@ -44,9 +40,10 @@ export function decidersOf(authority: string, explicit?: string): Decider[] {
 /** A Markdown node as md-render's parser builds it, with only the parts plain text needs. */
 type MarkdownNode = { type: string; value?: string; alt?: string | null; children?: MarkdownNode[] };
 type TopLevel = ParsedDocument['tree']['children'][number];
-/** The text a reader sees in a node: link and image text without their targets, and no markup. */
+/** The text a reader sees in a node: link and image text without their targets, no markup, and a space for a line break. */
 function plainText(node: MarkdownNode): string {
   if (node.type === 'html') return '';
+  if (node.type === 'break') return ' ';
   return node.value ?? node.alt ?? (node.children ?? []).map(plainText).join('');
 }
 
@@ -54,27 +51,24 @@ function plainText(node: MarkdownNode): string {
  * Reads every decision section of one rendered chapter, from md-render's parse of the text it
  * rendered. A section is a top-level level-three heading whose source line is `### Decision: <title>`,
  * so a heading inside a code fence, list or quote is none. Its anchor is the one md-render gives the
- * heading's blocks: an explicit anchor before the heading, otherwise the heading's own ID. A field is
- * a top-level paragraph of the section that starts with a bold `<Field>:`; its value is the rest of
- * that paragraph as plain text. Code blocks, lists and quotes are never fields.
+ * heading's blocks: an explicit anchor before the heading, otherwise the heading's own ID. Its date
+ * and decider come from its fields. A field is a top-level paragraph of the section that starts with
+ * a bold `<Field>:`; its value is the rest of that paragraph as plain text, a line break counted as a
+ * space. Code blocks, lists and quotes are never fields.
  */
 export function readSettled(document: SiteView['documents'][number]): SettledDecision[] {
   const lines = document.markdown.replace(/\r\n?/g, '\n').split('\n');
   const source = (node: TopLevel) => lines[(node.position?.start.line ?? 0) - 1] ?? '';
+  const anchors = new Map(document.blocks.filter(block => block.tag === 'h3').map(block => [block.lines[0], block.heading]));
   const decisions: SettledDecision[] = [];
   let topic: string | null = null;
   let section: { heading: TopLevel; title: string; id: string; fields: Partial<Record<FieldName, string>> } | undefined;
   const finish = () => {
     if (!section) return;
     const { fields, heading, title, id } = section;
-    if (!fields.Choice || !fields.Authority) throw new Error(`${document.path}:${heading.position?.start.line}: decision "${title}" needs Choice and Authority`);
+    if (!fields.Authority) throw new Error(`${document.path}:${heading.position?.start.line}: decision "${title}" needs Authority`);
     const dates = fields.Date ? [fields.Date] : [...fields.Authority.matchAll(isoDate)].map(match => match[1]!).sort();
-    decisions.push({
-      id, title, topic, path: document.path,
-      choice: fields.Choice, reason: fields.Reason ?? '', rejected: fields['Rejected alternatives'] ?? '',
-      authority: fields.Authority, date: dates.at(-1) ?? null,
-      decidedBy: decidersOf(fields.Authority, fields['Decided by']),
-    });
+    decisions.push({ id, title, topic, path: document.path, date: dates.at(-1) ?? null, decidedBy: decidersOf(fields.Authority, fields['Decided by']) });
     section = undefined;
   };
   for (const node of parseDocument(document.markdown, '').tree.children) {
@@ -82,7 +76,7 @@ export function readSettled(document: SiteView['documents'][number]): SettledDec
       finish();
       if (node.depth === 2) topic = source(node).replace(/^##\s+/, '').trim();
       const title = node.depth === 3 ? /^### Decision: (.+)$/.exec(source(node))?.[1] : undefined;
-      const id = document.blocks.find(block => block.tag === 'h3' && block.lines[0] === node.position?.start.line)?.heading;
+      const id = anchors.get(node.position?.start.line ?? 0);
       if (title && id) section = { heading: node, title: title.trim(), id, fields: {} };
     } else if (section && node.type === 'paragraph' && node.children[0]?.type === 'strong') {
       const name = plainText(node.children[0]).replace(/:$/, '') as FieldName;

@@ -116,7 +116,6 @@ td > .ov-tags, th > .ov-tags { left: -4px; top: -10px; flex-direction: row; }
 .ov-more:focus-visible { outline: 2px solid var(--accent); }
 .ov-detail { margin-top: 8px; }
 .ov-detail .ov-ctx { font-size: 13px; }
-.ov-auth { font-size: 12.5px; border-left: 3px solid var(--line); padding-left: 8px; margin: 8px 0; color: var(--muted); }
 .ov-events { list-style: none; padding: 0; margin: 8px 0 0; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .ov-events li { margin: 2px 0; }
 .ov-optro { display: flex; gap: 8px; font-size: 13px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; margin: 4px 0; }
