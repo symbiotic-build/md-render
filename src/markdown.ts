@@ -285,7 +285,7 @@ function textContent(node: HtmlRoot | Element): string {
 
 /**
  * Marks every Markdown block with its source lines and a block ID: the nearest heading's ID
- * (an explicit anchor before the heading wins), "~", and six hex digits of the SHA-256 of
+ * (the explicit anchor the parser chose for it wins; "top" before the first heading), "~", and six hex digits of the SHA-256 of
  * the block's whitespace-normalised text. Repeats in one document get "-2", "-3".
  */
 function markBlocks(tree: HtmlRoot, mark: boolean, named: ReadonlyMap<string, string>): RenderedBlock[] {

@@ -92,5 +92,13 @@
       "rejected_forms": []
     }
   },
-  "naming_rules": []
+  "naming_rules": [
+    {
+      "id": "extension-interface-symbol",
+      "kind": "interface",
+      "field": "symbols",
+      "pattern": "[A-Z][A-Za-z0-9]*|[a-z][A-Za-z0-9]*|(?:data|md-render)-[a-z0-9]+(?:-[a-z0-9]+)*",
+      "message": "Types are upper camel case; functions and fields are lower camel case; HTML attributes and element IDs are lower kebab case and start with data- or md-render-."
+    }
+  ]
 }

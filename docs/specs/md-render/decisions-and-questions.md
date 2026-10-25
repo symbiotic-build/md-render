@@ -170,7 +170,7 @@ The export continues.
 <a id="extension-choice"></a>
 ## Expose blocks to extensions
 
-**Choice:** Mark every rendered Markdown block with its source lines and a block ID, and let render-time extensions add style, script and data to every page through a typed interface and a version-1 browser interface.
+**Choice:** In a single-page render with extensions, mark every rendered Markdown block with its source lines and a block ID, and let the extensions add style, script and data to that page through a typed interface and a version-1 browser interface. `renderView` and `renderSinglePage` return the blocks of every render they make; folder output and the single-file export take no extensions and keep their bytes.
 
 **Authority:** Operator-approved framework of 2026-10-24: md-render owns rendering, block identity and anchors; tools that write, such as md-collab, use it and never edit its output. The interface details are a lead proposal of the same day.
 

@@ -41,21 +41,58 @@ The CLI prints each warning and reports unavailable Mermaid explicitly.
 <a id="extension-reference"></a>
 ## Blocks and extensions
 
-In a render with at least one extension, every Markdown block, a `p`, `li`, `h1`–`h6`, `tr`, `pre`, `blockquote` or `figure` element, carries two attributes. A Mermaid fence's `figure` and its source `pre` both carry the fence's lines. The figure's text leaves out its caption, which says only whether the diagram renderer drew it, so the figure has the fence's text and the same ID in every render and in `renderView`; its source `pre` is the repeat. Folder output and the single-file export take no extensions; their bytes are unchanged and they do no block work. `renderSinglePage` and `renderView` return a view, so they collect blocks with or without extensions.
+In a render with at least one extension, every Markdown block, a `p`, `li`, `h1`–`h6`, `tr`, `pre`, `blockquote` or `figure` element, carries two attributes. A Mermaid fence's `figure` and its source `pre` both carry the fence's lines. The figure's text leaves out its caption, which says only whether the diagram renderer drew it. So the figure has the fence's text and the same ID in every render and in `renderView`, and its source `pre` is the repeat. Folder output and the single-file export take no extensions; their bytes are unchanged and they do no block work. `renderSinglePage` and `renderView` return a view, so they collect blocks with or without extensions.
 
-`data-source-lines="3-4"` names its first and last source line. `data-block` names its block ID: the nearest heading's ID, `~` and six hexadecimal digits of the SHA-256 of its whitespace-normalised text. An explicit anchor before a heading names that section instead of the heading's own ID; it is the anchor the menu uses, in each form of [Anchor and navigation markers](#anchor-reference). A paragraph that holds only anchors is a block too. A repeated ID in one document gets `-2`, `-3`. Plain-text source pages keep their `L<n>` line IDs and have no blocks. In a single page with extensions, each chapter's section carries `data-source-path` with the document's corpus path.
+`data-source-lines="3-4"` names its first and last source line. `data-block` names its block ID: the section ID, `~` and six hexadecimal digits of the SHA-256 of its whitespace-normalised text. The section ID is the nearest heading's ID, or `top` before the first heading. An explicit anchor before a heading names that section instead of the heading's own ID. It is the anchor the menu uses, in each form of [Anchor and navigation markers](#anchor-reference). A paragraph that holds only anchors is a block too.
 
-`renderSinglePage(input, options, extensions)` accepts `extensions`, a list of `{ name, prepare(view) }`; the folder and file exports take none. A name matches `[a-z][a-z0-9-]*` and is unique. `prepare` runs once, after every page and its diagrams are rendered and before the page is written. It receives the documents in reading order with their path, title, `markdown`, anchors and blocks, frozen, so no extension changes what a later one sees. It returns an object with optional `styles` and `script` strings, `data` and a `connect` boolean. md-render reads only these fields, so any other field, such as `name`, is ignored. Any other return value, or a field of the wrong type, stops the render with `Extension <name> failed:` and `prepare did not return an object`, `its <field> is not a string` or `its connect is not a boolean`.
+A repeated ID in one document gets `-2`, `-3`. Plain-text source pages keep their `L<n>` line IDs and have no blocks. In a single page with extensions, each chapter's section carries `data-source-path` with the document's corpus path.
 
-A document's `markdown` is the text md-render read and rendered; for a plain-text source page it is that file's text. An extension that needs the source takes it from there, so it sees the page's text and reads no file again. The exported `ParsedDocument` type has the same text as an optional `markdown` field, so document objects that callers built without it still typecheck; `parseDocument` always sets it.
+`renderSinglePage(input, options, extensions)` accepts `extensions`, a list of `{ name, prepare(view) }`; the folder and file exports take none. A name matches `[a-z][a-z0-9-]*` and is unique. `prepare` runs once, after every page and its diagrams are rendered and before the page is written. It receives the view, frozen, so no extension changes what a later one sees. It returns an object with optional `styles` and `script` strings, `data` and a `connect` boolean. md-render reads only these fields, so any other field, such as `name`, is ignored.
 
-md-render embeds the style, the JSON data and the inline script in the page, and adds the script's SHA-256 hash to the page policy. It first turns the script's CR LF and CR line endings into LF, as the HTML parser does, so the hash matches the script the browser runs. `connect: true` allows requests to the page's own origin. A failing `prepare` stops the render with `Extension <name> failed: <message>`, and a script that contains `</script`, `<!--` or `<script`, in any case, is refused with `Extension <name> failed: its script contains <text>`. The first ends the script element early; the other two together make the HTML parser read the end tag as script text.
+The view is `{ documents }`, the documents in reading order. Each document is `{ path, title, markdown, anchors, blocks }`:
+
+- `path` is its corpus path, and `title` its chapter title.
+- `anchors` lists every ID a link can target in it.
+- `blocks` lists its blocks in source order.
+
+Each block is `{ id, path, lines, tag, text, heading }`:
+
+- `id` is its block ID, and `path` its document's path.
+- `lines` is `[first, last]`, its first and last source line, counted from 1 and both included.
+- `tag` is its element name in lower case.
+- `text` is the whitespace-normalised text that its ID hashes.
+- `heading` is the section ID in its ID, or null before the first heading.
+
+A page script shows a block with `mdRender.show({ path: block.path, block: block.id })`.
+
+A document's `markdown` is the text md-render read and rendered; for a plain-text source page it is that file's text. An extension that needs the source takes it from there, so it sees the page's text and reads no file again. The exported `ParsedDocument` type has the same text as an optional `markdown` field. So document objects that callers built without it still typecheck; `parseDocument` always sets it.
+
+md-render embeds the style, the JSON data and the inline script in the page, and adds the script's SHA-256 hash to the page policy. It first turns the script's CR LF and CR line endings into LF, as the HTML parser does. So the hash matches the script the browser runs. `connect: true` allows requests to the page's own origin.
+
+Each of these stops the render with `Extension <name> failed: <reason>`, and the call returns no page:
+
+- `prepare` throws. The reason is the thrown `Error`'s message, or any other thrown value as text, and the thrown value is the error's `cause`.
+- `prepare` returns something other than an object: `prepare did not return an object`.
+- `styles` or `script` is not a string: `its <field> is not a string`.
+- `connect` is not a boolean: `its connect is not a boolean`.
+- The script contains `</script`, `<!--` or `<script`, in any case: `its script contains <text>`. The first ends the script element early. The other two together make the HTML parser read the end tag as script text.
 
 `renderSinglePage` returns `{ html, view, root, warnings }` without writing a file; `root` is the corpus root. `renderView(input, options)` returns `{ view, root, warnings }` without building a page. It skips the theme and page asset files, the page HTML and the transforms that only shape it, and the diagrams.
 
-A view-only render still reads every Markdown document and the corpus metadata. It also reads each file a document links to directly, images included, as a page render does. A linked file larger than `options.bundle.maxFileBytes` is listed as omitted without being read. Files that a linked file links to in turn are not read.
+A view-only render still reads every Markdown document and the corpus metadata. Like a page render, it also reads each file a document links to directly. A linked file larger than `options.bundle.maxFileBytes` is listed as omitted without being read. That limit covers links only. md-render reads every image that a document embeds in full, whatever its size, including the images of linked Markdown files that it bundles. Files that a linked file links to in turn are not read.
 
-Page scripts of a single page with extensions use the frozen global `mdRender`, version 1. `documents()` lists path and title, and `currentDocument()` names the shown document. `blocks(path, first, last)` and `block(path, id)` return shown elements. `show({ path, block?, anchor? })` opens a document of the page and scrolls to the target, resolving to the element or null. An anchor's target is the block that holds it; an anchor alone in its paragraph, or outside every block, targets the element after it, such as the heading it names. `show` opens every closed disclosure around the target, such as the source of a drawn diagram. It also sets the fragment to that chapter. `onNavigate(listener)` reports the shown document after it changes, and `extensionData(name)` returns an extension's data.
+Names in this interface follow these conventions:
+
+- Types are upper camel case nouns, such as `RenderExtension`, `ExtensionOutput`, `SiteView` and `Block`.
+- Functions and fields are lower camel case. A function that acts starts with its verb, such as `renderSinglePage`, `prepare` and `show`.
+- A function that returns something is named after it, such as `documents`, `currentDocument` and `extensionData`. A listener registration starts with `on`, as `onNavigate` does.
+- Fields are nouns, such as `markdown`, `lines` and `heading`. The page global is `mdRender`.
+- Extension names are lower kebab case and match `[a-z][a-z0-9-]*`.
+- HTML attributes and element IDs are lower kebab case and start with `data-` or `md-render-`. Examples are `data-block`, `data-source-lines`, `data-source-path`, `data-md-render-extension` and `md-render-extension-data-<name>`.
+
+Page scripts of a single page with extensions use the frozen global `mdRender`, version 1. `documents()` lists path and title, and `currentDocument()` names the shown document. `blocks(path, first, last)` and `block(path, id)` return shown elements. `show({ path, block?, anchor? })` opens a document of the page and scrolls to the target, resolving to the element or null.
+
+An anchor's target is the block that holds it. An anchor alone in its paragraph, or outside every block, targets the element after it, such as the heading it names. `show` opens every closed disclosure around the target, such as the source of a drawn diagram. It also sets the fragment to that chapter. `onNavigate(listener)` reports the shown document after it changes, and `extensionData(name)` returns an extension's data.
 
 <a id="selector-reference"></a>
 ## Selector execution
