@@ -377,12 +377,7 @@ it('keeps the last good page when a re-render fails and tells the open page', as
   try {
     const reader = (await fetch(session.url + 'api/events')).body!.getReader();
     await heard(reader, ': connected');
-    // The file watcher starts asynchronously: rewrite the file until a re-render shows it is live.
-    let live = false;
-    const touching = (async () => { for (let attempt = 0; attempt < 30 && !live; attempt++) { await writeFile(path.join(documents, 'a.md'), '# A\n\nFirst text.\n'); await delay(300); } })();
-    await heard(reader, 'event: reload');
-    live = true;
-    await touching;
+    // One edit after start breaks the render.
     await writeFile(path.join(documents, 'a.md'), '---\ntitle: [1]\n---\n# A\n\nBroken text.\n');
     expect(await heard(reader, 'event: failed')).toContain('data: {"error":"');
     const page = await (await fetch(session.url)).text();

@@ -2,7 +2,8 @@
 // rebinds its name to 127.0.0.1 is refused; writes also need the page's own Origin.
 import { randomBytes } from 'node:crypto';
 import { watch, type FSWatcher } from 'node:fs';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
@@ -171,14 +172,30 @@ export async function serve(options: ServeOptions): Promise<Session> {
   let timer: NodeJS.Timeout | undefined;
   const watchers: FSWatcher[] = [];
   try {
+    let probe = '';
+    let live = () => {};
     watchers.push(watch(threads, (_event, file) => {
-      if (file && !String(file).startsWith('.')) notify('changed');
+      if (file && String(file) === probe) live();
+      else if (file && !String(file).startsWith('.')) notify('changed');
     }));
     watchers.push(watch(root, { recursive: true }, (_event, file) => {
       if (!file || !/\.md$/i.test(String(file)) || String(file).split(path.sep).includes('.git')) return;
       clearTimeout(timer);
       timer = setTimeout(rerender, 300);
     }));
+    // On macOS the watches start listening a moment later, on another thread, and they share one
+    // event stream. Writing a dot file into the threads folder until it is reported shows that the
+    // stream is live, so an edit made right after serve returns is seen.
+    probe = `.ready.${randomBytes(4).toString('hex')}.tmp`;
+    const reported = new Promise<void>(resolve => { live = resolve; });
+    let seen = false;
+    void reported.then(() => { seen = true; });
+    for (const deadline = Date.now() + 5_000; !seen && Date.now() < deadline;) {
+      await writeFile(path.join(threads, probe), '');
+      await Promise.race([reported, delay(50)]);
+    }
+    await rm(path.join(threads, probe), { force: true });
+    if (!seen) console.error(`md-collab: ${threads} reported no change within 5 seconds; the page may miss live updates`);
     await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(options.port ?? 0, '127.0.0.1', resolve); });
   } catch (error) {
     for (const watcher of watchers) watcher.close();
