@@ -1,7 +1,7 @@
 import { useBrowser } from './browser-fixture.js';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -79,6 +79,22 @@ it.each([
     const { view } = await renderView(source, { mermaid: mermaid ?? false, ...(theme ? { theme: path.join(root, theme) } : {}) });
     expect(view).toEqual(expected);
   } finally { if (saved === undefined) delete process.env.MD_RENDER_BROWSER; else process.env.MD_RENDER_BROWSER = saved; }
+});
+
+it('returns the view without reading the images it links, and still refuses a missing one', async () => {
+  const input = path.join(root, 'images');
+  await mkdir(input);
+  await writeFile(path.join(input, 'index.md'), '# Pictures\n\n![Logo](logo.png)\n');
+  await writeFile(path.join(input, 'logo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const { view: expected } = await renderView(input, { mermaid: false });
+  // The page needs the image's bytes; the view does not, so a file nobody may read still gives the view.
+  await chmod(path.join(input, 'logo.png'), 0o000);
+  try {
+    await expect(renderSinglePage(input, { mermaid: false })).rejects.toMatchObject({ code: 'EACCES' });
+    expect((await renderView(input, { mermaid: false })).view).toEqual(expected);
+  } finally { await chmod(path.join(input, 'logo.png'), 0o644); }
+  await rm(path.join(input, 'logo.png'));
+  await expect(renderView(input, { mermaid: false })).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
 it("keeps main's output bytes for renders without extensions (recorded from main at dd43046)", async () => {

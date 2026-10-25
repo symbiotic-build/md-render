@@ -326,6 +326,8 @@ export async function documentHtml(doc: ParsedDocument): Promise<string> {
 export async function renderDocument(doc: ParsedDocument, options: { blocks?: boolean; mark?: boolean; html?: boolean } = {}): Promise<{ html: string; blocks: RenderedBlock[] }> {
   const tree = await writer.run(doc.tree) as HtmlRoot;
   const blocks = doc.sourceLines === undefined && (options.blocks || options.mark) ? markBlocks(tree, options.mark === true) : [];
+  // The rest only shapes the HTML: a render that wants only blocks skips it.
+  if (options.html === false) return { html: '', blocks };
   visit(tree, 'element', (node, index, parent) => {
     if (doc.sourceLines !== undefined && node.tagName === 'pre') {
       const code = node.children[0];
@@ -347,5 +349,5 @@ export async function renderDocument(doc: ParsedDocument, options: { blocks?: bo
       return SKIP;
     }
   });
-  return { html: options.html === false ? '' : writer.stringify(tree), blocks };
+  return { html: writer.stringify(tree), blocks };
 }

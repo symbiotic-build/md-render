@@ -30,14 +30,19 @@ export function within(root: string, relative: string): string {
   return absolute;
 }
 
-/** Reads regular UTF-8 inputs; symbolic links and malformed encoding fail visibly. */
-export async function readSource(root: string, relative: string): Promise<Buffer> {
+/** Checks that an input is a regular file inside the root, not a symbolic link; returns its path. */
+export async function checkSource(root: string, relative: string): Promise<string> {
   const absolute = within(root, relative);
   const info = await lstat(absolute);
   if (!info.isFile() || await realpath(absolute) !== absolute) {
     throw new Error(`Input must be a regular file without symlinks: ${relative}`);
   }
-  return readFile(absolute);
+  return absolute;
+}
+
+/** Reads regular UTF-8 inputs; symbolic links and malformed encoding fail visibly. */
+export async function readSource(root: string, relative: string): Promise<Buffer> {
+  return readFile(await checkSource(root, relative));
 }
 
 /** Reads at most the limit plus one detection byte; an oversized snapshot returns its observed size. */
