@@ -41,9 +41,10 @@ export async function collabExtension(): Promise<RenderExtension> {
 
 /**
  * One rendered generation: the page, the view and commit its anchors resolve against, and the settled
- * decisions read with it. The page carries its generation number, so a page can tell it is out of date.
+ * decisions read with it. The page carries its generation, a random identity of its render, so a page
+ * can tell it is out of date, also after the server restarted.
  */
-interface Snapshot { generation: number; html: string; view: SiteView; root: string; commit: string | null; settled: SettledDecision[] }
+interface Snapshot { generation: string; html: string; view: SiteView; root: string; commit: string | null; settled: SettledDecision[] }
 
 function send(response: ServerResponse, status: number, body: unknown, type = 'application/json; charset=utf-8'): void {
   response.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -70,9 +71,8 @@ export async function serve(options: ServeOptions): Promise<Session> {
   const sidebar = await collabExtension();
   // A render builds a whole snapshot; only a successful one replaces the current snapshot. Its
   // settled decisions come from the text it rendered, so a failed render discards them too.
-  let renders = 0;
   async function render(): Promise<Snapshot> {
-    const generation = ++renders;
+    const generation = randomBytes(8).toString('hex');
     const extension: RenderExtension = { name: sidebar.name, prepare: async view => ({ ...await sidebar.prepare(view), data: { generation } }) };
     const { html, view, root } = await renderSinglePage(options.documents, { mermaid: options.mermaid }, [extension]);
     return { generation, html, view, root, commit: await documentsCommit(root), settled: settledDecisions(collection, view) };

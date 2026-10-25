@@ -615,3 +615,18 @@ it("opens the comment box even when an annotation carries the box's ID", async (
     expect(await page.evaluate(`(() => { document.getElementById('ov-selbtn').click(); return document.querySelector('div.ov-composer').checkVisibility(); })()`)).toBe(true);
   });
 });
+
+it('shows the documents of a server restarted on the same port once the page connects again', async () => {
+  const copy = path.join(root, 'repo-restart');
+  await cp(docs, copy, { recursive: true });
+  await sidebar('store-restart', async (page, _store, session) => {
+    await page.evaluate(`window.sameDocument = true; window.sidebarEvents.close()`);
+    await session.close();
+    await writeFile(path.join(copy, 'docs/long.md'), long.replace('Next paragraph.', 'Changed paragraph.'));
+    const restarted = await serve({ documents: path.join(copy, 'docs'), store: path.join(root, 'store-restart'), collection: 'spec', person: 'person:operator', mermaid: false, port: Number(new URL(session.url).port) });
+    try {
+      await page.waitForNavigation(() => page.evaluate(`window.sidebarEvents.dispatchEvent(new Event('open'))`));
+      expect(await page.evaluate(`({ same: window.sameDocument ?? false, changed: document.body.textContent.includes('Changed paragraph.') })`)).toEqual({ same: false, changed: true });
+    } finally { await restarted.close(); }
+  }, path.join(copy, 'docs'));
+});
