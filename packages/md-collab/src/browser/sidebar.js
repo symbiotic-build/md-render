@@ -208,8 +208,13 @@ function renderQuestions(list) {
       const button = document.createElement('button');
       button.className = 'ov-opt'; button.setAttribute('aria-pressed', answer?.choice === option.n);
       button.innerHTML = `<span class="ov-n">${option.n}</span><span>${option.html}${option.recommended ? ' <span class="ov-rec">recommended</span>' : ''}</span>`;
-      button.addEventListener('click', () => addEntry(item, { kind: 'answer', choice: option.n, note: note.value }));
+      button.addEventListener('click', event => {
+        // A citation inside an option shows its passage; wireLinks below handles it.
+        if (event.target.closest('a[href]')) return;
+        addEntry(item, { kind: 'answer', choice: option.n, note: note.value });
+      });
       card.querySelector('.ov-opts').append(button);
+    wireLinks(card.querySelector('.ov-opts'), item);
     }
     card.querySelector('.ov-save').addEventListener('click', () => {
       if (!note.value.trim() && !answer?.choice) { toast('Choose an option or write a note first.'); return; }

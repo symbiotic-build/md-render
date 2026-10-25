@@ -10,7 +10,7 @@ export interface ListedQuestion {
   title: string;
   context: string;
   options: Option[];
-  /** Citations in reading order: absolute file path and line range. */
+  /** Citations in the context and the options, in reading order: absolute file path and line range. */
   citations: { file: string; lines: [number, number] }[];
   /** An explicit `Main passage:` citation, when the question names one. */
   main?: { file: string; lines: [number, number] };
@@ -62,7 +62,8 @@ export function parseQuestionList(markdown: string, file: string): ListedQuestio
       if (line.trim()) context.push(line.replace(/\\$/, ''));
     }
     const text = context.join('\n\n');
-    questions.push({ number: Number(heading[1]), topic, title: heading[2]!.trim(), context: text, options, citations: cited(text, base), ...(main ? { main } : {}) });
+    const citations = cited([text, ...options.map(option => option.text)].join('\n'), base);
+    questions.push({ number: Number(heading[1]), topic, title: heading[2]!.trim(), context: text, options, citations, ...(main ? { main } : {}) });
   }
   if (!questions.length) throw new Error(`${file}: no questions in the House Rules format (### 1\\. Title)`);
   return questions;
@@ -84,9 +85,9 @@ export function questionThreads(questions: ListedQuestion[], options: {
   const corpusPath = (file: string): string => path.relative(options.corpusRoot, file).split(path.sep).join('/');
   return questions.map(question => {
     const anchors: Anchor[] = [];
-    const add = (citation: { file: string; lines: [number, number] }, role: Anchor['role']) => {
     // The cited path and lines of each anchor; saved anchor lines start at their first block.
     const cites: { path: string; lines: [number, number] }[] = [];
+    const add = (citation: { file: string; lines: [number, number] }, role: Anchor['role']) => {
       const target = corpusPath(citation.file);
       // A citation of a file outside the rendered documents stays text in the context.
       if (!options.view.documents.some(document => document.path === target)) {
@@ -95,14 +96,14 @@ export function questionThreads(questions: ListedQuestion[], options: {
       }
       if (cites.some(cite => cite.path === target && cite.lines[0] === citation.lines[0] && cite.lines[1] === citation.lines[1])) return;
       anchors.push(anchorAt(options.view, target, citation.lines, options.commit, role));
-    };
       cites.push({ path: target, lines: citation.lines });
+    };
     const rendered = (item: { file: string }) => options.view.documents.some(document => document.path === corpusPath(item.file));
     const main = question.main ?? question.citations.find(item => rendered(item) && !options.settled.includes(corpusPath(item.file))) ?? question.citations.find(rendered);
     if (main) add(main, 'main');
     for (const item of question.citations) add(item, 'also');
-    // Citation links become jumps to their anchor; other local links keep only their text.
-    const context = question.context.replace(citation, (link, name: string, lines: string, target: string) => {
+    // Citation links, in the context and the options, become jumps to their anchor; other local links keep only their text.
+    const links = (markdown: string): string => markdown.replace(citation, (link, name: string, lines: string, target: string) => {
       if (/^[a-z][a-z0-9+.-]*:/i.test(target)) return link;
       const file = corpusPath(path.resolve(options.base, decodeURIComponent(target.split('#')[0]!)));
       const first = spans(lines)[0]!;
@@ -113,7 +114,7 @@ export function questionThreads(questions: ListedQuestion[], options: {
       id: `${options.idPrefix ?? 'q'}${String(question.number).padStart(2, '0')}-${slug(question.title)}`,
       kind: 'question', title: question.title, decides: 'operator', number: question.number,
       ...(question.topic ? { topic: question.topic } : {}),
-      anchors, context, options: question.options,
+      anchors, context: links(question.context), options: question.options.map(option => ({ ...option, text: links(option.text) })),
       entries: [{ at: options.at, actor: options.actor, kind: 'raised', note: '' }],
     };
   });

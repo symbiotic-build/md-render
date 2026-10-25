@@ -249,14 +249,15 @@ it('keeps decisions from two chapters apart when they share an anchor', async ()
 });
 
 it('imports a House Rules question list with its cited passages as anchors', () => {
-  const listed = parseQuestionList(questionList, path.join(docs, 'questions.md'));
+  const listed = parseQuestionList(citingList, path.join(docs, 'questions.md'));
   expect(listed).toMatchObject([{ number: 1, topic: 'Limits', title: 'How long may an identifier be?', options: [{ n: 1, recommended: true }, { n: 2, recommended: false }] }]);
-  const [thread] = questionThreads(listed, { view, corpusRoot: docs, commit, actor: 'agent:test/1', at: '2026-10-24T00:00:00Z', settled: ['docs/decisions.md'], base: docs });
+  const [thread] = imported();
   expect(thread!.id).toBe('q01-how-long-may-an-identifier-be');
-  expect(thread!.anchors.map(anchor => [anchor.role, anchor.path, anchor.lines])).toEqual([['main', 'docs/storage.md', [9, 9]], ['also', 'docs/decisions.md', [9, 11]]]);
+  expect(thread!.anchors.map(anchor => [anchor.role, anchor.path, anchor.lines])).toEqual([['main', 'docs/storage.md', [9, 9]], ['also', 'docs/decisions.md', [9, 11]], ['also', 'docs/storage.md', [7, 7]]]);
   expect(thread!.context).toContain('([storage.md:9](#md-collab-anchor-0))');
   expect(thread!.context).toContain('([decisions.md:9-11](#md-collab-anchor-1))');
   expect(thread!.context).not.toContain('Answer like so');
+  expect(thread!.options[1]!.text).toBe('No cap, as [storage.md:7](#md-collab-anchor-2) allows.');
 });
 
 it('serves the page only under its own host and accepts writes only from its own origin', async () => {
@@ -398,6 +399,16 @@ it("shows the sidebar in a real browser and adds an agent's new thread without a
     await store.create('spec', agentComment('c-agent-note'));
     expect(await until(page, `document.getElementById('ov-v-hn').textContent === '4'`)).toBe(true);
     expect(await page.evaluate(`window.sameDocument`)).toBe(true);
+  });
+});
+
+it('shows a citation inside an option without answering the question', async () => {
+  await sidebar('store-option', async page => {
+    await page.evaluate(`document.querySelector('#ov-card-1 .ov-qh').click()`);
+    expect(await page.evaluate(`(() => {
+      document.querySelector('#ov-card-1 .ov-opt a[href="#md-collab-anchor-2"]').click();
+      return { posts: window.posts, path: location.pathname, shown: mdRender.currentDocument() };
+    })()`)).toEqual({ posts: [], path: '/', shown: 'docs/storage.md' });
   });
 });
 
