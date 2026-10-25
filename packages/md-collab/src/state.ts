@@ -29,6 +29,7 @@ export interface PageThread {
   version: string;
 }
 export interface PageSettled {
+  /** The chapter's corpus path and the decision's anchor, `path#anchor`: anchors repeat across chapters. */
   id: string;
   title: string;
   topic: string | null;
@@ -83,7 +84,7 @@ export async function pageState(options: {
     for (const decision of await readSettled(options.corpusRoot, file)) {
       const blocks = document.blocks.filter(block => block.heading === decision.id).map(block => block.id);
       settled.push({
-        id: decision.id, title: decision.title, topic: decision.topic, date: decision.date, decidedBy: decision.decidedBy,
+        id: `${file}#${decision.id}`, title: decision.title, topic: decision.topic, date: decision.date, decidedBy: decision.decidedBy,
         authorityHtml: await inlineHtml(decision.authority),
         contextHtml: await markdownHtml([`**Choice:** ${decision.choice}`, decision.reason && `**Reason:** ${decision.reason}`, decision.rejected && `**Rejected alternatives:** ${decision.rejected}`].filter(Boolean).join('\n\n')),
         basePath: file,

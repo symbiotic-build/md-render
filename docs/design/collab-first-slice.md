@@ -158,6 +158,9 @@ Keep the annotation names short.
 
 md-collab reads `### Decision:` sections from the decision chapters a collection names in its `collection.yaml`. Each becomes a read-only settled item: anchor = its decision heading, date and decider from **Authority**. They are never written to the store; the specification remains their home.
 
+- The page names a settled item `<chapter path>#<anchor>`, because two chapters may use the same anchor.
+- The decider is the explicit **Decided by** line when there is one. Otherwise the **Authority** text decides: a `Q<n>` or `operator` names the operator, "lead decision", "lead clarification" or "lead proposal" names the lead, and `measurement` names measurement. Authority text that names none of them is refused with a request for a **Decided by** line, instead of being attributed to the operator.
+
 ### Anchor resolution
 
 At every load, each anchor is matched against the current `SiteView`:

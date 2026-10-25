@@ -21,7 +21,10 @@ const fieldNames = ['Choice', 'Authority', 'Reason', 'Rejected alternatives', 'D
 const fieldLine = new RegExp(`^\\*\\*(${fieldNames.join('|')}):\\*\\*\\s*(.*)$`);
 const isoDate = /\b(\d{4}-\d\d-\d\d)\b/g;
 
-/** Who decided, from an explicit **Decided by** field or else from the Authority text. */
+/**
+ * Who decided, from an explicit **Decided by** field or else from the Authority text. Authority
+ * text that names none of operator, lead and measurement is refused rather than guessed.
+ */
 export function decidersOf(authority: string, explicit?: string): Decider[] {
   const text = (explicit ?? authority).replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
   if (explicit !== undefined) {
@@ -30,9 +33,12 @@ export function decidersOf(authority: string, explicit?: string): Decider[] {
     return named;
   }
   if (/^\s*Lead (?:decision|clarification|proposal)\b/i.test(text)) return ['lead'];
-  const operator = /\boperator\b|\bQ\d+/i.test(text);
-  const lead = /\blead (?:decision|clarification|proposal)s?\b/i.test(text);
-  return operator && lead ? ['operator', 'lead'] : lead ? ['lead'] : ['operator'];
+  const named: Decider[] = [];
+  if (/\boperator\b|\bQ\d+/i.test(text)) named.push('operator');
+  if (/\blead (?:decision|clarification|proposal)s?\b/i.test(text)) named.push('lead');
+  if (/\bmeasurement\b/i.test(text)) named.push('measurement');
+  if (!named.length) throw new Error(`Authority names no operator, lead or measurement; add a **Decided by:** line: ${authority}`);
+  return named;
 }
 
 /** Reads every decision section of one chapter; `file` is the chapter's corpus path. */

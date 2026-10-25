@@ -11,6 +11,7 @@ import { anchorAt, resolveAnchor } from '../src/anchors.js';
 import { parseQuestionList, questionThreads } from '../src/import.js';
 import { serve } from '../src/server.js';
 import { decidersOf, readSettled } from '../src/settled.js';
+import { pageState } from '../src/state.js';
 import { ConflictError, FileStore } from '../src/store.js';
 import { parseThread, serializeThread, threadStatus, type Thread } from '../src/thread.js';
 
@@ -57,6 +58,16 @@ const decisions = `# Decisions
 
 **Rejected alternatives:** One call.
 `;
+const moreDecisions = `# More decisions
+
+<a id="decision-redo"></a>
+
+### Decision: Redo in one place
+
+**Choice:** One place.
+
+**Authority:** Lead decision, 2026-10-15.
+`;
 const long = '# Long\n\nFirst line\nsecond line\nthird line.\n\nNext paragraph.\n';
 const questionList = `# Questions
 
@@ -82,6 +93,7 @@ beforeAll(async () => {
   await writeFile(path.join(docs, 'docs/storage.md'), spec);
   await writeFile(path.join(docs, 'docs/decisions.md'), decisions);
   await writeFile(path.join(docs, 'questions.md'), questionList);
+  await writeFile(path.join(docs, 'docs/more-decisions.md'), moreDecisions);
   await writeFile(path.join(docs, 'docs/long.md'), long);
   for (const args of [['init', '-q'], ['add', '.'], ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'docs']]) await run('git', ['-C', docs, ...args]);
   commit = (await run('git', ['-C', docs, 'rev-parse', 'HEAD'])).stdout.trim();
@@ -201,6 +213,20 @@ it('reads settled decisions with their dates and deciders from the specification
   ]);
   expect(decidersOf('Q73 and final Q162 in the log, with the lead clarification of 2026-10-14.')).toEqual(['operator', 'lead']);
   expect(decidersOf('anything', 'lead')).toEqual(['lead']);
+  expect(decidersOf('Benchmark measurement on the reference host, 2026-10-16.')).toEqual(['measurement']);
+  expect(() => decidersOf('Agreed in review, 2026-10-16.')).toThrow('Authority names no operator, lead or measurement; add a **Decided by:** line: Agreed in review, 2026-10-16.');
+});
+
+it('keeps decisions from two chapters apart when they share an anchor', async () => {
+  const store = new FileStore(path.join(root, 'store-settled'));
+  const collection = { name: 'spec', title: 'Settled', settled: ['docs/decisions.md', 'docs/more-decisions.md'] };
+  await store.createCollection(collection);
+  const state = await pageState({ store, collection, view, corpusRoot: docs, commit, person: 'person:operator' });
+  expect(state.settled.map(decision => [decision.id, decision.title, decision.anchors[0]!.path])).toEqual([
+    ['docs/decisions.md#decision-fixed-group', 'Fixed write group', 'docs/decisions.md'],
+    ['docs/decisions.md#decision-redo', 'Separate redo call', 'docs/decisions.md'],
+    ['docs/more-decisions.md#decision-redo', 'Redo in one place', 'docs/more-decisions.md'],
+  ]);
 });
 
 it('imports a House Rules question list with its cited passages as anchors', () => {
@@ -236,7 +262,7 @@ it('serves the page only under its own host and accepts writes only from its own
     const headers = { 'content-type': 'application/json' };
     const state = await (await fetch(origin + '/api/state', { headers })).json();
     expect(state.threads[0]).toMatchObject({ id: created.thread.id, status: 'open', number: 1, anchors: [{ role: 'main', method: 'block' }, { role: 'also', method: 'block' }] });
-    expect(state.settled.map((decision: { id: string; decidedBy: string[] }) => [decision.id, decision.decidedBy])).toEqual([['decision-fixed-group', ['operator']], ['decision-redo', ['lead']]]);
+    expect(state.settled.map((decision: { id: string; decidedBy: string[] }) => [decision.id, decision.decidedBy])).toEqual([['docs/decisions.md#decision-fixed-group', ['operator']], ['docs/decisions.md#decision-redo', ['lead']]]);
     const answer = JSON.stringify({ kind: 'answer', choice: 1, note: 'Yes.', version: created.version });
     expect((await fetch(origin + `/api/threads/${created.thread.id}/entries`, { method: 'POST', headers: { ...headers, origin: 'https://evil.example' }, body: answer })).status).toBe(403);
     const saved = await fetch(origin + `/api/threads/${created.thread.id}/entries`, { method: 'POST', headers: { ...headers, origin }, body: answer });
