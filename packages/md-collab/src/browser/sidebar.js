@@ -255,7 +255,8 @@ function renderHistory(list) {
     const row = document.createElement('article');
     row.className = 'ov-h' + (open ? ' ov-open' : ''); row.id = 'ov-h-' + item.id;
     const who = item.kind === 'comment' ? 'Comment' : item.decides.map(x => WHO[x] || x).join(' + ');
-    const label = item.kind === 'decision' ? '' : `<span class="ov-hid">${esc(item.number != null ? 'Q' + item.number : item.kind === 'comment' ? '' : item.id)}</span>`;
+    // Only operator questions carry a short label; other titles already name their item.
+    const label = item.number != null ? `<span class="ov-hid">Q${item.number}</span>` : '';
     row.innerHTML = `<button class="ov-hh" aria-expanded="${open}"><span class="ov-who${item.decides.includes('operator') ? ' ov-you' : ''}">${esc(who)}</span><span class="ov-htitle">${label}${esc(item.title)}</span><span class="ov-st ov-s-${item.kind === 'comment' ? 'settled' : item.status}" title="${item.status}" aria-label="${item.status}"></span></button>`;
     row.querySelector('.ov-hh').addEventListener('click', () => openItem(open ? null : item.id));
     if (open) row.append(historyBody(item));
