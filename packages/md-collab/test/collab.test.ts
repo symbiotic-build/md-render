@@ -131,22 +131,6 @@ async function heard(reader: ReadableStreamDefaultReader<Uint8Array>, text: stri
   }
   return received;
 }
-/**
- * Repeats `change` until the event stream reports `text`, failing after `ms`. macOS starts reporting
- * file changes only shortly after a watch starts, so the first change made right after serve
- * returns can go unseen. A repeat comes a second later, after the server's 300 ms wait for more
- * document changes.
- */
-async function changeUntilHeard(reader: ReadableStreamDefaultReader<Uint8Array>, text: string, change: () => Promise<unknown>, ms = 10_000): Promise<string> {
-  let done = false;
-  const hearing = heard(reader, text, ms).finally(() => { done = true; });
-  while (!done) {
-    await change();
-    await Promise.race([hearing.catch(() => undefined), delay(1000)]);
-  }
-  return hearing;
-}
-
 it('writes and reads a thread file without loss, and derives status from its entries', () => {
   const thread = question();
   thread.context = '    indented code first\n\nA fenced example:\n\n```markdown\n## Entries\n\n### Example\n```\n\nChoice: not a field\n';
@@ -398,7 +382,8 @@ it('serves the page only under its own host and accepts writes only from its own
     const events = await fetch(origin + '/api/events');
     const reader = events.body!.getReader();
     await heard(reader, ': connected');
-    await changeUntilHeard(reader, 'event: changed', () => store.append('spec', created.thread.id, { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'Seen?' }));
+    await store.append('spec', created.thread.id, { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'Seen?' });
+    await heard(reader, 'event: changed');
     await reader.cancel();
     const comment = await fetch(origin + '/api/comments', { method: 'POST', headers: { ...headers, origin }, body: JSON.stringify({ note: 'Is 4 MiB measured?', anchors: [{ path: 'docs/storage.md', lines: [7, 7], quote: 'The write group is 4 MiB.' }] }) });
     expect(comment.status).toBe(200);
@@ -415,14 +400,12 @@ it('tells an open page about every entry an agent appends to a thread', async ()
   const session = await serve({ documents: path.join(docs, 'docs'), store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
   try {
     // Each append renames a new file over the thread; every one of them is a change. A fresh
-    // connection per append hears only the changes made after it connected. The first append comes
-    // right after serve returns, so it repeats until it is heard.
-    for (const [index, note] of ['First.', 'Second.', 'Third.'].entries()) {
+    // connection per append hears only the changes made after it connected.
+    for (const note of ['First.', 'Second.', 'Third.']) {
       const reader = (await fetch(session.url + 'api/events')).body!.getReader();
       await heard(reader, ': connected');
-      const append = () => store.append('spec', created.thread.id, { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note });
-      if (index === 0) await changeUntilHeard(reader, 'event: changed', append);
-      else { await append(); await heard(reader, 'event: changed'); }
+      await store.append('spec', created.thread.id, { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note });
+      await heard(reader, 'event: changed');
       await reader.cancel();
     }
   } finally { await session.close(); }
@@ -471,22 +454,39 @@ it('keeps the last good page and its decisions when a re-render fails, and tells
   await new FileStore(storeRoot).createCollection({ name: 'spec', title: 'Render', settled: ['decisions.md'] });
   const session = await serve({ documents, store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
   try {
-    const reader = (await fetch(session.url + 'api/events')).body!.getReader();
-    await heard(reader, ': connected');
-    // The first edit comes right after serve returns, so it repeats until a re-render is heard.
-    await changeUntilHeard(reader, 'event: reload', () => writeFile(path.join(documents, 'a.md'), '# A\n\nFirst text.\n'));
     // What the page shows: the other chapter's text and the decision heading, and the History's decisions.
     const shown = async () => {
       const [page, state] = await Promise.all([(await fetch(session.url)).text(), (await fetch(session.url + 'api/state')).json()]);
       return { first: page.includes('First text.'), heading: /Decision: (\w+ size)/.exec(page)?.[1] ?? null, decisions: state.settled.map((decision: { title: string }) => decision.title) };
     };
-    // One edit renames the decision and breaks the render.
+    // One edit, before the page connects, renames the decision and breaks the render. The current
+    // render stays, so the connection finds the edit and renders again, which fails again.
     await writeFile(path.join(documents, 'decisions.md'), '---\ntitle: [1]\n---\n' + sizeDecision.replace('Fixed size', 'Changed size'));
+    const reader = (await fetch(session.url + 'api/events')).body!.getReader();
     expect(await heard(reader, 'event: failed')).toContain('data: {"error":"');
     expect(await shown()).toEqual({ first: true, heading: 'Fixed size', decisions: ['Fixed size'] });
     await writeFile(path.join(documents, 'decisions.md'), sizeDecision.replace('Fixed size', 'Changed size'));
     await heard(reader, 'event: reload');
     expect(await shown()).toEqual({ first: true, heading: 'Changed size', decisions: ['Changed size'] });
+    await reader.cancel();
+  } finally { await session.close(); }
+});
+
+it('shows a document edit made before any page connected', async () => {
+  const documents = path.join(root, 'connect-docs');
+  await mkdir(documents, { recursive: true });
+  await writeFile(path.join(documents, 'a.md'), '# A\n\nOld text.\n');
+  const storeRoot = path.join(root, 'store-connect');
+  await new FileStore(storeRoot).createCollection({ name: 'spec', title: 'Connect', settled: [] });
+  const session = await serve({ documents, store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
+  try {
+    await writeFile(path.join(documents, 'a.md'), '# A\n\nNew text.\n');
+    const reader = (await fetch(session.url + 'api/events')).body!.getReader();
+    await heard(reader, ': connected');
+    // The watch may have rendered the edit already; otherwise the connection renders it and sends reload.
+    if (!(await (await fetch(session.url)).text()).includes('New text.')) await heard(reader, 'event: reload');
+    const page = await (await fetch(session.url)).text();
+    expect({ edit: page.includes('New text.'), old: page.includes('Old text.') }).toEqual({ edit: true, old: false });
     await reader.cancel();
   } finally { await session.close(); }
 });
@@ -504,11 +504,11 @@ it('finishes a running re-render before the session closes', async () => {
   process.env.TMPDIR = profiles;
   try {
     const session = await serve({ documents, store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: true });
-    // The edit comes right after serve returns, and macOS reports file changes only shortly after a
-    // watch starts: the edit repeats every second, after the server's 300 ms wait, until a render starts.
-    for (let deadline = Date.now() + 10_000, next = 0; !(await readdir(profiles)).length; await delay(10)) {
+    // One edit adds a diagram; the watch or else a page's connection starts its render.
+    await writeFile(path.join(documents, 'a.md'), '# A\n\n```mermaid\ngraph TD; A-->B\n```\n');
+    await heard((await fetch(session.url + 'api/events')).body!.getReader(), ': connected');
+    for (const deadline = Date.now() + 10_000; !(await readdir(profiles)).length; await delay(10)) {
       if (Date.now() > deadline) { await session.close(); throw new Error('The re-render started no browser'); }
-      if (Date.now() >= next) { await writeFile(path.join(documents, 'a.md'), '# A\n\n```mermaid\ngraph TD; A-->B\n```\n'); next = Date.now() + 1000; }
     }
     await session.close();
     expect(await readdir(profiles)).toEqual([]);

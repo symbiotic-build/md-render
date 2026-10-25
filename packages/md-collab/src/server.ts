@@ -2,7 +2,7 @@
 // rebinds its name to 127.0.0.1 is refused; writes also need the page's own Origin.
 import { randomBytes } from 'node:crypto';
 import { watch, type FSWatcher } from 'node:fs';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
@@ -33,6 +33,20 @@ async function documentsCommit(root: string): Promise<string | null> {
   catch { return null; }
 }
 
+/**
+ * The modification time of every Markdown file under the root, by path, outside `.git` and
+ * `node_modules`: the files whose change the documents' watch reports.
+ */
+async function markdownTimes(root: string, folder = ''): Promise<Map<string, number>> {
+  const times = new Map<string, number>();
+  for (const entry of await readdir(path.join(root, folder), { withFileTypes: true })) {
+    const name = path.join(folder, entry.name);
+    if (entry.isDirectory() && entry.name !== '.git' && entry.name !== 'node_modules') for (const [file, time] of await markdownTimes(root, name)) times.set(file, time);
+    else if (entry.isFile() && /\.md$/i.test(entry.name)) times.set(name, (await stat(path.join(root, name))).mtimeMs);
+  }
+  return times;
+}
+
 /** The md-render extension that adds the sidebar. */
 export async function collabExtension(): Promise<RenderExtension> {
   const [styles, script] = await Promise.all([readFile(browserFile('sidebar.css'), 'utf8'), readFile(browserFile('sidebar.js'), 'utf8')]);
@@ -40,11 +54,12 @@ export async function collabExtension(): Promise<RenderExtension> {
 }
 
 /**
- * One rendered generation: the page, the view and commit its anchors resolve against, and the settled
- * decisions read with it. The page carries its generation, a random identity of its render, so a page
- * can tell it is out of date, also after the server restarted.
+ * One rendered generation: the page, the view and commit its anchors resolve against, the settled
+ * decisions read with it, and the Markdown files' modification times after it. The page carries its
+ * generation, a random identity of its render, so a page can tell it is out of date, also after the
+ * server restarted.
  */
-interface Snapshot { generation: string; html: string; view: SiteView; root: string; commit: string | null; settled: SettledDecision[] }
+interface Snapshot { generation: string; html: string; view: SiteView; root: string; commit: string | null; settled: SettledDecision[]; times: Map<string, number> }
 
 function send(response: ServerResponse, status: number, body: unknown, type = 'application/json; charset=utf-8'): void {
   response.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -75,7 +90,7 @@ export async function serve(options: ServeOptions): Promise<Session> {
     const generation = randomBytes(8).toString('hex');
     const extension: RenderExtension = { name: sidebar.name, prepare: async view => ({ ...await sidebar.prepare(view), data: { generation } }) };
     const { html, view, root } = await renderSinglePage(options.documents, { mermaid: options.mermaid }, [extension]);
-    return { generation, html, view, root, commit: await documentsCommit(root), settled: settledDecisions(collection, view) };
+    return { generation, html, view, root, commit: await documentsCommit(root), settled: settledDecisions(collection, view), times: await markdownTimes(root) };
   }
   let snapshot = await render();
   const root = snapshot.root;
@@ -136,6 +151,12 @@ export async function serve(options: ServeOptions): Promise<Session> {
       response.write(': connected\n\n');
       listeners.add(response);
       request.on('close', () => listeners.delete(response));
+      // A watch can miss a change, as macOS does in the first moment after it starts. So a page that
+      // connects re-renders the documents when a Markdown file changed, appeared or went since the
+      // current render. The page loads every thread when it connects, so store writes need nothing more.
+      const { times } = snapshot;
+      const changed = await markdownTimes(root).then(now => now.size !== times.size || [...now].some(([file, time]) => times.get(file) !== time), () => true);
+      if (changed) rerender();
       return;
     }
     if (request.method !== 'POST') return send(response, 404, { error: 'Not found' });
