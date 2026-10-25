@@ -434,7 +434,8 @@ addEventListener('error', event => pageErrors.push(String(event.message)));
 addEventListener('unhandledrejection', event => pageErrors.push('Unhandled rejection: ' + String(event.reason)));
 window.posts = [];
 const pageFetch = window.fetch;
-window.fetch = (url, init) => { if (init?.method === 'POST') posts.push(String(url)); return pageFetch(url, init); };
+// A test can hold posts back: set window.postGate to a promise, and posts wait for it.
+window.fetch = async (url, init) => { if (init?.method === 'POST') { posts.push(String(url)); await window.postGate; } return pageFetch(url, init); };
 const PageEvents = window.EventSource;
 window.EventSource = class extends PageEvents { constructor(...args) { super(...args); window.sidebarEvents = this; } };`;
 const until = (page: BrowserSession, expression: string) => page.evaluate(`new Promise((resolve, reject) => { const start = performance.now(); (function check() { const value = ${expression}; if (value) resolve(value); else if (performance.now() - start > 5000) reject(new Error('Timed out: ' + ${JSON.stringify(expression)})); else setTimeout(check, 50); })(); })`);
@@ -523,3 +524,19 @@ it('shows a question that arrived while the reader typed once the note loses foc
       .toEqual({ card: true, draft: 'Draft answer' });
   });
 });
+it('keeps what the reader typed while a save was running', async () => {
+  await sidebar('store-save-typing', async page => {
+    await page.evaluate(`(() => {
+      document.querySelector('#ov-card-1 .ov-qh').click();
+      const type = text => { const note = document.getElementById('ov-note-1'); note.value = text; note.dispatchEvent(new Event('input', { bubbles: true })); };
+      type('First note');
+      window.postGate = new Promise(resolve => { window.releasePosts = resolve; });
+      document.querySelector('#ov-card-1 .ov-save').click();
+      type('First note, then more');
+      window.releasePosts();
+    })()`);
+    await until(page, `document.querySelector('#ov-card-1 .ov-saved')?.textContent.startsWith('Saved')`);
+    expect(await page.evaluate(`document.getElementById('ov-note-1').value`)).toBe('First note, then more');
+  });
+});
+

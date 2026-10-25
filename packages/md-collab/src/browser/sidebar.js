@@ -157,9 +157,11 @@ async function post(url, body) {
   return result;
 }
 async function addEntry(item, entry) {
+  // A draft is cleared only when it still holds what was sent: typing during the save stays.
+  const sent = ['ov-note-' + item.number, 'ov-reply-' + item.id].map(key => [key, drafts.get(key)]);
   try {
     await post(`/api/threads/${item.id}/entries`, { ...entry, version: item.version });
-    drafts.delete('ov-note-' + item.number); drafts.delete('ov-reply-' + item.id);
+    for (const [key, value] of sent) if (drafts.get(key) === value) drafts.delete(key);
     await load();
   } catch (error) {
     toast(error.status === 409 ? 'Someone changed this item meanwhile. It is reloaded; please repeat your change.' : error.message);
