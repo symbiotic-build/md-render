@@ -377,7 +377,10 @@ function load() {
 async function loadOnce() {
   const response = await fetch('/api/state', { headers });
   if (!response.ok) { status(`Could not load decisions (${response.status}). Is md-collab still running?`, true); return; }
-  state = await response.json();
+  const next = await response.json();
+  // The documents were rendered again while this page missed the reload notice: show the new render.
+  if (next.generation !== mdRender.extensionData('md-collab')?.generation) { location.reload(); return; }
+  state = next;
   items = [
     ...state.threads,
     ...state.settled.map(decision => ({

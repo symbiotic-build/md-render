@@ -3,7 +3,7 @@ import { useBrowser } from '../../../test/browser-fixture.js';
 import type { BrowserSession } from '../../../src/browser.js';
 import { execFile, spawnSync } from 'node:child_process';
 import http from 'node:http';
-import { mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -11,7 +11,7 @@ import { promisify } from 'node:util';
 import { renderView, type SiteView } from 'md-render';
 import { anchorAt, resolveAnchor } from '../src/anchors.js';
 import { parseQuestionList, questionThreads } from '../src/import.js';
-import { serve } from '../src/server.js';
+import { serve, type Session } from '../src/server.js';
 import { decidersOf, readSettled } from '../src/settled.js';
 import { pageState, settledDecisions } from '../src/state.js';
 import { ConflictError, FileStore } from '../src/store.js';
@@ -418,18 +418,18 @@ const agentComment = (id: string): Thread => ({ id, kind: 'comment', title: 'Age
   entries: [{ at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'Agent note' }] });
 
 /** Serves a store holding the imported question and opens the page in the test browser. */
-async function sidebar(name: string, work: (page: BrowserSession, store: FileStore) => Promise<void>): Promise<void> {
+async function sidebar(name: string, work: (page: BrowserSession, store: FileStore, session: Session) => Promise<void>, documents = path.join(docs, 'docs')): Promise<void> {
   const storeRoot = path.join(root, name);
   const store = new FileStore(storeRoot);
   await store.createCollection({ name: 'spec', title: 'Spec review', settled: ['docs/decisions.md'] });
   await store.createAll('spec', imported());
-  const session = await serve({ documents: path.join(docs, 'docs'), store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
+  const session = await serve({ documents, store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
   try {
     await withBrowser(async page => {
       await page.send('Page.addScriptToEvaluateOnNewDocument', { source: pageScript });
       await page.navigate(session.url);
       await until(page, `document.getElementById('ov-v-hn')?.textContent === '3'`);
-      await work(page, store);
+      await work(page, store, session);
       expect(await page.evaluate(`window.pageErrors`)).toEqual([]);
     });
   } finally { await session.close(); }
@@ -449,6 +449,20 @@ it("shows the sidebar in a real browser and adds an agent's new thread without a
     expect(await until(page, `document.getElementById('ov-v-hn').textContent === '4'`)).toBe(true);
     expect(await page.evaluate(`window.sameDocument`)).toBe(true);
   });
+});
+
+it('shows the documents rendered while the event stream was closed once it opens again', async () => {
+  const copy = path.join(root, 'repo-reconnect');
+  await cp(docs, copy, { recursive: true });
+  await sidebar('store-reconnect-render', async (page, _store, session) => {
+    await page.evaluate(`window.sameDocument = true; window.sidebarEvents.close()`);
+    await writeFile(path.join(copy, 'docs/long.md'), long.replace('Next paragraph.', 'Changed paragraph.'));
+    for (const deadline = Date.now() + 10_000; !(await (await fetch(session.url)).text()).includes('Changed paragraph.'); await delay(50)) {
+      if (Date.now() > deadline) throw new Error('The server did not render the changed document');
+    }
+    await page.waitForNavigation(() => page.evaluate(`window.sidebarEvents.dispatchEvent(new Event('open'))`));
+    expect(await page.evaluate(`({ same: window.sameDocument ?? false, changed: document.body.textContent.includes('Changed paragraph.') })`)).toEqual({ same: false, changed: true });
+  }, path.join(copy, 'docs'));
 });
 
 it('shows a citation inside an option without answering the question', async () => {

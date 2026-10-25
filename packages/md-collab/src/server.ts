@@ -40,8 +40,11 @@ export async function collabExtension(): Promise<RenderExtension> {
   return { name: 'md-collab', prepare: () => ({ styles, script, connect: true }) };
 }
 
-/** One rendered generation: the page, the view and commit its anchors resolve against, and the settled decisions read with it. */
-interface Snapshot { html: string; view: SiteView; root: string; commit: string | null; settled: SettledDecision[] }
+/**
+ * One rendered generation: the page, the view and commit its anchors resolve against, and the settled
+ * decisions read with it. The page carries its generation number, so a page can tell it is out of date.
+ */
+interface Snapshot { generation: number; html: string; view: SiteView; root: string; commit: string | null; settled: SettledDecision[] }
 
 function send(response: ServerResponse, status: number, body: unknown, type = 'application/json; charset=utf-8'): void {
   response.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -65,12 +68,15 @@ export async function serve(options: ServeOptions): Promise<Session> {
   if (!/^person:\S+$/.test(options.person)) throw new Error(`--person must be person:<login>, not ${options.person}`);
   const store = new FileStore(path.resolve(options.store));
   const collection = await store.collection(options.collection);
-  const extension = await collabExtension();
+  const sidebar = await collabExtension();
   // A render builds a whole snapshot; only a successful one replaces the current snapshot. Its
   // settled decisions are read right after the documents, so a failed render discards them too.
+  let renders = 0;
   async function render(): Promise<Snapshot> {
+    const generation = ++renders;
+    const extension: RenderExtension = { name: sidebar.name, prepare: async view => ({ ...await sidebar.prepare(view), data: { generation } }) };
     const { html, view, root } = await renderSinglePage(options.documents, { mermaid: options.mermaid }, [extension]);
-    return { html, view, root, commit: await documentsCommit(root), settled: await settledDecisions(collection, view, root) };
+    return { generation, html, view, root, commit: await documentsCommit(root), settled: await settledDecisions(collection, view, root) };
   }
   let snapshot = await render();
   const root = snapshot.root;
@@ -120,8 +126,8 @@ export async function serve(options: ServeOptions): Promise<Session> {
     if (host !== new URL(origin).host && host !== `localhost:${new URL(origin).port}`) return send(response, 403, { error: `Open ${origin}` });
     if (request.method === 'GET' && url.pathname === '/') return send(response, 200, snapshot.html, 'text/html; charset=utf-8');
     if (request.method === 'GET' && url.pathname === '/api/state') {
-      const { view, settled, commit } = snapshot;
-      return send(response, 200, await pageState({ store, collection, view, settled, commit, person: options.person }));
+      const { generation, view, settled, commit } = snapshot;
+      return send(response, 200, { generation, ...await pageState({ store, collection, view, settled, commit, person: options.person }) });
     }
     if (request.method === 'GET' && url.pathname === '/api/events') {
       response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });
