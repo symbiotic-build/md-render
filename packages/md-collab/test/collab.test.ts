@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { launchBrowser } from '../../../src/browser.js';
+import { useBrowser } from '../../../test/browser-fixture.js';
+import type { BrowserSession } from '../../../src/browser.js';
 import { execFile, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import { mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
@@ -15,6 +16,8 @@ import { decidersOf, readSettled } from '../src/settled.js';
 import { pageState } from '../src/state.js';
 import { ConflictError, FileStore } from '../src/store.js';
 import { parseThread, serializeThread, threadStatus, type Thread } from '../src/thread.js';
+
+const withBrowser = useBrowser();
 
 const run = promisify(execFile);
 let root: string;
@@ -110,6 +113,9 @@ const question = (): Thread => ({
   entries: [{ at: '2026-10-22T13:09:00Z', actor: 'agent:claude-code/memory', kind: 'raised', note: '' }],
 });
 
+// The question list with a citation inside an option, as the import and the page see it.
+const citingList = questionList.replace('2. No cap.', '2. No cap, as [storage.md:7](docs/storage.md) allows.');
+const imported = () => questionThreads(parseQuestionList(citingList, path.join(docs, 'questions.md')), { view, corpusRoot: docs, commit, actor: 'agent:test/1', at: '2026-10-24T00:00:00Z', settled: ['docs/decisions.md'], base: docs });
 const decode = new TextDecoder();
 /** Reads a server-sent event stream until `text` arrives, or fails after `ms`. */
 async function heard(reader: ReadableStreamDefaultReader<Uint8Array>, text: string, ms = 10_000): Promise<string> {
@@ -348,26 +354,50 @@ it('keeps the last good page when a re-render fails and tells the open page', as
   } finally { await session.close(); }
 });
 
-it("shows the sidebar in a real browser and adds an agent's new thread without a reload", async () => {
-  const storeRoot = path.join(root, 'store-c');
+// Records script errors, unhandled rejections and posts on the page, and keeps the sidebar's event stream reachable.
+const pageScript = `window.pageErrors = [];
+addEventListener('error', event => pageErrors.push(String(event.message)));
+addEventListener('unhandledrejection', event => pageErrors.push('Unhandled rejection: ' + String(event.reason)));
+window.posts = [];
+const pageFetch = window.fetch;
+window.fetch = (url, init) => { if (init?.method === 'POST') posts.push(String(url)); return pageFetch(url, init); };
+const PageEvents = window.EventSource;
+window.EventSource = class extends PageEvents { constructor(...args) { super(...args); window.sidebarEvents = this; } };`;
+const until = (page: BrowserSession, expression: string) => page.evaluate(`new Promise((resolve, reject) => { const start = performance.now(); (function check() { const value = ${expression}; if (value) resolve(value); else if (performance.now() - start > 5000) reject(new Error('Timed out: ' + ${JSON.stringify(expression)})); else setTimeout(check, 50); })(); })`);
+const agentComment = (id: string): Thread => ({ id, kind: 'comment', title: 'Agent note', anchors: [{ role: 'main', path: 'docs/storage.md', commit, lines: [7, 7] }], context: '', options: [],
+  entries: [{ at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'Agent note' }] });
+
+/** Serves a store holding the imported question and opens the page in the test browser. */
+async function sidebar(name: string, work: (page: BrowserSession, store: FileStore) => Promise<void>): Promise<void> {
+  const storeRoot = path.join(root, name);
   const store = new FileStore(storeRoot);
   await store.createCollection({ name: 'spec', title: 'Spec review', settled: ['docs/decisions.md'] });
-  const [thread] = questionThreads(parseQuestionList(questionList, path.join(docs, 'questions.md')), { view, corpusRoot: docs, commit, actor: 'agent:test/1', at: '2026-10-24T00:00:00Z', settled: ['docs/decisions.md'], base: docs });
-  await store.create('spec', thread!);
+  await store.createAll('spec', imported());
   const session = await serve({ documents: path.join(docs, 'docs'), store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
-  const browser = await launchBrowser();
   try {
-    await browser.withPage(async page => {
-      // Any script error on the page, including a syntax error in the sidebar, fails this test.
-      await page.send('Page.addScriptToEvaluateOnNewDocument', { source: "window.pageErrors = []; addEventListener('error', event => window.pageErrors.push(String(event.message)));" });
+    await withBrowser(async page => {
+      await page.send('Page.addScriptToEvaluateOnNewDocument', { source: pageScript });
       await page.navigate(session.url);
-      const wait = (expression: string) => page.evaluate(`new Promise((resolve, reject) => { const start = performance.now(); (function check() { const value = ${expression}; if (value) resolve(value); else if (performance.now() - start > 5000) reject(new Error('Timed out: ' + ${JSON.stringify(expression)})); else setTimeout(check, 50); })(); })`);
-      expect(await wait(`document.getElementById('ov-v-hn')?.textContent === '3' && document.getElementById('ov-count').textContent`)).toBe('0 / 1 answered');
-      expect(await page.evaluate(`document.querySelectorAll('.ov-tag').length`)).toBe(1);
-      await store.create('spec', { id: 'c-agent-note', kind: 'comment', title: 'Agent note', anchors: [{ role: 'main', path: 'docs/storage.md', commit, lines: [7, 7] }], context: '', options: [],
-        entries: [{ at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'Agent note' }] });
-      expect(await wait(`document.getElementById('ov-v-hn').textContent === '4'`)).toBe(true);
+      await until(page, `document.getElementById('ov-v-hn')?.textContent === '3'`);
+      await work(page, store);
       expect(await page.evaluate(`window.pageErrors`)).toEqual([]);
     });
-  } finally { await browser.close(); await session.close(); }
+  } finally { await session.close(); }
+}
+
+it("shows the sidebar in a real browser and adds an agent's new thread without a reload", async () => {
+  await sidebar('store-c', async (page, store) => {
+    // The question's tag sits on its main passage, in the storage chapter.
+    expect(await page.evaluate(`mdRender.show({ path: 'docs/storage.md' }).then(() => {
+      const panel = document.getElementById('ov-panel'), title = document.querySelector('#ov-card-1 .ov-title');
+      return { panel: panel.checkVisibility() && panel.getBoundingClientRect().width > 200, title: title.checkVisibility() ? title.firstChild.textContent : null,
+        count: document.getElementById('ov-count').textContent, tags: [...document.querySelectorAll('.ov-tag')].filter(tag => tag.checkVisibility()).map(tag => tag.textContent) };
+    })`)).toEqual({ panel: true, title: 'How long may an identifier be?', count: '0 / 1 answered', tags: ['Q1'] });
+    // The page stays the same document while the agent's thread arrives.
+    await page.evaluate(`window.sameDocument = true`);
+    await store.create('spec', agentComment('c-agent-note'));
+    expect(await until(page, `document.getElementById('ov-v-hn').textContent === '4'`)).toBe(true);
+    expect(await page.evaluate(`window.sameDocument`)).toBe(true);
+  });
 });
+
