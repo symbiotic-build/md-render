@@ -170,7 +170,8 @@ export function parseDocument(markdown: string, fallbackTitle: string): ParsedDo
       return index + replacements.length;
     }
     if (node.type === 'code' && node.lang === 'mermaid') {
-      parent.children[index] = element('figure', { className: ['mermaid-diagram'] }, [
+      // The figure and its source keep the fence's position, so both are blocks with source lines.
+      parent.children[index] = { ...element('figure', { className: ['mermaid-diagram'] }, [
         { type: 'element', tagName: 'figcaption', properties: {}, children: [
           { type: 'text', value: 'Mermaid diagram — source (offline renderer unavailable)' },
         ] },
@@ -315,12 +316,12 @@ export async function documentHtml(doc: ParsedDocument): Promise<string> {
 }
 
 /**
- * Produces sanitized HTML and its blocks; source pages have no blocks. With `mark`, every block
- * element carries `data-source-lines` and `data-block`; renders with extensions set it.
+ * Produces sanitized HTML and, with `blocks`, its blocks; source pages have no blocks. With `mark`,
+ * every block element also carries `data-source-lines` and `data-block`; renders with extensions set it.
  */
-export async function renderDocument(doc: ParsedDocument, options: { mark?: boolean } = {}): Promise<{ html: string; blocks: RenderedBlock[] }> {
+export async function renderDocument(doc: ParsedDocument, options: { blocks?: boolean; mark?: boolean } = {}): Promise<{ html: string; blocks: RenderedBlock[] }> {
   const tree = await writer.run(doc.tree) as HtmlRoot;
-  const blocks = doc.sourceLines === undefined ? markBlocks(tree, options.mark === true) : [];
+  const blocks = doc.sourceLines === undefined && (options.blocks || options.mark) ? markBlocks(tree, options.mark === true) : [];
   visit(tree, 'element', (node, index, parent) => {
     if (doc.sourceLines !== undefined && node.tagName === 'pre') {
       const code = node.children[0];

@@ -13,14 +13,14 @@ export interface ResolvedAnchor {
 
 const normalise = (text: string): string => text.replace(/\s+/g, ' ').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').trim();
 
-function documentBlocks(view: SiteView, path: string): Block[] {
+function documentBlocks(view: SiteView, path: string): readonly Block[] {
   return view.documents.find(document => document.path === path)?.blocks ?? [];
 }
-function covering(blocks: Block[], first: number, last: number): Block[] {
+function covering(blocks: readonly Block[], first: number, last: number): Block[] {
   return blocks.filter(block => block.lines[0] <= last && block.lines[1] >= first);
 }
-/** The blocks from `start` that span as many lines as the anchor did. */
-function span(blocks: Block[], start: Block, anchor: Anchor): Block[] {
+/** The blocks from `start` that span as many lines as the anchor did; saved lines start at their first block. */
+function span(blocks: readonly Block[], start: Block, anchor: Anchor): Block[] {
   return covering(blocks, start.lines[0], start.lines[0] + (anchor.lines[1] - anchor.lines[0]));
 }
 const pick = (blocks: Block[]) => blocks.map(({ path, id, lines }) => ({ path, id, lines }));

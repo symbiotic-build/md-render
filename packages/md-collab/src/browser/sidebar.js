@@ -376,13 +376,13 @@ let selection = null;
 function selectedAnchors(range) {
   const blockOf = node => (node.nodeType === 1 ? node : node.parentElement)?.closest('[data-block]');
   const start = blockOf(range.startContainer), end = blockOf(range.endContainer);
-  const article = start?.closest('article.sd-doc');
-  if (!start || !end || article !== end.closest('article.sd-doc')) return null;
+  const chapter = start?.closest('.single-page');
+  if (!start || !end || chapter !== end.closest('.single-page')) return null;
   const lines = [Number(start.dataset.sourceLines.split('-')[0]), Number(end.dataset.sourceLines.split('-')[1])];
   // The quote is the reader's text only: margin tags inside the selection are left out.
   const copy = range.cloneContents();
   copy.querySelectorAll('.ov-tags').forEach(tags => tags.remove());
-  return [{ path: article.dataset.sourcePath, lines, block: start.dataset.block, quote: copy.textContent.replace(/\s+/g, ' ').trim().slice(0, 200) }];
+  return [{ path: chapter.dataset.sourcePath, lines, block: start.dataset.block, quote: copy.textContent.replace(/\s+/g, ' ').trim().slice(0, 200) }];
 }
 document.addEventListener('selectionchange', () => {
   const current = getSelection(), pop = $('#ov-sel');

@@ -100,20 +100,6 @@ for (const control of appearanceButtons) {
 // Source order defines the reading order. The last heading at or above the
 // viewport's one-third line is current, including jumps past several sections.
 const navigation = menu.querySelector('nav');
-// Browser interface for render-time extensions (version 1); see the reference chapter.
-const navigateListeners = [];
-let notifiedPath;
-function shownArticle() {
-  return document.querySelector(singlePages.length ? '.single-page:not([hidden]) article.sd-doc' : 'main article.sd-doc');
-}
-function notifyNavigate() {
-  const shown = shownArticle()?.dataset.sourcePath ?? null;
-  if (shown === notifiedPath) return;
-  notifiedPath = shown;
-  for (const listener of navigateListeners) {
-    try { listener(shown); } catch (error) { console.error('An md-render navigation listener failed.', error); }
-  }
-}
 const singlePages = [...document.querySelectorAll('.single-page')];
 function selectSinglePage(target, scroll = true) {
   const selected = target?.closest('.single-page') || singlePages[0];
@@ -130,7 +116,6 @@ function selectSinglePage(target, scroll = true) {
   for (const link of navigation.querySelectorAll('a[aria-current="location"]')) link.removeAttribute('aria-current');
   bindSections();
   expandChapter(pageLink);
-  notifyNavigate();
   if (scroll) {
     const heading = selected.querySelector('h1,h2,h3,h4,h5,h6') || selected;
     heading.setAttribute('tabindex', '-1');
@@ -388,7 +373,6 @@ async function changePage(url, position, push, targetEntryKey) {
     if (sameMenu) navigation.scrollTo(menuPosition.x, menuPosition.y);
     rememberPosition();
     prefetchAdjacent();
-    notifyNavigate();
   } catch (error) {
     if (sequence !== navigationSequence) return;
     console.warn('Page navigation failed; loading the destination normally.', error);
@@ -424,46 +408,3 @@ if (/^https?:$/.test(location.protocol)) {
 }
 
 }
-
-const documentList = JSON.parse(document.getElementById('md-render-documents')?.textContent || '[]');
-function articleFor(path) {
-  return [...document.querySelectorAll('article.sd-doc')].find(article => article.dataset.sourcePath === path) || null;
-}
-function overlaps(element, first, last) {
-  const [start, end] = element.dataset.sourceLines.split('-').map(Number);
-  return start <= last && end >= first;
-}
-function findTarget(target) {
-  const article = articleFor(target.path);
-  if (!article) return null;
-  if (target.block) return article.querySelector(`[data-block="${CSS.escape(target.block)}"]`);
-  if (target.anchor) {
-    const id = singlePages.length ? `${article.closest('.single-page').id}--${target.anchor}` : target.anchor;
-    const anchor = document.getElementById(id);
-    return anchor ? anchor.closest('p')?.nextElementSibling ?? anchor : null;
-  }
-  return article;
-}
-Object.defineProperty(globalThis, 'mdRender', { enumerable: false, value: Object.freeze({
-  version: 1,
-  documents: () => documentList.map(({ path, title }) => ({ path, title })),
-  currentDocument: () => shownArticle()?.dataset.sourcePath ?? null,
-  blocks(path, first, last) {
-    const article = articleFor(path);
-    return article ? [...article.querySelectorAll('[data-source-lines]')].filter(element => overlaps(element, first, last)) : [];
-  },
-  block: (path, id) => articleFor(path)?.querySelector(`[data-block="${CSS.escape(id)}"]`) ?? null,
-  async show(target) {
-    const element = findTarget(target);
-    if (!element) return null;
-    if (singlePages.length) selectSinglePage(element, false);
-    element.scrollIntoView({ block: 'center' });
-    return element;
-  },
-  onNavigate(listener) { navigateListeners.push(listener); },
-  extensionData(name) {
-    const data = document.getElementById(`md-render-extension-data-${name}`);
-    return data ? JSON.parse(data.textContent) : undefined;
-  },
-}) });
-notifyNavigate();

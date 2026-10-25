@@ -19,7 +19,7 @@ The first slice serves one need: the operator answers the open questions about a
 
 ### Block identity and source lines
 
-In a render with at least one extension, every rendered block element of a Markdown page carries two attributes. Renders without extensions are unchanged, so ordinary md-render output keeps its size and markup:
+In a render with at least one extension, every rendered block element of a Markdown page carries two attributes. Renders without extensions write the same bytes as before this slice, in folder and single-file output, and do no block work:
 
 - `data-source-lines="72-73"`: the first and last source line of the block, from the parser's positions. One line is written `72-72`.
 - `data-block="decimal~3f9a1c"`: the block ID.
@@ -35,17 +35,17 @@ Source pages for non-Markdown text files keep their existing `L<n>` line IDs and
 ```ts
 /** One rendered block, as extensions see it. */
 export interface Block {
-  id: string;                 // "decimal~3f9a1c"
-  path: string;               // corpus path: "docs/specs/memory-storage/schemas-and-values.md"
-  lines: [number, number];    // first and last source line
-  tag: string;                // "p", "li", "h2", "tr", …
-  text: string;               // whitespace-normalised text content
-  heading: string | null;     // ID of the nearest preceding heading
+  readonly id: string;                 // "decimal~3f9a1c"
+  readonly path: string;               // corpus path: "docs/specs/memory-storage/schemas-and-values.md"
+  readonly lines: readonly [number, number];  // first and last source line
+  readonly tag: string;                // "p", "li", "h2", "tr", …
+  readonly text: string;               // whitespace-normalised text content
+  readonly heading: string | null;     // ID of the nearest preceding heading
 }
 
-/** Read-only view of the rendered corpus. */
+/** Read-only view of the rendered corpus; md-render freezes it, so no extension changes what another sees. */
 export interface SiteView {
-  documents: { path: string; title: string; anchors: string[]; blocks: Block[] }[];
+  readonly documents: readonly { readonly path: string; readonly title: string; readonly anchors: readonly string[]; readonly blocks: readonly Block[] }[];
 }
 
 /** What an extension adds to every rendered page. */
@@ -62,16 +62,19 @@ export interface RenderExtension {
 }
 
 export function renderSinglePage(input: string, options?: RenderOptions, extensions?: RenderExtension[]):
-  Promise<{ html: string; view: SiteView; warnings: string[] }>;
+  Promise<{ html: string; view: SiteView; root: string; warnings: string[] }>;
+
+export function renderView(input: string, options?: RenderOptions):
+  Promise<{ view: SiteView; root: string; warnings: string[] }>;
 ```
 
 md-render calls `prepare` once, after every page is parsed and rendered and before the page is written. An error thrown by `prepare` stops the render with `Extension <name> failed: <message>`. md-render writes each extension's output into the page and adds the script's SHA-256 hash to the page's Content Security Policy. `connect: true` sets `connect-src 'self'`; otherwise the single-file policy keeps `connect-src 'none'`.
 
-`renderSinglePage` returns the single-file page without writing a file, for servers such as md-collab's.
+`renderSinglePage` returns the single-file page without writing a file, for servers such as md-collab's. `renderView` returns only the view, for commands that find blocks but show no page. Both return the corpus root, so callers read the corpus once.
 
 ### Browser interface
 
-md-render's script defines one frozen global before extension scripts run:
+In a single page rendered with extensions, md-render's script defines one frozen global before extension scripts run. Pages without extensions do not get it:
 
 ```ts
 interface MdRender {

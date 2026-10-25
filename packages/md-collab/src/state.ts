@@ -52,7 +52,7 @@ export interface PageState {
 /** Markdown from threads and decisions, through md-render's sanitizer; raw HTML stays escaped. */
 export async function markdownHtml(markdown: string): Promise<string> {
   if (!markdown.trim()) return '';
-  return (await documentHtml(parseDocument(markdown, ''))).replace(/ data-(?:source-lines|block)="[^"]*"/g, '');
+  return documentHtml(parseDocument(markdown, ''));
 }
 async function inlineHtml(markdown: string): Promise<string> {
   return (await markdownHtml(markdown)).replace(/^<p>([\s\S]*)<\/p>$/, '$1');

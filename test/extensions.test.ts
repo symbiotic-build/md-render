@@ -1,13 +1,11 @@
 import { useBrowser } from './browser-fixture.js';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { parseDocument, renderDocument, textDocument } from '../src/markdown.js';
-import { renderSite, type RenderExtension, type SiteView } from '../src/site.js';
-import { renderSinglePage } from '../src/single-file.js';
+import { exportSite, renderSinglePage, renderSite, type RenderExtension, type SiteView } from '../src/index.js';
 
 const withBrowser = useBrowser();
 let root: string;
@@ -17,34 +15,68 @@ beforeAll(async () => {
   root = await realpath(await mkdtemp(path.join(tmpdir(), 'md-render-extensions-')));
   source = path.join(root, 'input');
   await mkdir(path.join(source, 'nested'), { recursive: true });
-  await writeFile(path.join(source, 'index.md'), '# Guide\n\nFirst paragraph\nspans two lines.\n\n## Rules\n\n- One rule\n- Two rule\n\n| Key | Value |\n| --- | --- |\n| a | b |\n');
+  await writeFile(path.join(source, 'index.md'), '# Guide\n\nFirst paragraph\nspans two lines.\n\n## Rules\n\n- One rule\n- Two rule\n\n| Key | Value |\n| --- | --- |\n| a | b |\n\n```mermaid\ngraph TD; A-->B\n```\n\n[Notes](notes.txt)\n');
+  await writeFile(path.join(source, 'notes.txt'), 'one\ntwo\n');
   await writeFile(path.join(source, 'nested/b.md'), '# Second\n\n<a id="limits"></a>\n\n## Limits and caps\n\nThe limit is 4 MiB.\n\nRepeat.\n\nRepeat.\n');
 });
 afterAll(async () => { if (root) await rm(root, { recursive: true, force: true }); });
 
+/** The view an extension receives, with the single page rendered beside it. */
+async function probe(options: { mermaid?: boolean } = {}): Promise<{ view: SiteView; html: string }> {
+  let seen: SiteView | undefined;
+  const { html } = await renderSinglePage(source, { mermaid: options.mermaid ?? false }, [{ name: 'probe', prepare(view) { seen = view; return {}; } }]);
+  return { view: seen!, html };
+}
+const blocksOf = (view: SiteView, file: string) => view.documents.find(document => document.path === file)!.blocks;
+
 it('marks every Markdown block with its source lines and a stable block ID', async () => {
-  const { html, blocks } = await renderDocument(parseDocument('# Guide\n\nFirst paragraph\nspans two lines.\n\n## Rules\n\n- One rule\n- Two rule\n\n| Key | Value |\n| --- | --- |\n| a | b |\n', 'x'), { mark: true });
-  expect(blocks.map(block => [block.tag, block.lines, block.heading])).toEqual([
+  const { view, html } = await probe();
+  expect(blocksOf(view, 'index.md').map(block => [block.tag, block.lines, block.heading])).toEqual([
     ['h1', [1, 1], 'guide'], ['p', [3, 4], 'guide'], ['h2', [6, 6], 'rules'], ['li', [8, 8], 'rules'], ['li', [9, 9], 'rules'],
-    ['tr', [11, 11], 'rules'], ['tr', [13, 13], 'rules'],
+    ['tr', [11, 11], 'rules'], ['tr', [13, 13], 'rules'], ['p', [19, 19], 'rules'],
   ]);
-  expect(blocks[1]).toMatchObject({ id: `guide~${hex('First paragraph spans two lines.')}`, text: 'First paragraph spans two lines.' });
+  expect(blocksOf(view, 'index.md')[1]).toMatchObject({ path: 'index.md', id: `guide~${hex('First paragraph spans two lines.')}`, text: 'First paragraph spans two lines.' });
   expect(html).toContain(`<p data-source-lines="3-4" data-block="guide~${hex('First paragraph spans two lines.')}">`);
   expect(html).toContain(`<tr data-source-lines="13-13" data-block="rules~${hex('a b')}">`);
 });
 
 it('names blocks after an explicit anchor before a heading and numbers repeated text', async () => {
-  const { blocks } = await renderDocument(parseDocument('<a id="limits"></a>\n\n## Limits and caps\n\nRepeat.\n\nRepeat.\n', 'x'));
-  expect(blocks.map(block => block.id)).toEqual([`limits~${hex('Limits and caps')}`, `limits~${hex('Repeat.')}`, `limits~${hex('Repeat.')}-2`]);
+  const { view } = await probe();
+  expect(blocksOf(view, 'nested/b.md').map(block => block.id)).toEqual([
+    `second~${hex('Second')}`, `limits~${hex('Limits and caps')}`, `limits~${hex('The limit is 4 MiB.')}`, `limits~${hex('Repeat.')}`, `limits~${hex('Repeat.')}-2`,
+  ]);
 });
 
-it('gives source pages of plain text files no blocks, and marks nothing without extensions', async () => {
-  const { html, blocks } = await renderDocument(textDocument('one\ntwo', 'notes.txt'), { mark: true });
-  expect(blocks).toEqual([]);
-  expect(html).not.toContain('data-block');
-  const plain = await renderDocument(parseDocument('# Guide\n\nText.', 'x'));
-  expect(plain.blocks).toHaveLength(2);
-  expect(plain.html).toBe('<h1 id="guide">Guide</h1>\n<p>Text.</p>');
+it('gives source pages of plain text files no blocks', async () => {
+  const { view, html } = await probe();
+  const notes = view.documents.find(document => document.path.endsWith('/notes.txt.md'))!;
+  expect(notes).toMatchObject({ title: 'notes.txt', blocks: [] });
+  const section = new RegExp(`<section class="single-page"[^>]*data-source-path="${notes.path}">([\\s\\S]*?)</section>`).exec(html)![1]!;
+  expect(section).toContain('id="page-2--L2"');
+  expect(section).not.toContain('data-block');
+});
+
+it("keeps main's output bytes for renders without extensions (recorded from main at dd43046)", async () => {
+  // SHA-256 of every file main wrote for this corpus, folder and single file, with Mermaid off.
+  const expected = {
+    'folder/_md-render/base.css': 'a336f938dc8a2f8c18c81206cecd1d4fdc31d4a4a822ad47be65a172fad1b883',
+    'folder/_md-render/navigation.js': '5fc272409a12ba60c3c0ebb6fe87e40bff8a13c5d66f40eb2e7ed5d31b426202',
+    'folder/_md-render/theme.css': '884281e49c9386d5c0da4b6548baa33234248541927142e71d64a028dfcb08a1',
+    'folder/index.html': '0ee59e31a5c37db6d1f6ee54f99977094579c512aa1303414537eac2cfbf05c7',
+    'folder/nested/b.html': 'ae1ea8ff62797d2877d5ab9b7b4b245c60951efffac1c00c3362f391a327c060',
+    'single.html': '9bf16a726da63b9d58b60d15ab73cda09a986102ee7d67577994b0d07612e047',
+  };
+  const base = path.join(root, 'bytes');
+  const input = path.join(base, 'input');
+  await mkdir(path.join(input, 'nested'), { recursive: true });
+  await writeFile(path.join(input, 'index.md'), '# Guide\n\n<a id="limits"></a>\n\n## Limits\n\nFirst paragraph\nspans two lines.\n\n- One\n- Two\n\n| Key | Value |\n| --- | --- |\n| a | b |\n\n```mermaid\ngraph TD; A-->B\n```\n\n[Second](nested/b.md#rules)\n');
+  await writeFile(path.join(input, 'nested/b.md'), '# Second\n\n## Rules\n\nRepeat.\n');
+  await renderSite(input, path.join(base, 'folder'), { mermaid: false });
+  await exportSite(input, { singleFile: path.join(base, 'single.html') }, { mermaid: false });
+  const files = [...(await readdir(path.join(base, 'folder'), { recursive: true, withFileTypes: true }))].filter(entry => entry.isFile())
+    .map(entry => path.relative(base, path.join(entry.parentPath, entry.name))).concat('single.html').sort();
+  const actual = Object.fromEntries(await Promise.all(files.map(async file => [file, createHash('sha256').update(await readFile(path.join(base, file))).digest('hex')])));
+  expect(actual).toEqual(expected);
 });
 
 it('passes the rendered corpus to an extension and embeds its output in the single page', async () => {
@@ -55,7 +87,7 @@ it('passes the rendered corpus to an extension and embeds its output in the sing
   } };
   const { html, view } = await renderSinglePage(source, { mermaid: false }, [extension]);
   expect(seen).toBe(view);
-  expect(view.documents.map(document => document.path)).toEqual(['index.md', 'nested/b.md']);
+  expect(view.documents.map(document => document.path)).toEqual(['index.md', 'nested/b.md', '_md-render/references/0/notes.txt.md']);
   expect(view.documents[1]!.blocks.find(block => block.text === 'The limit is 4 MiB.')).toMatchObject({ path: 'nested/b.md', lines: [7, 7], heading: 'limits' });
   expect(html).toContain('<style data-md-render-extension="probe">.probe{color:red}</style>');
   expect(html).toContain('<script type="application/json" id="md-render-extension-data-probe">{"count":2,"tag":"\\u003c/script>"}</script>');
@@ -63,12 +95,28 @@ it('passes the rendered corpus to an extension and embeds its output in the sing
   expect(policy).toContain(`'sha256-${createHash('sha256').update('window.probeRan = mdRender.extensionData("probe").count;').digest('base64')}'`);
   expect(policy).toContain("connect-src 'self'");
   expect(html).toContain('data-source-path="nested/b.md"');
-  const plain = await renderSinglePage(source, { mermaid: false });
-  expect(plain.html).toContain("connect-src 'none'");
-  expect(plain.html).not.toMatch(/<(?:p|h1|li|tr)\b[^>]*data-block=/);
-  const folder = path.join(root, 'folder');
-  await renderSite(source, folder, { mermaid: false });
-  expect(await readFile(path.join(folder, 'nested/b.html'), 'utf8')).not.toMatch(/<(?:p|h1|li|tr)\b[^>]*data-block=/);
+});
+
+it('gives every extension the same read-only view, whatever an earlier one tries to change', async () => {
+  const attempts: string[] = [];
+  const tryTo = (name: string, change: () => void) => { try { change(); attempts.push(`${name} changed`); } catch { attempts.push(`${name} refused`); } };
+  let later: SiteView | undefined;
+  const { view } = await renderSinglePage(source, { mermaid: false }, [
+    { name: 'writer', prepare(view) {
+      const documents = view.documents as unknown as { title: string; blocks: { text: string; lines: number[] }[] }[];
+      tryTo('documents', () => { (documents as unknown[]).pop(); });
+      tryTo('title', () => { documents[0]!.title = 'Changed'; });
+      tryTo('blocks', () => { documents[0]!.blocks.splice(0, 1); });
+      tryTo('text', () => { documents[0]!.blocks[0]!.text = 'Changed'; });
+      tryTo('lines', () => { documents[0]!.blocks[0]!.lines[0] = 99; });
+      return {};
+    } },
+    { name: 'reader', prepare(view) { later = view; return {}; } },
+  ]);
+  expect(attempts).toEqual(['documents refused', 'title refused', 'blocks refused', 'text refused', 'lines refused']);
+  expect(later).toBe(view);
+  expect(view.documents.map(document => document.title)).toEqual(['Guide', 'Second', 'notes.txt']);
+  expect(view.documents[0]!.blocks[0]).toMatchObject({ text: 'Guide', lines: [1, 1] });
 });
 
 it('stops the render when an extension fails or is malformed', async () => {
@@ -82,15 +130,20 @@ it('stops the render when an extension fails or is malformed', async () => {
     .rejects.toThrow('Extension tag failed: its script contains </script');
 });
 
-it('lets an extension find blocks by source line and show them in the single page', async () => {
+async function singleFile(name: string): Promise<string> {
   const script = `mdRender.onNavigate(path => { (window.navigations ||= []).push(path); });`;
   const { html } = await renderSinglePage(source, { mermaid: false }, [{ name: 'probe', prepare: () => ({ script }) }]);
-  const file = path.join(root, 'single.html');
+  const file = path.join(root, name);
   await writeFile(file, html);
+  return pathToFileURL(file).href;
+}
+
+it('lets an extension find blocks by source line and show them in the single page', async () => {
+  const url = await singleFile('single.html');
   await withBrowser(async browser => {
-    await browser.navigate(pathToFileURL(file).href);
+    await browser.navigate(url);
     expect(await browser.evaluate(`({ version: mdRender.version, current: mdRender.currentDocument(), documents: mdRender.documents().map(d => d.path), frozen: Object.isFrozen(mdRender) })`))
-      .toEqual({ version: 1, current: 'index.md', documents: ['index.md', 'nested/b.md'], frozen: true });
+      .toEqual({ version: 1, current: 'index.md', documents: ['index.md', 'nested/b.md', '_md-render/references/0/notes.txt.md'], frozen: true });
     expect(await browser.evaluate(`mdRender.blocks('index.md', 4, 8).map(e => e.tagName + ' ' + e.dataset.sourceLines)`)).toEqual(['P 3-4', 'H2 6-6', 'LI 8-8']);
     const shown = await browser.evaluate(`mdRender.show({ path: 'nested/b.md', block: mdRender.blocks('nested/b.md', 7, 7)[0].dataset.block }).then(e => ({ text: e.textContent, visible: e.checkVisibility(), current: mdRender.currentDocument(), navigations: window.navigations }))`);
     expect(shown).toEqual({ text: 'The limit is 4 MiB.', visible: true, current: 'nested/b.md', navigations: ['nested/b.md'] });

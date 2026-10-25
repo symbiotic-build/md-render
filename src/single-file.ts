@@ -243,11 +243,13 @@ async function standalone(site: PreparedSite, options: RenderOptions): Promise<s
       });
     });
   });
-  const content = paths.map((file, index) => `<section class="single-page" id="page-${index}" data-title="${escapeHtml(site.docs.get(file)!.title)}" data-source-path="${escapeHtml(file)}">${pageContent(site.corpus, site.docs, file, bodies[index]!, target => escapeHtml(url(target)))}</section>`).join('\n');
+  const content = paths.map((file, index) => `<section class="single-page" id="page-${index}" data-title="${escapeHtml(site.docs.get(file)!.title)}"${site.extensions.length ? ` data-source-path="${escapeHtml(file)}"` : ''}>${pageContent(site.corpus, site.docs, file, bodies[index]!, target => escapeHtml(url(target)))}</section>`).join('\n');
   const theme = options.theme ?? 'default';
   const themePath = theme === 'default' || theme === 'symbiotic' ? fileURLToPath(new URL(`../themes/${theme}.css`, import.meta.url)) : path.resolve(theme);
   const styles = await inlineCss(fileURLToPath(new URL('../themes/base.css', import.meta.url))) + '\n' + await inlineCss(themePath) + '\n.single-page[hidden="until-found"]{display:block!important;content-visibility:hidden}@media print{.single-page[hidden="until-found"]{content-visibility:visible}}';
-  const script = site.files.get('_md-render/navigation.js')!.toString('utf8');
+  // Pages with extensions also get the browser interface, which needs the single page's routing.
+  const script = site.files.get('_md-render/navigation.js')!.toString('utf8') +
+    (site.extensions.length ? '\n' + await readFile(fileURLToPath(new URL('../themes/extension-api.js', import.meta.url)), 'utf8') : '');
   const hash = (value: string) => `'sha256-${createHash('sha256').update(value).digest('base64')}'`;
   const extensionHashes = site.extensions.filter(extension => extension.script).map(extension => ' ' + hash(extension.script!)).join('');
   const connect = site.extensions.some(extension => extension.connect) ? "'self'" : "'none'";
@@ -255,10 +257,16 @@ async function standalone(site: PreparedSite, options: RenderOptions): Promise<s
   return page(site.corpus, site.docs, paths[0]!, '', site.logo, site.themeInit, site.cachePages, { url, content, styles, script, policy }, site.extensions);
 }
 
-/** The single-file page and the corpus view, kept in memory, for servers that render on demand. */
-export async function renderSinglePage(input: string, options: RenderOptions = {}, extensions: RenderExtension[] = []): Promise<{ html: string; view: SiteView; warnings: string[] }> {
-  const site = await prepareSite(input, options, true, extensions);
-  return { html: await standalone(site, options), view: site.view, warnings: site.warnings };
+/** The single-file page, the corpus view and the corpus root, kept in memory, for servers that render on demand. */
+export async function renderSinglePage(input: string, options: RenderOptions = {}, extensions: RenderExtension[] = []): Promise<{ html: string; view: SiteView; root: string; warnings: string[] }> {
+  const site = await prepareSite(input, options, true, extensions, true);
+  return { html: await standalone(site, options), view: site.view!, root: site.corpus.root, warnings: site.warnings };
+}
+
+/** The corpus view and root without building a page, for tools that only need to find blocks. */
+export async function renderView(input: string, options: RenderOptions = {}): Promise<{ view: SiteView; root: string; warnings: string[] }> {
+  const site = await prepareSite(input, options, true, [], true);
+  return { view: site.view!, root: site.corpus.root, warnings: site.warnings };
 }
 
 /** Retained export destinations. At least one destination must be provided. */

@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadCorpus, readSource, within, type Corpus } from './corpus.js';
 import { bundleReferences, type ReferenceTarget } from './references.js';
 import { renderDiagrams } from './diagrams.js';
-import { documentOutline, parseDocument, renderDocument, transformUrls, type OutlineEntry, type ParsedDocument, type RenderedBlock } from './markdown.js';
+import { documentOutline, parseDocument, renderDocument, transformUrls, type OutlineEntry, type ParsedDocument } from './markdown.js';
 
 const assets = '_md-render';
 /** Static rendering options. Mermaid can be disabled to exercise the offline fallback. */
@@ -20,9 +20,18 @@ export interface RenderOptions {
 }
 
 /** One rendered Markdown block, as extensions see it. */
-export interface Block extends RenderedBlock { path: string }
-/** Read-only view of the rendered corpus, in reading order. */
-export interface SiteView { documents: { path: string; title: string; anchors: string[]; blocks: Block[] }[] }
+export interface Block {
+  readonly id: string;
+  readonly path: string;
+  readonly lines: readonly [number, number];
+  readonly tag: string;
+  readonly text: string;
+  readonly heading: string | null;
+}
+/** Read-only view of the rendered corpus, in reading order; md-render freezes it. */
+export interface SiteView {
+  readonly documents: readonly { readonly path: string; readonly title: string; readonly anchors: readonly string[]; readonly blocks: readonly Block[] }[];
+}
 /** What an extension adds to every page. `connect` allows fetch to the page's own origin. */
 export interface ExtensionOutput { styles?: string; script?: string; data?: unknown; connect?: boolean }
 /** A render-time extension of the single page; `prepare` runs once, after rendering and before the page is written. */
@@ -119,11 +128,8 @@ export function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: st
   ['dark', 'Dark', '<path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"></path>'],
 ].map(([value, label, icon]) => `<button type="button" value="${value}" aria-label="${label}" title="${label}" aria-pressed="${value === 'system'}"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg></button>`).join('')}</div></aside>
 <main id="md-render-content">${single ? single.content : pageContent(corpus, docs, file, body, href)}</main>
-<script type="application/json" id="md-render-documents">${scriptJson([...docs.keys()].map(path => ({ path, title: docs.get(path)!.title })))}</script>
-${extensions.map(extension => extension.data === undefined ? '' : `<script type="application/json" id="md-render-extension-data-${extension.name}">${scriptJson(extension.data)}</script>`).join('')}
-${single ? `<script>${single.script}</script>` : `<script src="${href(`${assets}/navigation.js`)}" defer></script>`}
-${extensions.map(extension => extension.script ? `<script>${extension.script}</script>` : '').join('')}
-</body></html>`;
+${extensions.map(extension => extension.data === undefined ? '' : `<script type="application/json" id="md-render-extension-data-${extension.name}">${scriptJson(extension.data)}</script>`).join('')}${single ? `<script>${single.script}</script>` : `<script src="${href(`${assets}/navigation.js`)}" defer></script>`}
+${extensions.map(extension => extension.script ? `<script>${extension.script}</script>` : '').join('')}</body></html>`;
 }
 
 /** Page shell inputs for an embedded export; all resources are already resolved. */
@@ -142,7 +148,7 @@ export function pageContent(corpus: Corpus, docs: Map<string, ParsedDocument>, f
     const source = index < 0 ? undefined : corpus.files[index + offset];
     return source ? `<a href="${href(pagePath(source.path))}"><small>${label}</small>${escapeHtml(docs.get(source.path)!.title)}</a>` : '<span></span>';
   };
-  return `<header class="page-meta"><span>${escapeHtml(docs.get(file)!.displayPath ?? file)}</span><span>${index < 0 ? 'Referenced file' : `${index + 1} / ${corpus.files.length}`}</span></header><article class="sd-doc" data-source-path="${escapeHtml(file)}">${body}</article><nav class="adjacent" aria-label="Reading order">${adjacent(-1, 'Previous')}${adjacent(1, 'Next')}</nav>`;
+  return `<header class="page-meta"><span>${escapeHtml(docs.get(file)!.displayPath ?? file)}</span><span>${index < 0 ? 'Referenced file' : `${index + 1} / ${corpus.files.length}`}</span></header><article class="sd-doc">${body}</article><nav class="adjacent" aria-label="Reading order">${adjacent(-1, 'Previous')}${adjacent(1, 'Next')}</nav>`;
 }
 
 /** Validated rendering snapshot shared by retained export formats. */
@@ -157,8 +163,8 @@ export interface PreparedSite {
   links: number;
   mermaid: boolean;
   warnings: string[];
-  /** The rendered corpus as extensions see it. */
-  view: SiteView;
+  /** The rendered corpus as extensions see it; built only when a caller asks for it. */
+  view?: SiteView;
   extensions: PreparedExtension[];
 }
 
@@ -181,8 +187,20 @@ async function prepareExtensions(view: SiteView, extensions: RenderExtension[]):
   return prepared;
 }
 
-/** Renders every source before writing pages. Links resolve against the same parsed snapshot. */
-export async function prepareSite(input: string, options: RenderOptions = {}, bundle = false, extensionList: RenderExtension[] = []): Promise<PreparedSite> {
+/** Freezes the view and everything in it, so no extension can change what another one sees. */
+function freeze<T>(value: T): T {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    for (const item of Object.values(value)) freeze(item);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+/**
+ * Renders every source before writing pages. Links resolve against the same parsed snapshot.
+ * The view, with every document's blocks, is built only for extensions or when `withView` asks for it.
+ */
+export async function prepareSite(input: string, options: RenderOptions = {}, bundle = false, extensionList: RenderExtension[] = [], withView = extensionList.length > 0): Promise<PreparedSite> {
   const maxFileBytes = options.bundle?.maxFileBytes ?? 5_000_000;
   if (options.bundle && options.bundle.version !== 1 || !Number.isSafeInteger(maxFileBytes) || maxFileBytes < 0) {
     throw new Error('Invalid version-1 bundle configuration');
@@ -343,11 +361,11 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
     const bytes = references?.bytes(path.resolve(corpus.root, file)) ?? await readSource(corpus.root, file);
     files.set(file, bytes);
   }
-  const rendered = await Promise.all([...docs.values()].map(doc => renderDocument(doc, { mark: extensionList.length > 0 })));
-  const view: SiteView = { documents: [...docs].map(([path, doc], index) => ({
+  const rendered = await Promise.all([...docs.values()].map(doc => renderDocument(doc, { blocks: withView, mark: extensionList.length > 0 })));
+  const view: SiteView | undefined = withView ? freeze({ documents: [...docs].map(([path, doc], index) => ({
     path, title: doc.title, anchors: [...doc.anchors], blocks: rendered[index]!.blocks.map(block => ({ ...block, path })),
-  })) };
-  const extensions = await prepareExtensions(view, extensionList);
+  })) }) : undefined;
+  const extensions = view ? await prepareExtensions(view, extensionList) : [];
   const diagrams = await renderDiagrams(rendered.map(result => result.html), options.mermaid !== false);
   return { corpus, docs, bodies: diagrams.pages.map(html => bundle ? html.replace(/file:/gi, value => value.slice(0, -1) + '&#58;') : html), files, logo, themeInit, cachePages, links, mermaid: diagrams.available, warnings, view, extensions };
 }
