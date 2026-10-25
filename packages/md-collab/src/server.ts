@@ -95,10 +95,13 @@ export async function serve(options: ServeOptions): Promise<Session> {
       listener.destroy();
     }
   };
-  // One render at a time; changes that arrive during a render start one more render after it.
+  // One render at a time; changes that arrive during a render start one more render after it. After
+  // close, no render starts, and close waits for the one running.
   let rendering: Promise<void> | undefined;
   let again = false;
+  let closed = false;
   function rerender(): void {
+    if (closed) return;
     if (rendering) { again = true; return; }
     rendering = (async () => {
       do {
@@ -108,7 +111,7 @@ export async function serve(options: ServeOptions): Promise<Session> {
           console.error(`md-collab: re-render failed: ${(error as Error).message}`);
           notify('failed', { error: (error as Error).message });
         }
-      } while (again);
+      } while (again && !closed);
       rendering = undefined;
     })();
   }
@@ -214,9 +217,11 @@ export async function serve(options: ServeOptions): Promise<Session> {
   return {
     url: `${origin}/`,
     async close() {
+      closed = true;
       clearTimeout(timer);
       for (const watcher of watchers) watcher.close();
       for (const listener of listeners) listener.end();
+      await rendering;
       await new Promise<void>(resolve => server.close(() => resolve()));
     },
   };

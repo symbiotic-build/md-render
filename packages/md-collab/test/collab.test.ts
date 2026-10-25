@@ -404,6 +404,30 @@ it('keeps the last good page and its decisions when a re-render fails, and tells
   } finally { await session.close(); }
 });
 
+it('finishes a running re-render before the session closes', async () => {
+  const documents = path.join(root, 'close-docs');
+  await mkdir(documents, { recursive: true });
+  await writeFile(path.join(documents, 'a.md'), '# A\n\nText.\n');
+  const storeRoot = path.join(root, 'store-close');
+  await new FileStore(storeRoot).createCollection({ name: 'spec', title: 'Close', settled: [] });
+  // A diagram render starts a browser that keeps its profile in the temporary folder until the render ends.
+  const profiles = path.join(root, 'close-profiles');
+  await mkdir(profiles);
+  const temporary = process.env.TMPDIR;
+  process.env.TMPDIR = profiles;
+  try {
+    const session = await serve({ documents, store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: true });
+    await writeFile(path.join(documents, 'a.md'), '# A\n\n```mermaid\ngraph TD; A-->B\n```\n');
+    for (const deadline = Date.now() + 10_000; !(await readdir(profiles)).length; await delay(10)) {
+      if (Date.now() > deadline) { await session.close(); throw new Error('The re-render started no browser'); }
+    }
+    await session.close();
+    expect(await readdir(profiles)).toEqual([]);
+  } finally {
+    if (temporary === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = temporary;
+  }
+});
+
 // Records script errors, unhandled rejections and posts on the page, and keeps the sidebar's event stream reachable.
 const pageScript = `window.pageErrors = [];
 addEventListener('error', event => pageErrors.push(String(event.message)));
