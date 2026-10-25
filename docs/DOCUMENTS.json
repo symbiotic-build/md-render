@@ -7,6 +7,16 @@
       "reason": "Preserved user guide."
     },
     {
+      "path": "docs/design/collab-first-slice.md",
+      "kind": "other",
+      "reason": "Design record for md-collab's first slice; migrates into specifications at closeout."
+    },
+    {
+      "path": "packages/md-collab/README.md",
+      "kind": "other",
+      "reason": "User guide for the md-collab package; the design record holds its contract until closeout."
+    },
+    {
       "path": "test/fixtures/corpus/chapters/nested/home.md",
       "kind": "other",
       "reason": "Synthetic renderer input; not a contract for md-render."

@@ -10,7 +10,7 @@
   "engines": { "node": ">=22" },
   "packageManager": "pnpm@10.20.0",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && pnpm --filter md-collab run build && pnpm --filter md-collab run typecheck",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json",
     "test": "vitest run",
     "test:report": "vitest run --reporter=default --reporter=junit --outputFile=reports/vitest.xml",
