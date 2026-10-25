@@ -2,7 +2,7 @@
 // Every write holds the collection's lock file, so one process at a time reads, checks and writes.
 import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { link, mkdir, open, readdir, readFile, realpath, rename, rm, writeFile, type FileHandle } from 'node:fs/promises';
+import { access, link, mkdir, open, readdir, readFile, realpath, rename, rm, writeFile, type FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
@@ -144,19 +144,20 @@ export class FileStore {
 
   /**
    * Writes new threads. Refuses the whole batch, before writing any, when an id exists or repeats
-   * or a question number is already used in the collection or in the batch.
+   * or a question number is already used in the collection or in the batch. Only a batch with
+   * question numbers reads the other threads; ids are checked against the files they would become.
    */
   async createAll(collection: string, threads: Thread[]): Promise<StoredThread[]> {
     const texts = threads.map(serializeThread);
     return this.locked(collection, async () => {
-      const ids = new Set<string>();
       const numbers = new Map<number, string>();
-      for (const { thread } of await this.list(collection)) {
-        ids.add(thread.id);
-        if (thread.number !== undefined) numbers.set(thread.number, thread.id);
+      if (threads.some(thread => thread.number !== undefined)) {
+        for (const { thread } of await this.list(collection)) if (thread.number !== undefined) numbers.set(thread.number, thread.id);
       }
+      const ids = new Set<string>();
       for (const thread of threads) {
-        if (ids.has(thread.id)) throw new Error(`Thread ${thread.id} already exists in ${collection}; nothing was written`);
+        const exists = await access(this.file(collection, thread.id)).then(() => true, error => code(error) === 'ENOENT' ? false : Promise.reject(error));
+        if (ids.has(thread.id) || exists) throw new Error(`Thread ${thread.id} already exists in ${collection}; nothing was written`);
         ids.add(thread.id);
         if (thread.number === undefined) continue;
         const other = numbers.get(thread.number);

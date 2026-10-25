@@ -202,7 +202,7 @@ One function in `store.ts` owns every write to a collection. It holds the collec
 - **A lock left by a crashed process.** A lock whose process no longer exists is never taken over. A writer that finds one refuses at once with `Collection <name> is locked by process <n>, which no longer runs; if no md-collab command is writing, delete <lock file>`. A person or agent deletes the file by hand, see [Recovery](#recovery). A lock whose process number was reused by a live process looks held; remove it the same way.
 - **New files** (threads and `collection.yaml`) are written to a private draft beside the destination, `.<name>.<random>.tmp`, then published with a hard link that fails when the destination exists, and the draft is removed. A reader sees a complete file or none.
 - **Appends** reread the thread under the lock, refuse when the caller named an older version, write a draft and rename it over the thread.
-- **Creation** under the lock reads the collection, refuses an id or a question number that exists or repeats in the batch, then publishes each thread.
+- **Creation** under the lock refuses an id that exists or repeats in the batch, then publishes each thread. Only a batch with question numbers reads the collection's threads, to refuse a number that exists or repeats; a comment checks only its own file name.
 - Drafts and the lock start with a dot. Readers and the page's change notices ignore them, and every handled failure removes the draft it wrote.
 
 ### Store invariants

@@ -190,6 +190,17 @@ it('refuses a repeated question number in a batch or in the collection and write
   expect((await store.list('spec')).map(({ thread }) => thread.number)).toEqual([1, 2]);
 });
 
+it('creates a comment without reading the other threads, and checks a numbered question against them', async () => {
+  const store = new FileStore(path.join(root, 'store-unread'));
+  await store.createCollection({ name: 'spec', title: 'Unread', settled: [] });
+  const broken = path.join(store.root, 'spec/threads/broken.md');
+  await writeFile(broken, 'Not a thread.\n');
+  const comment: Thread = { id: 'c-new', kind: 'comment', title: 'New', anchors: [], context: '', options: [], entries: [{ at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'New.' }] };
+  await store.create('spec', comment);
+  expect(await readFile(path.join(store.root, 'spec/threads/c-new.md'), 'utf8')).toBe(serializeThread(comment));
+  await expect(store.create('spec', question())).rejects.toThrow(`${broken}: Thread file must start with YAML front matter`);
+});
+
 it('leaves no draft or lock behind when a write is refused, and refuses to write past a lock left by a crashed process', async () => {
   const store = new FileStore(path.join(root, 'store-clean'));
   const directory = path.join(store.root, 'spec');
