@@ -96,7 +96,6 @@ beforeAll(async () => {
   await mkdir(path.join(docs, 'docs'), { recursive: true });
   await writeFile(path.join(docs, 'docs/storage.md'), spec);
   await writeFile(path.join(docs, 'docs/decisions.md'), decisions);
-  await writeFile(path.join(docs, 'questions.md'), questionList);
   await writeFile(path.join(docs, 'docs/more-decisions.md'), moreDecisions);
   await writeFile(path.join(docs, 'docs/long.md'), long);
   for (const args of [['init', '-q'], ['add', '.'], ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'docs']]) await run('git', ['-C', docs, ...args]);
@@ -278,7 +277,6 @@ it('serves the page only under its own host and accepts writes only from its own
     expect(page.status).toBe(200);
     const html = await page.text();
     expect(html).toContain("connect-src 'self'");
-    expect(html).toContain('id="md-render-extension-data-md-collab"');
     const headers = { 'content-type': 'application/json' };
     const state = await (await fetch(origin + '/api/state', { headers })).json();
     expect(state.threads[0]).toMatchObject({ id: created.thread.id, status: 'open', number: 1, anchors: [{ role: 'main', method: 'block' }, { role: 'also', method: 'block' }] });

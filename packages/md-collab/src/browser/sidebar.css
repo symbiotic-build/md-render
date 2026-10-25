@@ -52,7 +52,6 @@ td > .ov-tags, th > .ov-tags { left: -4px; top: -10px; flex-direction: row; }
 .ov-ctx { font-size: 13.5px; color: var(--muted); }
 .ov-ctx p { margin: 0 0 .5em; }
 .ov-ctx code, .ov-opt code { font: .86em var(--mono, monospace); background: var(--tint); padding: .05em .3em; border-radius: 4px; overflow-wrap: anywhere; }
-.ov-ctx .ref { font-family: var(--mono, monospace); font-size: .85em; color: var(--text); }
 .ov-links { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 12px; }
 .ov-link { all: unset; cursor: pointer; font-size: 12.5px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); }
 .ov-link:hover { border-color: var(--muted); }
@@ -122,8 +121,6 @@ td > .ov-tags, th > .ov-tags { left: -4px; top: -10px; flex-direction: row; }
 .ov-events li { margin: 2px 0; }
 .ov-optro { display: flex; gap: 8px; font-size: 13px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; margin: 4px 0; }
 .ov-optro.ov-chosen { border-color: var(--ov-ok); background: var(--ov-ok-soft); }
-.ov-cite { all: unset; cursor: pointer; font-family: var(--mono, monospace); font-size: .85em; color: var(--accent); text-decoration: underline dotted; }
-.ov-cite:focus-visible { outline: 2px solid var(--accent); }
 .ov-goto { margin-top: 8px; }
 .ov-hl-t { background: var(--ov-mark) !important; box-shadow: -6px 0 0 var(--ov-mark), 6px 0 0 var(--ov-mark) !important; border-radius: 2px; }
 .ov-hl2-t { text-decoration: underline dotted var(--ov-pen); text-decoration-thickness: 1.5px; text-underline-offset: 4px; }

@@ -1,7 +1,6 @@
 // md-collab sidebar: questions for the reader, the decision history and comments on selected text.
 // It reads and writes only through the md-collab server and finds text only through mdRender (version 1).
 (() => {
-const config = mdRender.extensionData('md-collab');
 const headers = { 'content-type': 'application/json' };
 const $ = selector => document.querySelector(selector);
 const esc = text => String(text ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -159,8 +158,8 @@ async function post(url, body) {
 }
 async function addEntry(item, entry) {
   try {
-    drafts.delete('ov-note-' + item.number); drafts.delete('ov-reply-' + item.id);
     await post(`/api/threads/${item.id}/entries`, { ...entry, version: item.version });
+    drafts.delete('ov-note-' + item.number); drafts.delete('ov-reply-' + item.id);
     await load();
   } catch (error) {
     toast(error.status === 409 ? 'Someone changed this item meanwhile. It is reloaded; please repeat your change.' : error.message);
@@ -214,8 +213,8 @@ function renderQuestions(list) {
         addEntry(item, { kind: 'answer', choice: option.n, note: note.value });
       });
       card.querySelector('.ov-opts').append(button);
-    wireLinks(card.querySelector('.ov-opts'), item);
     }
+    wireLinks(card.querySelector('.ov-opts'), item);
     card.querySelector('.ov-save').addEventListener('click', () => {
       if (!note.value.trim() && !answer?.choice) { toast('Choose an option or write a note first.'); return; }
       addEntry(item, { kind: 'answer', choice: answer?.choice ?? null, note: note.value });
@@ -290,11 +289,11 @@ function historyBody(item) {
     const box = document.createElement('div');
     const to = item.kind === 'comment' ? 'Reply' : `Your note to the ${esc(item.decides[0])}`;
     box.innerHTML = `<label class="ov-note-l" for="ov-reply-${item.id}">${to}</label><textarea class="ov-note" id="ov-reply-${item.id}"></textarea><div class="ov-foot"><span></span><button class="ov-btn ov-save">Save</button></div>`;
+    box.querySelector('textarea').value = drafts.get(`ov-reply-${item.id}`) ?? '';
     box.querySelector('.ov-save').addEventListener('click', () => {
       const note = box.querySelector('textarea').value.trim();
       if (note) addEntry(item, { kind: 'comment', note });
     });
-    box.querySelector('textarea').value = drafts.get(`ov-reply-${item.id}`) ?? '';
     detail.append(box);
   }
   more.addEventListener('click', () => { detail.hidden = !detail.hidden; more.setAttribute('aria-expanded', !detail.hidden); more.textContent = detail.hidden ? 'Details' : 'Hide details'; });
@@ -313,21 +312,21 @@ function fillFilters() {
 }
 
 /* ---------- shared rendering ---------- */
-const typing = () => document.activeElement?.classList.contains('ov-note');
-function renderList() {
-  const list = $('#ov-list'), keep = list.scrollTop;
-  list.innerHTML = '';
 // Notes being written survive a redraw. A redraw that arrives while the reader types waits until
 // the focus leaves the sidebar, or until the reader's own save redraws it.
 const drafts = new Map();
 let redrawPending = false;
-  if (view === 'q') renderQuestions(list); else renderHistory(list);
+const typing = () => document.activeElement?.classList.contains('ov-note');
 $('#ov-list').addEventListener('input', event => { if (event.target.classList.contains('ov-note')) drafts.set(event.target.id, event.target.value); });
 $('#ov-list').addEventListener('focusout', event => {
   if (redrawPending && event.target.classList.contains('ov-note') && !$('#ov-panel').contains(event.relatedTarget)) renderList();
 });
-  list.scrollTop = keep;
+function renderList() {
   redrawPending = false;
+  const list = $('#ov-list'), keep = list.scrollTop;
+  list.innerHTML = '';
+  if (view === 'q') renderQuestions(list); else renderHistory(list);
+  list.scrollTop = keep;
 }
 function renderCounts() {
   const all = questions(), done = all.filter(isDone).length;
@@ -358,7 +357,6 @@ function setView(next) {
   $('#ov-v-q').setAttribute('aria-pressed', next === 'q'); $('#ov-v-h').setAttribute('aria-pressed', next === 'h');
   $('#ov-qhead').hidden = next !== 'q'; $('#ov-hhead').hidden = next !== 'h'; $('#ov-next').hidden = next !== 'q';
   lightItem(next === 'h' ? byId(openH) : null);
-  try { localStorage.setItem('md-collab-view', next); } catch {}
   renderList(); refreshMarks();
 }
 function setFilter(next) { filter = next; document.querySelectorAll('.ov-chip').forEach(c => c.setAttribute('aria-pressed', c.dataset.f === next)); renderList(); }
@@ -394,12 +392,13 @@ async function loadOnce() {
   status(`Answers are saved to ${state.collection.title} as ${state.person.replace(/^person:/, '')}.${state.orphans.length ? ` ${state.orphans.length} passages are no longer found.` : ''}`, state.orphans.length > 0);
 }
 const events = new EventSource('/api/events');
-events.addEventListener('changed', () => { load(); });
-events.addEventListener('reload', () => { location.reload(); });
-events.onerror = () => status('Lost the connection to md-collab. Answers made now are not saved; restart it and reload.', true);
 // Each connection, the first and every reconnection, starts with a fresh state: writes made while
 // disconnected sent no event to this page.
 events.onopen = () => { load(); };
+events.addEventListener('changed', () => { load(); });
+events.addEventListener('reload', () => { location.reload(); });
+events.addEventListener('failed', event => status(`The documents changed, but rendering them failed: ${JSON.parse(event.data).error}. This page shows the last good version.`, true));
+events.onerror = () => status('Lost the connection to md-collab. Answers made now are not saved; restart it and reload.', true);
 mdRender.onNavigate(() => { if (view === 'q' && filter === 'page') renderList(); });
 
 /* ---------- comments on selected text ---------- */
@@ -428,7 +427,6 @@ document.addEventListener('selectionchange', () => {
 });
 $('#ov-selbtn').addEventListener('mousedown', event => event.preventDefault());
 $('#ov-selbtn').addEventListener('click', () => {
-events.addEventListener('failed', event => status(`The documents changed, but rendering them failed: ${JSON.parse(event.data).error}. This page shows the last good version.`, true));
   const composer = $('#ov-composer');
   composer.style.top = $('#ov-sel').style.top; composer.style.left = $('#ov-sel').style.left;
   composer.hidden = false; $('#ov-sel').style.display = 'none'; $('#ov-comment').focus();
@@ -461,7 +459,6 @@ $('#ov-close').addEventListener('click', () => $('#ov-panel').classList.remove('
 document.querySelectorAll('.ov-chip').forEach(chip => chip.addEventListener('click', () => setFilter(chip.dataset.f)));
 for (const key of Object.keys(hf)) $('#ov-f-' + key).addEventListener('change', event => { hf[key] = event.target.value; openH = null; lightItem(null); renderList(); });
 $('#ov-reset').addEventListener('click', () => { for (const key of Object.keys(hf)) { hf[key] = ''; $('#ov-f-' + key).value = ''; } renderList(); });
-try { if (localStorage.getItem('md-collab-view') === 'h') view = 'h'; } catch {}
 setView(view);
 load();
 })();
