@@ -684,3 +684,11 @@ it('keeps what the reader typed in the comment box while its save was running', 
       .toEqual({ open: true, comment: 'First comment, then more' });
   });
 });
+
+it("names a question's note box by its label even when an annotation carries the box's ID", async () => {
+  await sidebar('store-label-id', async (page, store) => {
+    await store.create('spec', { ...imported()[0]!, id: 'q02-label-id', title: 'Label ID', number: 2, context: 'An anchor <a id="ov-note-2"></a>in the context.' });
+    await until(page, `document.getElementById('ov-count').textContent === '0 / 2 answered'`);
+    expect(await page.evaluate(`[...document.querySelector('#ov-card-2 textarea').labels].map(label => label.textContent)`)).toEqual(['Your note']);
+  });
+});

@@ -24,10 +24,10 @@ shell.innerHTML = `
     </div>
     <div id="ov-hhead" hidden>
       <div class="ov-filters">
-        <label for="ov-f-who">Decided by<select id="ov-f-who"><option value="">Anyone</option><option value="operator">You (operator)</option><option value="lead">Lead</option><option value="measurement">Measurement</option><option value="comment">Comments</option></select></label>
-        <label for="ov-f-status">Status<select id="ov-f-status"><option value="">Any status</option><option value="open">Open</option><option value="answered">Answered</option><option value="settled">Settled</option></select></label>
-        <label for="ov-f-topic">Topic<select id="ov-f-topic"><option value="">All topics</option></select></label>
-        <label for="ov-f-chapter">Chapter<select id="ov-f-chapter"><option value="">All chapters</option></select></label>
+        <label>Decided by<select id="ov-f-who"><option value="">Anyone</option><option value="operator">You (operator)</option><option value="lead">Lead</option><option value="measurement">Measurement</option><option value="comment">Comments</option></select></label>
+        <label>Status<select id="ov-f-status"><option value="">Any status</option><option value="open">Open</option><option value="answered">Answered</option><option value="settled">Settled</option></select></label>
+        <label>Topic<select id="ov-f-topic"><option value="">All topics</option></select></label>
+        <label>Chapter<select id="ov-f-chapter"><option value="">All chapters</option></select></label>
       </div>
       <div class="ov-hcount"><span id="ov-hshown"></span><button class="ov-reset" id="ov-reset" hidden>Clear filters</button></div>
     </div>
@@ -37,10 +37,11 @@ shell.innerHTML = `
 </aside>
 <button class="ov-btn ov-primary ov-fab" id="ov-fab">Decisions</button>
 <div class="ov-sel" id="ov-sel"><button class="ov-btn ov-primary" id="ov-selbtn">Comment</button></div>
-<div class="ov-composer" id="ov-composer" hidden><label class="ov-note-l" for="ov-comment">Comment on the selected text</label><textarea class="ov-note" id="ov-comment"></textarea><div class="ov-foot"><button class="ov-clear" id="ov-comment-cancel">Cancel</button><button class="ov-btn ov-primary" id="ov-comment-save">Save comment</button></div></div>
+<div class="ov-composer" id="ov-composer" hidden><label class="ov-note-l">Comment on the selected text<textarea class="ov-note" id="ov-comment"></textarea></label><div class="ov-foot"><button class="ov-clear" id="ov-comment-cancel">Cancel</button><button class="ov-btn ov-primary" id="ov-comment-save">Save comment</button></div></div>
 <div class="ov-toast" id="ov-toast"></div>`;
-// The sidebar's own elements are found once, before any annotation HTML is on the page: an anchor
-// in an annotation may carry the same ID as one of them.
+// Each label wraps its control instead of naming its ID, so an annotation's anchor with that ID
+// cannot take the label away. The sidebar's own elements are found once, before any annotation
+// HTML is on the page: an anchor in an annotation may carry the same ID as one of them.
 const controls = new Map([...shell.content.querySelectorAll('[id]')].map(element => [element.id, element]));
 const $ = selector => controls.get(selector.slice(1)) ?? document.querySelector(selector);
 document.body.append(shell.content);
@@ -204,7 +205,7 @@ function renderQuestions(list) {
     card.id = 'ov-card-' + item.number;
     card.innerHTML = `<button class="ov-qh" aria-expanded="${open}"><span class="ov-num">${item.number}</span><span class="ov-title"></span></button>
       <div class="ov-body"><div class="ov-ctx">${item.contextHtml}</div><div class="ov-opts" role="group" aria-label="Options"></div>
-      <label class="ov-note-l" for="ov-note-${item.number}">Your note</label><textarea class="ov-note" id="ov-note-${item.number}" placeholder="Optional: explain, ask for more context, or answer in your own words"></textarea>
+      <label class="ov-note-l">Your note<textarea class="ov-note" id="ov-note-${item.number}" placeholder="Optional: explain, ask for more context, or answer in your own words"></textarea></label>
       <div class="ov-foot"><span class="ov-saved"></span><span><button class="ov-clear">Clear answer</button> <button class="ov-btn ov-save">Save note</button></span></div></div>`;
     const title = card.querySelector('.ov-title'); title.textContent = item.title;
     const text = summary(item); if (text) { const s = document.createElement('span'); s.className = 'ov-sum'; s.textContent = text; title.append(s); }
@@ -297,7 +298,7 @@ function historyBody(item) {
   if (item.kind !== 'decision' && item.status !== 'settled' && !(item.kind === 'question' && item.number != null)) {
     const box = document.createElement('div');
     const to = item.kind === 'comment' ? 'Reply' : `Your note to the ${esc(item.decides[0])}`;
-    box.innerHTML = `<label class="ov-note-l" for="ov-reply-${item.id}">${to}</label><textarea class="ov-note" id="ov-reply-${item.id}"></textarea><div class="ov-foot"><span></span><button class="ov-btn ov-save">Save</button></div>`;
+    box.innerHTML = `<label class="ov-note-l">${to}<textarea class="ov-note" id="ov-reply-${item.id}"></textarea></label><div class="ov-foot"><span></span><button class="ov-btn ov-save">Save</button></div>`;
     box.querySelector('textarea').value = drafts.get(`ov-reply-${item.id}`) ?? '';
     box.querySelector('.ov-save').addEventListener('click', () => {
       const note = box.querySelector('textarea').value.trim();
