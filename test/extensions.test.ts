@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { exportSite, renderSinglePage, renderSite, renderView, type RenderExtension, type SiteView } from '../src/index.js';
+import { documentHtml, exportSite, parseDocument, renderSinglePage, renderSite, renderView, type ParsedDocument, type RenderExtension, type SiteView } from '../src/index.js';
 
 const withBrowser = useBrowser();
 let root: string;
@@ -128,6 +128,13 @@ it('gives an extension the text of each document as md-render read it', async ()
   expect(view.documents.map(document => [document.path, document.markdown])).toEqual([
     ['index.md', await read('index.md')], ['nested/b.md', await read('nested/b.md')], ['_md-render/references/0/notes.txt.md', 'one\ntwo\n'],
   ]);
+});
+
+// A caller that built a ParsedDocument before the view existed still typechecks and renders.
+it('renders a document object that a caller built without its source text', async () => {
+  const { title, tree, anchors, headings, meanings } = parseDocument('# Title\n\nText.\n', 'Untitled');
+  const built: ParsedDocument = { title, tree, anchors, headings, meanings };
+  expect(await documentHtml(built)).toBe('<h1 id="title">Title</h1>\n<p>Text.</p>');
 });
 
 it('gives every extension the same read-only view, whatever an earlier one tries to change', async () => {

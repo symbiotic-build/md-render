@@ -47,7 +47,7 @@ In a render with at least one extension, every Markdown block, a `p`, `li`, `h1`
 
 `renderSinglePage(input, options, extensions)` accepts `extensions`, a list of `{ name, prepare(view) }`; the folder and file exports take none. A name matches `[a-z][a-z0-9-]*` and is unique. `prepare` runs once, after every page is rendered and before the page is written. It receives the documents in reading order with their path, title, `markdown`, anchors and blocks, frozen, so no extension changes what a later one sees. It returns optional `styles`, `script`, `data` and `connect`.
 
-A document's `markdown` is the text md-render read and rendered; for a plain-text source page it is that file's text. An extension that needs the source takes it from there, so it sees the page's text and reads no file again.
+A document's `markdown` is the text md-render read and rendered; for a plain-text source page it is that file's text. An extension that needs the source takes it from there, so it sees the page's text and reads no file again. The exported `ParsedDocument` type has the same text as an optional `markdown` field, so document objects that callers built without it still typecheck; `parseDocument` always sets it.
 
 md-render embeds the style, the JSON data and the inline script in the page, and adds the script's SHA-256 hash to the page policy. `connect: true` allows requests to the page's own origin. A failing `prepare` stops the render with `Extension <name> failed: <message>`, and a script that contains `</script` is refused.
 

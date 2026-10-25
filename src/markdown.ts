@@ -33,8 +33,8 @@ export interface ParsedDocument {
   displayPath?: string;
   /** Number of source lines when this is a read-only text page. */
   sourceLines?: number;
-  /** The text this document was parsed from, as read; for a plain-text source page, that file's text. */
-  markdown: string;
+  /** The text this document was parsed from, as read; for a plain-text source page, that file's text. md-render sets it on every document it parses. */
+  markdown?: string;
   tree: Root;
   anchors: Set<string>;
   headings: { id: string; title: string; depth: number }[];
@@ -97,8 +97,11 @@ function navigationMapNodes(tree: Root): Set<Nodes> {
   return omitted;
 }
 
+/** A document as md-render parses it: always with the text it was parsed from, which the view needs. */
+export interface SourceDocument extends ParsedDocument { markdown: string }
+
 /** Parses ordinary Markdown, preserving only explicit empty HTML anchors as markup. */
-export function parseDocument(markdown: string, fallbackTitle: string): ParsedDocument {
+export function parseDocument(markdown: string, fallbackTitle: string): SourceDocument {
   const tree = parser.parse(markdown.replace(/\r\n?/g, '\n')) as Root;
   const omitted = navigationMapNodes(tree);
   const anchors = new Set<string>();
@@ -211,7 +214,7 @@ export function documentOutline(doc: ParsedDocument): OutlineEntry[] {
 }
 
 /** Builds a read-only source page without interpreting the source as Markdown. */
-export function textDocument(text: string, label: string): ParsedDocument {
+export function textDocument(text: string, label: string): SourceDocument {
   const lines = text.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n');
   const doc = parseDocument('', label);
   doc.markdown = text;

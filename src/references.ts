@@ -7,7 +7,7 @@ import { visit } from 'unist-util-visit';
 import { readLimitedFile, type Corpus } from './corpus.js';
 import type { Nodes as MarkdownNodes } from 'mdast';
 import type { Nodes as HtmlNodes } from 'hast';
-import { parseDocument, textDocument, transformUrls, type ParsedDocument } from './markdown.js';
+import { parseDocument, textDocument, transformUrls, type ParsedDocument, type SourceDocument } from './markdown.js';
 
 const run = promisify(execFile);
 const portable = (file: string): string => file.split(path.sep).join('/');
@@ -62,7 +62,7 @@ export interface BundledReferences {
 }
 
 /** Bundles direct input links before URL rewriting, reusing the shared parsed documents. */
-export async function bundleReferences(corpus: Corpus, docs: Map<string, ParsedDocument>, files: Map<string, Buffer>, maxFileBytes: number): Promise<BundledReferences> {
+export async function bundleReferences(corpus: Corpus, docs: Map<string, SourceDocument>, files: Map<string, Buffer>, maxFileBytes: number): Promise<BundledReferences> {
   const sources = new Map([...docs.keys()].map(file => [file, path.join(corpus.root, file)]));
   const targets = new Map<string, ReferenceTarget>([...sources].map(([key, absolute]) => [absolute, { key, label: key, kind: 'markdown' }]));
   const resolve = (file: string, pathname: string): string => pathname.startsWith('/')
