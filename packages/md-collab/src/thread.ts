@@ -132,16 +132,19 @@ export function parseThread(source: string): Thread {
         const parts = head!.trim().split(' ');
         if (parts.length !== 3) throw new Error(`Thread ${String(front.id)}: entry heading "${head}" needs time, actor and kind`);
         const entry: Entry = { at: parts[0]!, actor: parts[1]!, kind: parts[2] as EntryKind, note: '' };
-        const lines = rest.join('\n').trim().split('\n');
-        while (lines.length) {
-          const field = /^(Choice|Source|Settled as): (.+)$/.exec(lines[0]!);
-          if (!field) break;
+        // The fields and the note are told apart before any whitespace is touched, so a note line
+        // that starts with a space stays note text; the note keeps its leading whitespace.
+        const lines = rest;
+        if (lines[0] === '') lines.shift();
+        let fields = 0;
+        for (let field; lines.length && (field = /^(Choice|Source|Settled as): (.+)$/.exec(lines[0]!)); fields++) {
           if (field[1] === 'Choice') entry.choice = Number(field[2]);
           else if (field[1] === 'Source') entry.source = field[2]!;
           else entry.settledAs = field[2]!;
           lines.shift();
         }
-        entry.note = unescapeText(lines.join('\n').trim());
+        if (fields && lines[0] === '') lines.shift();
+        entry.note = unescapeText(lines.join('\n').replace(/\n+$/, ''));
         return entry;
       });
     }

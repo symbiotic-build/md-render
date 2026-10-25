@@ -135,8 +135,9 @@ async function heard(reader: ReadableStreamDefaultReader<Uint8Array>, text: stri
 it('writes and reads a thread file without loss, and derives status from its entries', () => {
   const thread = question();
   thread.context = 'A fenced example:\n\n```markdown\n## Entries\n\n### Example\n```\n\nChoice: not a field';
-  const notes = ['Choice: 2 reads well', 'Source: the meeting', 'Settled as: nothing yet', '### Not an entry\nbody', 'Example:\n\n```\n## Entries\n### 2026-01-01T00:00:00Z person:x answer\n```', '\\## written with a backslash'];
-  notes.forEach((note, index) => thread.entries.push({ at: `2026-10-24T09:4${index}:00Z`, actor: 'person:operator', kind: 'comment', note }));
+  const notes = ['Choice: 2 reads well', 'Source: the meeting', 'Settled as: nothing yet', '### Not an entry\nbody', 'Example:\n\n```\n## Entries\n### 2026-01-01T00:00:00Z person:x answer\n```', '\\## written with a backslash',
+    ' Choice: 2', '\tSource: chat', '  An indented first line\nand a second'];
+  notes.forEach((note, index) => thread.entries.push({ at: `2026-10-24T09:${40 + index}:00Z`, actor: 'person:operator', kind: 'comment', note }));
   thread.entries.push({ at: '2026-10-24T09:50:00Z', actor: 'person:operator', kind: 'answer', choice: 1, note: 'Choice: 2\nKeep it short.' });
   const text = serializeThread(thread);
   // Fields end at the first line that is not a field; a note line that looks like one carries a backslash.
