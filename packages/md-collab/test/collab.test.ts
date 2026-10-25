@@ -462,11 +462,16 @@ async function sidebar(name: string, work: (page: BrowserSession, store: FileSto
 
 it("shows the sidebar in a real browser and adds an agent's new thread without a reload", async () => {
   await sidebar('store-c', async (page, store) => {
+    // A desktop window, where the sidebar stays open beside the documents.
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
     // The question's tag sits on its main passage, in the storage chapter.
     expect(await page.evaluate(`mdRender.show({ path: 'docs/storage.md' }).then(() => {
+      // Seen means rendered, not hidden or transparent by CSS, and with an area inside the window.
+      const seen = element => { const box = element.getBoundingClientRect();
+        return element.checkVisibility({ visibilityProperty: true, opacityProperty: true }) && box.width > 0 && box.height > 0 && box.right > 0 && box.bottom > 0 && box.left < innerWidth && box.top < innerHeight; };
       const panel = document.getElementById('ov-panel'), title = document.querySelector('#ov-card-1 .ov-title');
-      return { panel: panel.checkVisibility() && panel.getBoundingClientRect().width > 200, title: title.checkVisibility() ? title.firstChild.textContent : null,
-        count: document.getElementById('ov-count').textContent, tags: [...document.querySelectorAll('.ov-tag')].filter(tag => tag.checkVisibility()).map(tag => tag.textContent) };
+      return { panel: seen(panel) && panel.getBoundingClientRect().width > 200, title: seen(title) ? title.firstChild.textContent : null,
+        count: document.getElementById('ov-count').textContent, tags: [...document.querySelectorAll('.ov-tag')].filter(seen).map(tag => tag.textContent) };
     })`)).toEqual({ panel: true, title: 'How long may an identifier be?', count: '0 / 1 answered', tags: ['Q1'] });
     // The page stays the same document while the agent's thread arrives.
     await page.evaluate(`window.sameDocument = true`);
