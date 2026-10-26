@@ -7,6 +7,14 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { documentHtml, exportSite, parseDocument, renderSinglePage, renderSite, renderView, type ExtensionOutput, type ParsedDocument, type RenderExtension, type SiteView } from '../src/index.js';
 
+// Registered before the browser fixture so it runs first. On a Mac these tests run only in a test-only
+// Chrome, never the operator's desktop browser; the repository-wide fix is #31.
+beforeAll(() => {
+  const browser = process.env.MD_RENDER_BROWSER ?? '';
+  if (process.platform === 'darwin' && !/headless/i.test(path.basename(browser))) {
+    throw new Error(`These tests do not start a desktop browser (${browser || 'the default Chrome or Brave'}): set MD_RENDER_BROWSER to a test-only Chrome such as chrome-headless-shell (#31)`);
+  }
+});
 const withBrowser = useBrowser();
 let root: string;
 let source: string;
