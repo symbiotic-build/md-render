@@ -362,14 +362,17 @@ it('writes each snapshot once, and refuses a thread whose anchor names a snapsho
   const file = path.join(store.root, 'spec/versions', `${snapshot.hash}.json`);
   await store.create('spec', agentComment('c-first'), [snapshot]);
   const written = await stat(file);
+  const directory = path.dirname(file);
+  const baseline = new Date('2026-01-01T00:00:00Z');
+  await utimes(directory, baseline, baseline);
   // A second anchor on the same text finds the snapshot there and leaves it as it was.
   await store.create('spec', agentComment('c-second'), [snapshot]);
   const again = await stat(file);
   const long = { ...agentComment('c-long'), anchors: anchorsAt(view, 'docs/long.md', [7, 7], 'main') };
   await expect(store.create('spec', long)).rejects.toThrow(`The anchor on docs/long.md names snapshot ${snapshotOf(view, 'docs/long.md').hash}, which is not in spec; nothing was written`);
-  expect({ content: JSON.parse(await readFile(file, 'utf8')), same: [again.ino, again.mtimeMs].join() === [written.ino, written.mtimeMs].join(), threads: (await readdir(path.join(store.root, 'spec/threads'))).sort() }).toEqual({
+  expect({ content: JSON.parse(await readFile(file, 'utf8')), same: [again.ino, again.mtimeMs].join() === [written.ino, written.mtimeMs].join(), directoryUnchanged: (await stat(directory)).mtimeMs === baseline.getTime(), threads: (await readdir(path.join(store.root, 'spec/threads'))).sort() }).toEqual({
     content: view.documents.find(document => document.path === 'docs/storage.md')!.blocks.map(({ id, tag, text }) => ({ id, tag, text })),
-    same: true, threads: ['c-first.md', 'c-second.md'],
+    same: true, directoryUnchanged: true, threads: ['c-first.md', 'c-second.md'],
   });
 });
 

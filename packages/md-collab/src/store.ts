@@ -247,11 +247,12 @@ export class FileStore {
     await mkdir(path.join(this.directory(collection), 'versions'), { recursive: true });
     for (const [file, snapshot] of named) {
       parseSnapshot(snapshot.content, snapshot.hash);
-      try { await publish(file, snapshot.content); }
-      catch (error) {
-        if (code(error) !== 'EEXIST') throw error;
-        if (await readFile(file, 'utf8') !== snapshot.content) throw new Error(`${file} holds other content than its name says; restore it from the store's git checkout`);
-      }
+      const existing = await readFile(file, 'utf8').catch(error => {
+        if (code(error) !== 'ENOENT') throw error;
+        return undefined;
+      });
+      if (existing === undefined) await publish(file, snapshot.content);
+      else if (existing !== snapshot.content) throw new Error(`${file} holds other content than its name says; restore it from the store's git checkout`);
     }
   }
 
