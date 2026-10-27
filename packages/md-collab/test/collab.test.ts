@@ -887,6 +887,24 @@ it('shows the decision on a settled question and opens its heading', async () =>
   });
 });
 
+it('omits the decision box when Mark done settles a question without a decision reference', async () => {
+  const copy = path.join(root, 'repo-question-mark-done');
+  await cp(docs, copy, { recursive: true });
+  await writeFile(path.join(copy, 'docs/storage.md'), spec.replace('Identifiers may be long.', 'Identifiers may be very long.'));
+  await sidebar('store-question-mark-done', async page => {
+    await clickControl(page, '#ov-card-1 .ov-qh');
+    await clickControl(page, '#ov-card-1 .ov-change', 'Mark done');
+    await until(page, `document.querySelector('#ov-card-1 .ov-sum')?.textContent === 'Settled'`);
+    await clickControl(page, '#ov-card-1 .ov-qh');
+    await clickControl(page, '#ov-card-1 .ov-qh');
+    expect(await page.evaluate(`(() => {
+      const card = document.getElementById('ov-card-1'), note = card.querySelector('.ov-note-l');
+      return { decision: card.querySelector('.ov-decision')?.innerText ?? null, note: note.innerText,
+        visible: note.checkVisibility({ visibilityProperty: true, opacityProperty: true }) };
+    })()`)).toEqual({ decision: null, note: 'Comment or overrule', visible: true });
+  }, path.join(copy, 'docs'));
+});
+
 it('shows the documents rendered while the event stream was closed once it opens again', async () => {
   const copy = path.join(root, 'repo-reconnect');
   await cp(docs, copy, { recursive: true });

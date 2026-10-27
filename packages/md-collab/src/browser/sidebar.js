@@ -303,7 +303,7 @@ function renderQuestions(list) {
         ? `<p>Decided by ${esc(decision.decidedBy.join(' and '))} on ${esc(fmtDay(decision.date))}: ${esc(decision.title)}</p><p><b>Choice:</b> ${esc(decision.choice ?? 'Not recorded')}</p><p><b>Reason:</b> ${esc(decision.reason ?? 'Not recorded')}</p><button class="ov-link">Open the decision</button>`
         : `<p>Settled as ${esc(settled?.settledAs)}</p>`;
       if (decision) box.querySelector('button').addEventListener('click', () => showAnchor(decision.anchors[0]));
-      card.querySelector('.ov-body').prepend(box);
+      if (settled?.settledAs) card.querySelector('.ov-body').prepend(box);
     }
     card.querySelector('.ov-ctx').after(passageLinks(item));
     wireLinks(card.querySelector('.ov-ctx'), item);
