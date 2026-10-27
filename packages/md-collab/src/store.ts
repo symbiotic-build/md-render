@@ -76,7 +76,8 @@ export class FileStore {
   private async locked<T>(collection: string, work: () => Promise<T>): Promise<T> {
     const lock = path.join(this.directory(collection), '.lock');
     const owner = `${process.pid} ${randomBytes(8).toString('hex')}`;
-    const start = Date.now();
+    // The wait is measured on the monotonic clock, so a calendar clock set back does not stretch it.
+    const start = performance.now();
     let handle: FileHandle;
     for (;;) {
       try { handle = await open(lock, 'wx'); break; }
@@ -85,7 +86,11 @@ export class FileStore {
         const current = await readFile(lock, 'utf8').catch(() => '');
         const pid = current.split(' ')[0] || 'unknown';
         if (current && !alive(current)) throw new Error(`Collection ${collection} is locked by process ${pid}, which no longer runs; if no md-collab command is writing, delete ${lock}`);
-        if (Date.now() - start > lockWaitMs) throw new Error(`Collection ${collection} is locked by process ${pid}; try again when it finishes`);
+        if (performance.now() - start > lockWaitMs) {
+          // A lock that still names no process after the wait belongs to a writer that crashed before writing it.
+          if (!/^[1-9]\d* /.test(current)) throw new Error(`Collection ${collection} is locked by ${lock}, which names no process; if no md-collab command is writing, delete it`);
+          throw new Error(`Collection ${collection} is locked by process ${pid}; try again when it finishes`);
+        }
         await delay(10);
       }
     }

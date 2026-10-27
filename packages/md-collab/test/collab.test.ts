@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { useBrowser } from '../../../test/browser-fixture.js';
 import type { BrowserSession } from '../../../src/browser.js';
 import { execFile, spawn, spawnSync } from 'node:child_process';
@@ -274,6 +274,39 @@ it('reports a lock it could not remove after a write, and leaves it for the docu
   await rm(lock, { recursive: true });
   await store.append('spec', 'q01-identifier-length', { ...comment, note: 'After the repair.' });
   expect((await store.read('spec', 'q01-identifier-length')).thread.entries.map(entry => entry.note)).toEqual(['', 'Saved.', 'After the repair.']);
+});
+
+it('refuses after ten seconds a lock that names no process, naming the lock and its repair', async () => {
+  const store = new FileStore(path.join(root, 'store-empty-lock'));
+  await store.createCollection({ name: 'spec', title: 'Empty lock', settled: [] });
+  const { thread } = await store.create('spec', question());
+  // A writer that crashed after creating the lock and before writing its process number.
+  const lock = path.join(store.root, 'spec/.lock');
+  await writeFile(lock, '');
+  await expect(store.append('spec', thread.id, { at: '2026-10-24T10:00:00Z', actor: 'person:operator', kind: 'comment', note: 'Blocked.' }))
+    .rejects.toThrow(`Collection spec is locked by ${lock}, which names no process; if no md-collab command is writing, delete it`);
+  expect([(await store.read('spec', thread.id)).thread.entries.length, await readFile(lock, 'utf8')]).toEqual([1, '']);
+});
+
+it('gives up on a held lock after ten seconds even when the clock moves back', async () => {
+  const store = new FileStore(path.join(root, 'store-clock'));
+  await store.createCollection({ name: 'spec', title: 'Clock', settled: [] });
+  const { thread } = await store.create('spec', question());
+  // This process holds the lock, so it stays held; meanwhile the calendar clock goes back a minute at every reading.
+  const lock = path.join(store.root, 'spec/.lock');
+  await writeFile(lock, `${process.pid} held`);
+  let now = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockImplementation(() => (now -= 60_000));
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const outcome = store.append('spec', thread.id, { at: '2026-10-24T10:00:00Z', actor: 'person:operator', kind: 'comment', note: 'Waiting.' }).then(() => 'saved', (error: Error) => error.message);
+    const late = new Promise<string>(resolve => { timer = setTimeout(() => resolve('still waiting after 20 s'), 20_000); });
+    expect(await Promise.race([outcome, late])).toBe(`Collection spec is locked by process ${process.pid}; try again when it finishes`);
+  } finally {
+    clearTimeout(timer);
+    clock.mockRestore();
+    await rm(lock);
+  }
 });
 
 it('finds an anchor again by block, then quote, then lines, and reports an orphan', async () => {
