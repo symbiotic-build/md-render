@@ -114,47 +114,51 @@ export function blockAnchor(view: SiteView, path: string, block: Block, role: An
 }
 
 /**
- * Cited blocks in document order. A pure wrapper gives way to its covered descendants; a parent
- * with text beyond them keeps its anchor too. Blocks arrive in pre-order, with descendants within
- * their parent's source lines. Each frame consumes only its direct children's text, in order.
+ * Blocks whose own source lines intersect the citation, in document order. Blocks arrive in
+ * pre-order, with descendants within their parent's source lines. Each frame checks the gaps
+ * before, between and after its direct children; descendant lines never count as its own.
+ * A pure wrapper contributes no text, even when blank separator lines fall between its children.
  */
-export function citedBlocks(touched: readonly Block[]): Block[] {
-  type Coverage = { block: Block; keep: boolean; end: number };
+export function citedBlocks(blocks: readonly Block[], lines: [number, number]): Block[] {
+  type Coverage = { block: Block; covered: boolean; lineEnd: number; ownText: boolean; textEnd: number };
   const candidates: Coverage[] = [];
   const stack: Coverage[] = [];
+  const intersects = (start: number, end: number) => start <= end && start <= lines[1] && end >= lines[0];
   const finish = () => {
     const child = stack.pop()!;
-    child.keep ||= !!child.block.text.slice(child.end).trim();
+    child.covered ||= intersects(child.lineEnd, child.block.lines[1]);
+    child.ownText ||= !!child.block.text.slice(child.textEnd).trim();
     const parent = stack.at(-1);
-    if (!parent || parent.keep) return;
-    const start = parent.block.text.indexOf(child.block.text, parent.end);
-    if (start < 0 || parent.block.text.slice(parent.end, start).trim()) parent.keep = true;
-    else parent.end = start + child.block.text.length;
+    if (!parent) return;
+    parent.covered ||= intersects(parent.lineEnd, child.block.lines[0] - 1);
+    parent.lineEnd = child.block.lines[1] + 1;
+    if (parent.ownText) return;
+    const start = parent.block.text.indexOf(child.block.text, parent.textEnd);
+    if (start < 0 || parent.block.text.slice(parent.textEnd, start).trim()) parent.ownText = true;
+    else parent.textEnd = start + child.block.text.length;
   };
-  for (const block of touched) {
-    if (!block.text) continue;
+  for (const block of blocks) {
     while (stack.length && !(block.lines[0] >= stack.at(-1)!.block.lines[0] && block.lines[1] <= stack.at(-1)!.block.lines[1])) finish();
-    const frame = { block, keep: false, end: 0 };
+    const frame = { block, covered: false, lineEnd: block.lines[0], ownText: false, textEnd: 0 };
     candidates.push(frame);
     stack.push(frame);
   }
   while (stack.length) finish();
-  const cited = candidates.filter(frame => frame.keep).map(frame => frame.block);
-  return cited.length ? cited : touched.slice(0, 1);
+  return candidates.filter(frame => frame.covered && frame.ownText).map(frame => frame.block);
 }
 
 /** One anchor per cited block, in document order: the first takes `role`, the others are `also`. */
 export function blockAnchors(view: SiteView, path: string, touched: readonly Block[], role: Anchor['role']): Anchor[] {
-  return citedBlocks(touched).map((block, index) => blockAnchor(view, path, block, index ? 'also' : role));
+  return touched.map((block, index) => blockAnchor(view, path, block, index ? 'also' : role));
 }
 
 /**
  * The anchors for a citation's source lines, which only an imported question list carries: one per
- * block that the lines cover, see citedBlocks. Lines that cover no rendered block are refused.
+ * block whose own lines are covered, see citedBlocks. Lines that cover no rendered block are refused.
  */
 export function anchorsAt(view: SiteView, path: string, lines: [number, number], role: Anchor['role']): Anchor[] {
   if (!view.documents.some(document => document.path === path)) throw new Error(`${path} is not a rendered document`);
-  const anchors = blockAnchors(view, path, documentBlocks(view, path).filter(block => block.lines[0] <= lines[1] && block.lines[1] >= lines[0]), role);
+  const anchors = blockAnchors(view, path, citedBlocks(documentBlocks(view, path), lines), role);
   if (!anchors.length) throw new Error(`${path}:${lines[0]}-${lines[1]} covers no rendered text`);
   return anchors;
 }

@@ -510,7 +510,7 @@ mdRender.onNavigate(() => { if (view === 'q' && filter === 'page') renderList();
 
 /* ---------- comments on selected text ---------- */
 let selection = null;
-// A comment names every block the selection touches in the chapter where it starts; the server
+// A comment names blocks whose own text is selected in the chapter where it starts; the server
 // keeps one anchor per cited block, the first as the main passage.
 function selectedBlocks(range) {
   const start = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
@@ -518,14 +518,22 @@ function selectedBlocks(range) {
   if (!chapter) return null;
   // A block counts when the selection holds some of its text, so a selection that ends at the very
   // start of the next paragraph, as a triple click does, does not name that paragraph.
-  const touches = element => {
-    if (!range.intersectsNode(element)) return false;
-    const part = document.createRange(); part.selectNodeContents(element);
+  const touches = node => {
+    if (!range.intersectsNode(node)) return false;
+    const part = document.createRange(); part.selectNodeContents(node);
     if (range.compareBoundaryPoints(Range.START_TO_START, part) > 0) part.setStart(range.startContainer, range.startOffset);
     if (range.compareBoundaryPoints(Range.END_TO_END, part) < 0) part.setEnd(range.endContainer, range.endOffset);
     return part.toString().trim() !== '';
   };
-  const blocks = [...chapter.querySelectorAll('[data-block]')].filter(touches).map(element => element.dataset.block);
+  const covered = new Set();
+  const nodes = document.createTreeWalker(chapter, NodeFilter.SHOW_TEXT);
+  while (nodes.nextNode()) {
+    const node = nodes.currentNode;
+    if (!node.textContent.trim() || !touches(node)) continue;
+    const block = node.parentElement?.closest('[data-block]');
+    if (block) covered.add(block.dataset.block);
+  }
+  const blocks = [...chapter.querySelectorAll('[data-block]')].map(element => element.dataset.block).filter(id => covered.has(id));
   return blocks.length ? { path: chapter.dataset.sourcePath, blocks } : null;
 }
 document.addEventListener('selectionchange', () => {

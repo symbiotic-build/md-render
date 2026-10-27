@@ -408,6 +408,13 @@ it('keeps distinct parent text and child anchors while collapsing a pure wrapper
   await mkdir(folder);
   await writeFile(path.join(folder, 'nested.md'), '# Nested\n\n- Parent policy.\n  - Child policy.\n\n> First quoted paragraph.\n>\n> Second quoted paragraph.\n');
   const { view: nested } = await renderView(folder, { mermaid: false });
+  const passages = (lines: [number, number]) => anchorsAt(nested, 'nested.md', lines, 'main')
+    .map(anchor => ({ role: anchor.role, text: nested.documents[0]!.blocks.find(block => block.id === anchor.block)!.text }));
+  expect(passages([4, 4]), 'A child-only citation must not acquire its parent').toEqual([{ role: 'main', text: 'Child policy.' }]);
+  expect(passages([3, 4])).toEqual([
+    { role: 'main', text: 'Parent policy. Child policy.' },
+    { role: 'also', text: 'Child policy.' },
+  ]);
   const selected = anchorsAt(nested, 'nested.md', [3, 8], 'main');
   expect(selected.map(anchor => ({ role: anchor.role, text: nested.documents[0]!.blocks.find(block => block.id === anchor.block)!.text })))
     .toEqual([
@@ -1007,6 +1014,43 @@ async function changeBox(page: BrowserSession, id: string): Promise<{ text: stri
   return page.evaluate(`(() => { const box = [...document.getElementById('ov-list').children].find(row => row.id === 'ov-h-${id}').querySelector('.ov-change');
     return box ? { text: box.querySelector('.ov-was').innerText, deleted: [...box.querySelectorAll('del')].map(e => e.innerText), inserted: [...box.querySelectorAll('ins')].map(e => e.innerText), actions: [...box.querySelectorAll('button')].map(b => b.innerText) } : null; })()`);
 }
+
+it('anchors child-only browser selections to the child and includes the parent when its own words are selected', async () => {
+  const copy = path.join(root, 'repo-nested-browser-selection');
+  await cp(docs, copy, { recursive: true });
+  await writeFile(path.join(copy, 'docs/nested.md'), '# Nested\n\n- Parent policy.\n  - Child policy.\n');
+  const { view: nested } = await renderView(path.join(copy, 'docs'), { mermaid: false });
+  const blocks = nested.documents.find(document => document.path === 'docs/nested.md')!.blocks;
+  await sidebar('store-nested-browser-selection', async (page, store) => {
+    await page.evaluate(`mdRender.show({ path: 'docs/nested.md' })`);
+    for (const [includeParent, texts] of [
+      [false, ['Child policy.']],
+      [true, ['Parent policy. Child policy.', 'Child policy.']],
+    ] as const) {
+      await page.evaluate(`(() => {
+        const chapter = document.querySelector('[data-source-path="docs/nested.md"]');
+        const nodes = document.createTreeWalker(chapter, NodeFilter.SHOW_TEXT);
+        let parent, child;
+        while (nodes.nextNode()) {
+          if (nodes.currentNode.textContent.includes('Parent policy.')) parent = nodes.currentNode;
+          if (nodes.currentNode.textContent.includes('Child policy.')) child = nodes.currentNode;
+        }
+        const range = document.createRange();
+        range.setStart(${includeParent} ? parent : child, 0); range.setEnd(child, child.textContent.length);
+        getSelection().removeAllRanges(); getSelection().addRange(range);
+      })()`);
+      await until(page, `getComputedStyle(document.getElementById('ov-sel')).display === 'block'`);
+      await clickControl(page, '#ov-selbtn');
+      const note = includeParent ? 'Both policies.' : 'Child policy only.';
+      await page.evaluate(`document.getElementById('ov-comment').value = ${JSON.stringify(note)}`);
+      await clickControl(page, '#ov-comment-save');
+      await until(page, `document.getElementById('ov-v-hn').textContent === '${includeParent ? 5 : 4}'`);
+      const comment = (await store.list('spec')).find(({ thread }) => thread.title === note)!.thread;
+      expect(comment.anchors.map(anchor => ({ role: anchor.role, path: anchor.path, text: blocks.find(block => block.id === anchor.block)!.text })))
+        .toEqual(texts.map((text, index) => ({ role: index ? 'also' : 'main', path: 'docs/nested.md', text })));
+    }
+  }, path.join(copy, 'docs'));
+});
 
 it('anchors a comment on a selection over two paragraphs to both, the first as the main passage, and shows the words that changed in it', async () => {
   const copy = path.join(root, 'repo-selection');
