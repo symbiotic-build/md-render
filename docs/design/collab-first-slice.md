@@ -165,6 +165,7 @@ md-collab reads `### Decision:` sections from the decision chapters a collection
 - md-collab reads five fields: **Authority**, **Decided by**, **Date**, **Choice** and **Reason**. A field is a top-level paragraph of the section, in md-render's parse of that text, that starts with the bold field name and a colon. Code blocks, lists and quotes are never fields, so a fenced example that contains `**Authority:** Operator decision, 2030-01-01.` leaves the decision's own Authority as it is.
 - A field's value is the rest of its paragraph as plain text: link text stays, link targets and other markup go, and a line break counts as a space. So `Lead`, a hard line break and `decision` read as "Lead decision".
 - An open settled question card shows the referenced decision's title, date, decider, **Choice** and **Reason**, with a button to open its heading. An absent Choice or Reason displays "Not recorded". A settlement without a decision reference shows no decision box.
+- If a settled entry's reference names no extracted decision, the card shows only the reference. The collection owner can correct the reference or the decision heading. If the decision's chapter is absent from the collection's settled chapters, add it to `settled` in `collection.yaml` and restart `serve`. The server reads the collection configuration at start.
 - The date is the **Date** field when there is one, otherwise the latest ISO date in the Authority.
 
 - The page names a settled item `<chapter path>#<anchor>`, because two chapters may use the same anchor.
