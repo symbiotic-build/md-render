@@ -20,7 +20,7 @@ export interface ResolvedAnchor {
   problem: string | null;
 }
 
-type Carried = Pick<ResolvedAnchor, 'state' | 'block'>;
+type Carried = Pick<ResolvedAnchor, 'state' | 'block'> & { before: SnapshotBlock };
 
 function documentBlocks(view: SiteView, path: string): readonly Block[] {
   return view.documents.find(document => document.path === path)?.blocks ?? [];
@@ -39,7 +39,7 @@ export function carryBlocks(before: readonly SnapshotBlock[], now: readonly Bloc
   let removed: SnapshotBlock[] = [];
   let added: Block[] = [];
   const endHunk = () => {
-    removed.forEach((block, n) => carried.set(block.id, n < added.length ? { state: 'updated', block: added[n]! } : { state: 'removed', block: null }));
+    removed.forEach((block, n) => carried.set(block.id, n < added.length ? { state: 'updated', block: added[n]!, before: block } : { state: 'removed', block: null, before: block }));
     removed = [];
     added = [];
   };
@@ -48,7 +48,10 @@ export function carryBlocks(before: readonly SnapshotBlock[], now: readonly Bloc
     else if (change.added) added.push(...now.slice(current, current += change.count));
     else {
       endHunk();
-      for (let n = 0; n < change.count; n++) carried.set(before[old++]!.id, { state: 'same', block: now[current++]! });
+      for (let n = 0; n < change.count; n++) {
+        const block = before[old++]!;
+        carried.set(block.id, { state: 'same', block: now[current++]!, before: block });
+      }
     }
   }
   endHunk();
@@ -80,7 +83,7 @@ export function wordChanges(before: string, after: string): WordChange[] {
   return runs;
 }
 
-interface Carry { blocks: readonly SnapshotBlock[]; carried: Map<string, Carried> }
+type Carry = Map<string, Carried>;
 
 // One diff per snapshot per render: the view is the render's, and a snapshot never changes.
 const carries = new WeakMap<SiteView, Map<string, Promise<Carry>>>();
@@ -92,7 +95,7 @@ export async function resolveAnchor(anchor: Anchor, view: SiteView, store: FileS
   const key = `${store.root}\n${collection}\n${anchor.path}\n${anchor.snapshot}`;
   let carry = byKey.get(key);
   if (!carry) {
-    carry = store.snapshot(collection, anchor.path, anchor.snapshot).then(blocks => ({ blocks, carried: carryBlocks(blocks, documentBlocks(view, anchor.path)) }));
+    carry = store.snapshot(collection, anchor.path, anchor.snapshot).then(blocks => carryBlocks(blocks, documentBlocks(view, anchor.path)));
     byKey.set(key, carry);
     // A snapshot restored later resolves at the next state request.
     carry.catch(() => byKey.delete(key));
@@ -100,10 +103,9 @@ export async function resolveAnchor(anchor: Anchor, view: SiteView, store: FileS
   let found: Carry;
   try { found = await carry; }
   catch (error) { return { anchor, state: 'removed', block: null, before: null, problem: (error as Error).message }; }
-  const before = found.blocks.find(block => block.id === anchor.block) ?? null;
-  const carried = found.carried.get(anchor.block);
-  if (!before || !carried) return { anchor, state: 'removed', block: null, before, problem: `The snapshot of ${anchor.path} this passage was written on has no block ${anchor.block}` };
-  return { anchor, ...carried, before, problem: null };
+  const carried = found.get(anchor.block);
+  if (!carried) return { anchor, state: 'removed', block: null, before: null, problem: `The snapshot of ${anchor.path} this passage was written on has no block ${anchor.block}` };
+  return { anchor, ...carried, problem: null };
 }
 
 /** The anchor for one rendered block: its document, its ID and the hash of its document's snapshot. */
