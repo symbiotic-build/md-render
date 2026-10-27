@@ -866,17 +866,19 @@ it('shows the decision on a settled question and opens its heading', async () =>
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
     await store.append('spec', imported()[0]!.id, { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'settled', settledAs: 'docs/decisions.md#decision-fixed-group', note: '' });
     await until(page, `document.querySelector('#ov-card-1 .ov-sum')?.textContent === 'Settled'`);
-    await page.evaluate(`document.querySelector('#ov-card-1 .ov-qh').click()`);
+    expect(await page.evaluate(`document.querySelector('#ov-card-1 .ov-decision')`)).toBe(null);
+    await clickControl(page, '#ov-card-1 .ov-qh');
     expect(await page.evaluate(`(() => {
       const card = document.getElementById('ov-card-1');
-      return { decision: [...card.querySelectorAll('.ov-decision p')].map(p => p.innerText),
+      return { visible: [...card.querySelectorAll('.ov-decision p')].map(p => p.checkVisibility({ visibilityProperty: true, opacityProperty: true })), decision: [...card.querySelectorAll('.ov-decision p')].map(p => p.innerText),
         options: [...card.querySelectorAll('.ov-opt')].map(button => button.innerText.replace(/\\s+/g, ' ').trim()),
         note: card.querySelector('.ov-note-l').innerText };
     })()`)).toEqual({
+      visible: [true, true, true],
       decision: [expect.stringMatching(/^Decided by operator on .+: Fixed write group$/), 'Choice: Keep the write group at 4 MiB (limits).', 'Reason: One size is simpler.'],
       options: ['1 Cap at 256 bytes. recommended', '2 No cap, as storage.md:7 allows.'], note: 'Comment or overrule',
     });
-    await page.evaluate(`[...document.querySelectorAll('#ov-card-1 button')].find(button => button.textContent === 'Open the decision').click()`);
+    await clickControl(page, '#ov-card-1 .ov-decision', 'Open the decision');
     const heading = view.documents.find(document => document.path === 'docs/decisions.md')!.blocks.find(block => block.tag === 'h3' && block.heading === 'decision-fixed-group')!.id;
     expect(await until(page, `(() => {
       const heading = mdRender.block('docs/decisions.md', ${JSON.stringify(heading)}), rect = heading.getBoundingClientRect();
