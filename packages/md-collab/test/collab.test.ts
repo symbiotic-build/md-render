@@ -869,13 +869,13 @@ it('shows the decision on a settled question and opens its heading', async () =>
     expect(await page.evaluate(`document.querySelector('#ov-card-1 .ov-decision')`)).toBe(null);
     await clickControl(page, '#ov-card-1 .ov-qh');
     expect(await page.evaluate(`(() => {
-      const card = document.getElementById('ov-card-1');
-      return { visible: [...card.querySelectorAll('.ov-decision p')].map(p => p.checkVisibility({ visibilityProperty: true, opacityProperty: true })), decision: [...card.querySelectorAll('.ov-decision p')].map(p => p.innerText),
+      const card = document.getElementById('ov-card-1'), decision = card.querySelector('.ov-decision');
+      return { visible: decision.checkVisibility({ visibilityProperty: true, opacityProperty: true }), decision: decision.innerText,
         options: [...card.querySelectorAll('.ov-opt')].map(button => button.innerText.replace(/\\s+/g, ' ').trim()),
         note: card.querySelector('.ov-note-l').innerText };
     })()`)).toEqual({
-      visible: [true, true, true],
-      decision: [expect.stringMatching(/^Decided by operator on .+: Fixed write group$/), 'Choice: Keep the write group at 4 MiB (limits).', 'Reason: One size is simpler.'],
+      visible: true,
+      decision: expect.stringMatching(/Decided by operator on .+: Fixed write group.*Choice: Keep the write group at 4 MiB \(limits\)\..*Reason: One size is simpler\./s),
       options: ['1 Cap at 256 bytes. recommended', '2 No cap, as storage.md:7 allows.'], note: 'Comment or overrule',
     });
     await clickControl(page, '#ov-card-1 .ov-decision', 'Open the decision');
