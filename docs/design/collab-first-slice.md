@@ -177,6 +177,8 @@ Anchoring follows the version diff, as git does when it carries review comments 
 2. **Updated.** The block was removed in a hunk of the diff that also adds blocks. The hunk's removed blocks pair with its added blocks in order, and the anchor moves to its block's partner. The page flags it "updated" with jsdiff's word diff of the snapshot's text against the text now. The reader marks it done (a `settled` entry), keeps it open (a `kept-open` entry) or sends it to a fix run (a `fix-requested` entry). Keeping it open writes a new snapshot of the document as it reads now and moves each updated anchor to its block there, so the flag clears.
 3. **Removed.** The block was removed and has no partner in its hunk. The page shows it as "removed" with the snapshot's text. The reader closes the thread (a `withdrawn` entry) or leaves a note for an agent (a `comment` entry). An added block without a partner pairs with no anchor.
 
+A thread with both updated and removed passages shows both action groups. Above them, the page says “Settling or withdrawing applies to the whole thread.” Keeping it open moves only updated anchors; removed anchors stay flagged (lead decision LD2, 2026-10-27).
+
 A snapshot that is missing or cannot be read, or that has no block with the anchor's ID, makes the anchor removed, and the page says which file it could not read instead of the old text; neither the page nor `check` stops. A settled or withdrawn thread no longer needs its passage, so the page shows no flag for it. `md-collab check` prints each updated and removed anchor of the other threads, with the reason when its snapshot cannot be read, and exits 1 when there is one.
 
 ### Commands

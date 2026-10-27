@@ -210,13 +210,24 @@ function changeBox(item, flagged) {
       : anchor.problem ? '<b>Removed</b>. ' + esc(anchor.problem) : '<b>Removed</b>. It read: ' + esc(anchor.text);
     box.append(part);
   }
-  const foot = document.createElement('div'); foot.className = 'ov-foot';
+  const updated = flagged.some(anchor => anchor.state === 'updated');
+  const removed = flagged.some(anchor => anchor.state === 'removed');
+  if (updated && removed) {
+    const scope = document.createElement('p');
+    scope.textContent = 'Settling or withdrawing applies to the whole thread.';
+    box.append(scope);
+  }
+  let foot = document.createElement('div'); foot.className = 'ov-foot';
   const action = (label, entry) => { const b = document.createElement('button'); b.className = 'ov-btn'; b.textContent = label; b.addEventListener('click', () => addEntry(item, entry)); foot.append(b); };
-  if (flagged.some(anchor => anchor.state === 'updated')) {
+  if (updated) {
+    foot.setAttribute('role', 'group'); foot.setAttribute('aria-label', 'Updated passage actions');
     action('Mark done', { kind: 'settled', note: 'Done: the passage was updated.' });
     action('Keep open', { kind: 'kept-open', note: '' });
     action('Send to a fix run', { kind: 'fix-requested', note: '' });
-  } else {
+  }
+  if (removed) {
+    if (updated) { box.append(foot); foot = document.createElement('div'); foot.className = 'ov-foot'; }
+    foot.setAttribute('role', 'group'); foot.setAttribute('aria-label', 'Removed passage actions');
     action('Close', { kind: 'withdrawn', note: 'Closed: the passage was removed.' });
     const label = document.createElement('label'); label.className = 'ov-note-l';
     label.append('Note for an agent', Object.assign(document.createElement('textarea'), { className: 'ov-note', id: 'ov-agent-' + item.id, value: drafts.get('ov-agent-' + item.id) ?? '' }));

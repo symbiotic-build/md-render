@@ -1084,6 +1084,27 @@ it('shows a commented passage that was removed with its old text, and records a 
   }, path.join(copy, 'docs'));
 });
 
+it.each([['Mark done', 'settled'], ['Close', 'withdrawn']])('offers both mixed-passage action groups and applies "%s" to the whole thread', async (label, status) => {
+  const copy = path.join(root, 'repo-mixed-' + status);
+  await cp(docs, copy, { recursive: true });
+  await writeFile(path.join(copy, 'docs/long.md'), long.replace('second line', 'second row').replace('\nNext paragraph.\n', ''));
+  await sidebar('store-mixed-' + status, async (page, store) => {
+    await store.create('spec', { ...agentComment('c-mixed'), anchors: anchorsAt(view, 'docs/long.md', [3, 7], 'main') }, known());
+    await until(page, `document.getElementById('ov-v-hn').textContent === '4'`);
+    await changeBox(page, 'c-mixed');
+    expect(await page.evaluate(`(() => { const box = document.querySelector('#ov-h-c-mixed .ov-change');
+      return { notice: box.querySelector('p').innerText, passages: [...box.querySelectorAll('.ov-was')].map(part => part.innerText), groups: [...box.querySelectorAll('[role="group"]')].map(group => ({ name: group.getAttribute('aria-label'), actions: [...group.querySelectorAll('button')].map(button => button.innerText) })) }; })()`))
+      .toEqual({ notice: 'Settling or withdrawing applies to the whole thread.', passages: ['Updated since this was written: First line second line row third line.', 'Removed. It read: Next paragraph.'], groups: [
+        { name: 'Updated passage actions', actions: ['Mark done', 'Keep open', 'Send to a fix run'] },
+        { name: 'Removed passage actions', actions: ['Close', 'Save note'] },
+      ] });
+    await clickControl(page, '#ov-h-c-mixed .ov-change', label!);
+    await until(page, `!document.querySelector('#ov-h-c-mixed .ov-change')`);
+    const { thread } = await store.read('spec', 'c-mixed');
+    expect({ status: threadStatus(thread), kind: thread.entries.at(-1)?.kind, anchors: thread.anchors.length }).toEqual({ status, kind: status, anchors: 2 });
+  }, path.join(copy, 'docs'));
+});
+
 it('saves the answer note separately from the agent note when a question passage was removed', async () => {
   const copy = path.join(root, 'repo-answer-removed');
   await cp(docs, copy, { recursive: true });
