@@ -1135,6 +1135,10 @@ it('keeps warning about a failed re-render after the threads change, until a ren
     await store.create('spec', agentComment('c-after-failure'), known());
     await until(page, `document.getElementById('ov-v-hn').textContent === '4'`);
     expect(await page.evaluate(warned)).toBe(true);
+    await page.evaluate(`window.sidebarEvents.dispatchEvent(new Event('error'))`);
+    expect(await page.evaluate(`({ render: ${warned}, disconnected: document.getElementById('ov-status').textContent.includes('Live updates from md-collab are disconnected') })`))
+      .toEqual({ render: true, disconnected: true });
+    await page.evaluate(`(() => { window.sidebarEvents.dispatchEvent(new Event('open')); })()`);
     await page.waitForNavigation(() => writeFile(path.join(copy, 'docs/long.md'), long));
     await until(page, `document.getElementById('ov-status').textContent.startsWith('Answers are saved')`);
   }, path.join(copy, 'docs'));

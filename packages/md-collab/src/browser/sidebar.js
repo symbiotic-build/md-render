@@ -52,7 +52,19 @@ const listItem = id => [...$('#ov-list').children].find(element => element.id ==
 let state = null, items = [], view = 'q', openQ = null, openH = null, filter = 'all';
 const hf = { who: '', status: '', topic: '', chapter: '' };
 const toast = message => { const t = $('#ov-toast'); t.textContent = message; t.classList.add('ov-show'); clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove('ov-show'), 3200); };
-const status = (message, warn) => { const s = $('#ov-status'); s.textContent = message; s.classList.toggle('ov-warn', !!warn); };
+let disconnected = false, loadError = null;
+// This owner composes all status causes; a connection or load failure never erases a render failure.
+function renderStatus() {
+  const messages = [];
+  const flagged = state?.threads.flatMap(changed).length ?? 0;
+  if (state?.renderError) messages.push(`The documents changed, but rendering them failed: ${state.renderError}. This page shows the last good version.`);
+  if (loadError) messages.push(`Could not load decisions (${loadError}). Is md-collab still running?`);
+  if (disconnected) messages.push('Live updates from md-collab are disconnected; this page tries to reconnect. If md-collab stopped, restart it and reload.');
+  if (!messages.length) messages.push(state ? `Answers are saved to ${state.collection.title} as ${state.person.replace(/^person:/, '')}.${flagged ? ` ${flagged} passages changed since they were annotated.` : ''}` : 'Loading decisions…');
+  const element = $('#ov-status');
+  element.textContent = messages.join(' ');
+  element.classList.toggle('ov-warn', !!(state?.renderError || loadError || disconnected || flagged));
+}
 const day = at => at ? at.slice(0, 10) : null;
 const fmtDay = d => d ? new Date(d + 'T12:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date not recorded';
 const lastAnswer = item => item.entries.filter(entry => entry.kind === 'answer').pop();
@@ -447,18 +459,19 @@ function load() {
   if (loading) { loadAgain = true; return loading; }
   loading = (async () => {
     try { do { loadAgain = false; await loadOnce(); } while (loadAgain); }
-    catch (error) { status(`Could not load decisions (${error.message}). Is md-collab still running?`, true); }
+    catch (error) { loadError = error.message; renderStatus(); }
     finally { loading = null; }
   })();
   return loading;
 }
 async function loadOnce() {
   const response = await fetch('/api/state', { headers });
-  if (!response.ok) { status(`Could not load decisions (${response.status}). Is md-collab still running?`, true); return; }
+  if (!response.ok) { loadError = String(response.status); renderStatus(); return; }
   const next = await response.json();
   // The documents were rendered again while this page missed the reload notice: show the new render.
   if (next.generation !== mdRender.extensionData('md-collab')?.generation) { location.reload(); return; }
   state = next;
+  loadError = null;
   items = [
     ...state.threads,
     ...state.settled.map(decision => ({
@@ -470,20 +483,18 @@ async function loadOnce() {
   fillFilters();
   if (typing()) redrawPending = true; else renderList();
   renderCounts(); markDocument();
-  const flagged = state.threads.flatMap(changed).length;
-  if (state.renderError) status(`The documents changed, but rendering them failed: ${state.renderError}. This page shows the last good version.`, true);
-  else status(`Answers are saved to ${state.collection.title} as ${state.person.replace(/^person:/, '')}.${flagged ? ` ${flagged} passages changed since they were annotated.` : ''}`, flagged > 0);
+  renderStatus();
 }
 const events = new EventSource('/api/events');
 // Each connection, the first and every reconnection, starts with a fresh state: writes made while
 // disconnected sent no event to this page.
-events.onopen = () => { load(); };
+events.onopen = () => { disconnected = false; renderStatus(); load(); };
 events.addEventListener('changed', () => { load(); });
 events.addEventListener('reload', () => { location.reload(); });
 // The state carries the failure until a render succeeds, so the warning stays through later loads.
 events.addEventListener('failed', () => { load(); });
 // Only live updates stop; each save still reports whether it worked.
-events.onerror = () => status('Live updates from md-collab are disconnected; this page tries to reconnect. If md-collab stopped, restart it and reload.', true);
+events.onerror = () => { disconnected = true; renderStatus(); };
 mdRender.onNavigate(() => { if (view === 'q' && filter === 'page') renderList(); });
 
 /* ---------- comments on selected text ---------- */
