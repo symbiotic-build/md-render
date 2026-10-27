@@ -546,7 +546,6 @@ function selectedBlocks(range) {
     if (block) selected.add(block);
   }
   const blocks = [...selected]
-    .sort((a, b) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1)
     .map(element => element.dataset.block);
   return blocks.length ? { path: chapter.dataset.sourcePath, blocks } : null;
 }
