@@ -18,6 +18,14 @@ import { pageState, settledDecisions, type PageState } from '../src/state.js';
 import { ConflictError, FileStore } from '../src/store.js';
 import { parseThread, serializeThread, threadStatus, type Thread } from '../src/thread.js';
 
+// Registered before the browser fixture so it runs first. These tests start only a test-only
+// Chrome, never a desktop browser; the repository-wide fix is #31.
+beforeAll(() => {
+  const browser = process.env.MD_RENDER_BROWSER ?? '';
+  if (path.basename(browser) !== 'chrome-headless-shell') {
+    throw new Error(`These tests do not start a desktop browser (${browser || 'the default Chrome or Brave'}): set MD_RENDER_BROWSER to a test-only Chrome such as chrome-headless-shell (#31)`);
+  }
+});
 const withBrowser = useBrowser();
 
 const run = promisify(execFile);
