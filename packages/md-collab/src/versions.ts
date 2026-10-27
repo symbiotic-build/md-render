@@ -18,20 +18,24 @@ export function snapshotFile(hash: string): string {
   return `${hash}.json`;
 }
 
-const cache = new WeakMap<SiteView, Map<string, Snapshot>>();
+interface DocumentSnapshot { document: SiteView['documents'][number]; snapshot?: Snapshot }
+const cache = new WeakMap<SiteView, Map<string, DocumentSnapshot>>();
 
 /** The snapshot of one rendered document, computed once per view. */
 export function snapshotOf(view: SiteView, documentPath: string): Snapshot {
   let snapshots = cache.get(view);
-  if (!snapshots) cache.set(view, snapshots = new Map());
-  let snapshot = snapshots.get(documentPath);
+  if (!snapshots) {
+    snapshots = new Map(view.documents.map(document => [document.path, { document }]));
+    cache.set(view, snapshots);
+  }
+  const found = snapshots.get(documentPath);
+  if (!found) throw new Error(`${documentPath} is not a rendered document`);
+  let { snapshot } = found;
   if (!snapshot) {
-    const document = view.documents.find(item => item.path === documentPath);
-    if (!document) throw new Error(`${documentPath} is not a rendered document`);
-    const blocks: SnapshotBlock[] = document.blocks.map(({ id, tag, text }) => ({ id, tag, text }));
+    const blocks: SnapshotBlock[] = found.document.blocks.map(({ id, tag, text }) => ({ id, tag, text }));
     const content = JSON.stringify(blocks, null, 2) + '\n';
     snapshot = { path: documentPath, hash: sha256(content), content };
-    snapshots.set(documentPath, snapshot);
+    found.snapshot = snapshot;
   }
   return snapshot;
 }
