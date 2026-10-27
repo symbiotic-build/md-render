@@ -21,7 +21,7 @@ jobs:
         run: |
           zip="$RUNNER_TEMP/chrome-headless-shell-linux64.zip"
           curl -fsSL -o "$zip" "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64/chrome-headless-shell-linux64.zip" < /dev/null
-          echo "$CHROME_SHA256  $zip" | sha256sum --check --strict < /dev/null
+          echo "$CHROME_SHA256  $zip" | sha256sum --check --strict
           unzip -q "$zip" -d "$RUNNER_TEMP" < /dev/null
           echo "MD_RENDER_BROWSER=$RUNNER_TEMP/chrome-headless-shell-linux64/chrome-headless-shell" >> "$GITHUB_ENV"
       - run: pnpm typecheck < /dev/null
