@@ -1,13 +1,11 @@
 // The local page: one loopback server. Every request needs the server's own Host, so a site that
 // rebinds its name to 127.0.0.1 is refused; writes also need the page's own Origin.
 import { randomBytes } from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
-import { promisify } from 'node:util';
-import { renderSinglePage, type RenderExtension, type SiteView } from 'md-render';
+import { resolveCorpusInput, renderSinglePage, type RenderExtension, type SiteView } from 'md-render';
 import { blockAnchor, blockAnchors, resolveAnchor } from './anchors.js';
 import { snapshotsOf } from './versions.js';
 import type { SettledDecision } from './settled.js';
@@ -47,17 +45,6 @@ async function fileStates(folder: string, pick: (name: string) => boolean, deep:
   return states;
 }
 const sameStates = (a: Map<string, string>, b: Map<string, string>) => a.size === b.size && [...a].every(([file, state]) => b.get(file) === state);
-
-/**
- * The folder the checks walk: the documents' git working tree, or outside git the selected
- * folder. It is found without reading a document, before the first render reads them.
- */
-async function checkedFolder(documents: string): Promise<string> {
-  const selected = await realpath(documents);
-  const folder = (await stat(selected)).isDirectory() ? selected : path.dirname(selected);
-  try { return (await promisify(execFile)('git', ['-C', folder, 'rev-parse', '--show-toplevel'])).stdout.trim() || folder; }
-  catch { return folder; }
-}
 
 /** The md-render extension that adds the sidebar. */
 export async function collabExtension(): Promise<RenderExtension> {
@@ -102,7 +89,7 @@ export async function serve(options: ServeOptions): Promise<Session> {
   // The documents' file states as last seen: recorded before the first render, and again by each
   // check that finds a change, before the render it starts reads its files. So an edit made during
   // a render starts the next one, and startup reads each document once, in the first render.
-  const checked = await checkedFolder(options.documents);
+  const { root: checked } = await resolveCorpusInput(options.documents);
   const markdownStates = () => fileStates(checked, name => /\.md$/i.test(name), true);
   let documentStates = await markdownStates();
   let snapshot = await render();

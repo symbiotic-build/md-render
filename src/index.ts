@@ -1,4 +1,4 @@
-export { loadCorpus, type Corpus, type SourceFile, type MapEntry } from './corpus.js';
+export { loadCorpus, resolveCorpusInput, type Corpus, type SourceFile, type MapEntry } from './corpus.js';
 export { parseDocument, documentHtml, type ParsedDocument } from './markdown.js';
 export { renderSite, type RenderOptions, type RenderResult, type RenderExtension, type ExtensionOutput, type SiteView, type Block } from './site.js';
 export { startViewer, type Viewer } from './server.js';

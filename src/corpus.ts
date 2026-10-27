@@ -101,8 +101,8 @@ async function markdownFiles(root: string, relative = ''): Promise<string[]> {
   return files.sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
 }
 
-/** Loads metadata first, then reads each selected Markdown file once in reading order. */
-export async function loadCorpus(input: string): Promise<Corpus> {
+/** Resolves the source root and its metadata without reading Markdown bodies. */
+export async function resolveCorpusInput(input: string) {
   const requested = path.resolve(input);
   const stat = await lstat(requested);
   if (stat.isSymbolicLink()) throw new Error('The selected input must not be a symbolic link');
@@ -133,6 +133,12 @@ export async function loadCorpus(input: string): Promise<Corpus> {
     }
   }
   if (manifest !== undefined || entityIndex !== undefined) root = metadataRoot;
+  return { root, selected, single, manifest, entityIndex };
+}
+
+/** Loads metadata first, then reads each selected Markdown file once in reading order. */
+export async function loadCorpus(input: string): Promise<Corpus> {
+  const { root, selected, single, manifest, entityIndex } = await resolveCorpusInput(input);
   const selectedRelative = portable(path.relative(root, selected));
   const map: MapEntry[] = [];
   const documents: DocumentGroup[] = [];

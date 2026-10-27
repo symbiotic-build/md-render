@@ -576,6 +576,23 @@ it('re-renders each time a document is replaced by rename, also when the replace
   }, copy => utimes(path.join(copy, 'docs/storage.md'), kept, kept));
 });
 
+it('refreshes a manifest chapter outside the selected non-Git docs folder', async () => {
+  const copy = path.join(root, 'non-git-corpus');
+  await cp(fileURLToPath(new URL('../../../test/fixtures/corpus', import.meta.url)), copy, { recursive: true });
+  const store = new FileStore(path.join(root, 'store-non-git-corpus'));
+  await store.createCollection({ name: 'spec', title: 'Manifest', settled: [] });
+  const session = await serve({ documents: path.join(copy, 'docs'), store: store.root, collection: 'spec', person: 'person:operator', mermaid: false });
+  try {
+    const reader = (await fetch(session.url + 'api/events')).body!.getReader();
+    try {
+      await heard(reader, ': connected');
+      await writeFile(path.join(copy, 'chapters/start.md'), await readFile(path.join(copy, 'chapters/start.md'), 'utf8') + '\nThe sibling chapter changed.\n');
+      await heard(reader, 'event: reload', 5000);
+      expect(await (await fetch(session.url)).text()).toContain('The sibling chapter changed.');
+    } finally { await reader.cancel(); }
+  } finally { await session.close(); }
+});
+
 it('refuses a comment or a kept-open choice from a page of an older render, and saves a comment from the current page', async () => {
   await connected('stale-comment', async (copy, store, reader, session) => {
     const state = async () => (await fetch(session.url + 'api/state')).json() as Promise<{ generation: string }>;
