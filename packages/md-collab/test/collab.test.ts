@@ -418,6 +418,12 @@ it('imports a House Rules question list with its cited passages as anchors', () 
   expect(thread!.options[1]!.text).toBe('No cap, as [storage.md:7](#md-collab-anchor-2) allows.');
 });
 
+it('refuses a question list whose question holds a fenced code block', () => {
+  // The example's question-shaped heading and numbered lines would otherwise become another question and its options.
+  const fenced = questionList.replace('Until this is answered, keys cannot be built.', 'An example:\n\n```markdown\n### 9\\. Example question\n\n1. Example option\n```');
+  expect(() => parseQuestionList(fenced, path.join(docs, 'questions.md'))).toThrow('Question 1: import does not read a fenced code block in a question; move the example into the documents and cite it');
+});
+
 it('serves the page only under its own host and accepts writes only from its own origin', async () => {
   const storeRoot = path.join(root, 'store-b');
   const store = new FileStore(storeRoot);

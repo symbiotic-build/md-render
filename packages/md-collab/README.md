@@ -26,7 +26,7 @@ Answers and comments are written to the store at once. An agent sees them with `
 
 ## Commands for agents
 
-- `import <questions.md> <documents>`: turns a House Rules question list (`### 1\. Title`, context, numbered options with one "(recommended)") into question threads. Each `[file.md:72-73](link)` citation, in the context or an option, becomes an anchor on the first rendered block with text that its lines cover. A line `Main passage: [file.md:72](link)` names the main passage; otherwise it is the first citation outside the settled chapters. A question number that repeats in the list or is already in the collection refuses the whole list.
+- `import <questions.md> <documents>`: turns a House Rules question list (`### 1\. Title`, context, numbered options with one "(recommended)") into question threads. Each `[file.md:72-73](link)` citation, in the context or an option, becomes an anchor on the first rendered block with text that its lines cover. A line `Main passage: [file.md:72](link)` names the main passage; otherwise it is the first citation outside the settled chapters. A question number that repeats in the list or is already in the collection refuses the whole list. So does a fenced code block in a question; cite an example in the documents instead.
 - `list [--status answered] [--json]`: threads with their status and latest answer.
 - `answer <id> --by person:<login> --choice <n> [--note <text>] --source chat`: records an answer the person gave in chat. Only a person answers.
 - `comment <id> --by <actor> --note <text>`: adds a comment to a thread.

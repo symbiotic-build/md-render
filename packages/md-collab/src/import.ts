@@ -37,7 +37,8 @@ function cited(markdown: string, base: string): { file: string; lines: [number, 
 
 /**
  * Reads the House Rules question format: `## Topic`, `### 1\. Title`, context lines, a numbered option
- * list with one "(recommended)", and an optional "**Answer like so:**" block, which is ignored.
+ * list with one "(recommended)", and an optional "**Answer like so:**" block, which is ignored. A
+ * fenced code block in a question is refused: its lines would be read as headings and options.
  */
 export function parseQuestionList(markdown: string, file: string): ListedQuestion[] {
   const base = path.dirname(file);
@@ -51,6 +52,7 @@ export function parseQuestionList(markdown: string, file: string): ListedQuestio
     if (!heading) continue;
     const body = (parts[index + 1] ?? '').split('**Answer like so:**')[0]!;
     index++;
+    if (/^ {0,3}(?:```|~~~)/m.test(body)) throw new Error(`Question ${heading[1]}: import does not read a fenced code block in a question; move the example into the documents and cite it`);
     const context: string[] = [];
     const options: Option[] = [];
     let main: ListedQuestion['main'];
