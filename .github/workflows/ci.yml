@@ -23,8 +23,15 @@ jobs:
           curl -fsSL -o "$zip" "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64/chrome-headless-shell-linux64.zip" < /dev/null
           echo "$CHROME_SHA256  $zip" | sha256sum --check --strict
           unzip -q "$zip" -d "$RUNNER_TEMP" < /dev/null
-          # Ubuntu 24.04 blocks the user namespace Chrome's sandbox needs; the sandbox stays on.
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          # Ubuntu 24.04 lets only programs with an AppArmor profile create the user namespace Chrome's sandbox needs; this profile covers only the pinned binary.
+          sudo tee /etc/apparmor.d/chrome-headless-shell > /dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile chrome-headless-shell $RUNNER_TEMP/chrome-headless-shell-linux64/chrome-headless-shell flags=(unconfined) {
+            userns,
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/chrome-headless-shell
           echo "MD_RENDER_BROWSER=$RUNNER_TEMP/chrome-headless-shell-linux64/chrome-headless-shell" >> "$GITHUB_ENV"
       - run: pnpm typecheck < /dev/null
       - run: pnpm build < /dev/null
