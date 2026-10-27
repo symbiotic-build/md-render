@@ -48,6 +48,7 @@ const idPattern = /^[a-z0-9][a-z0-9-]*$/;
 const actorPattern = /^(?:person|agent):\S+$/;
 const entryKinds: EntryKind[] = ['raised', 'comment', 'answer', 'settled', 'reopened', 'withdrawn'];
 const timestamp = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/;
+const recommendedText = /\(recommended\)/;
 const frontKeys = new Set(['id', 'kind', 'title', 'decides', 'number', 'priority', 'topic', 'anchors', 'settled_as']);
 
 // Text that could be read as file structure: a heading, which ends a section or an entry, or an
@@ -77,12 +78,16 @@ export function validateThread(thread: Thread): void {
   if (!thread.title.trim()) fail('title is empty');
   if (thread.kind === 'question') {
     if (!['operator', 'lead', 'measurement'].includes(thread.decides ?? '')) fail('a question needs decides: operator, lead or measurement');
+    // The page offers answers only for numbered questions, so an operator question needs its number.
+    if (thread.decides === 'operator' && thread.number === undefined) fail('an operator question needs its number');
     if (thread.number !== undefined && (thread.decides !== 'operator' || !Number.isSafeInteger(thread.number) || thread.number < 1)) {
       fail('number is a positive integer on operator questions only');
     }
     if (thread.options.filter(option => option.recommended).length > 1) fail('more than one option is recommended');
     thread.options.forEach((option, index) => { if (option.n !== index + 1) fail('options are numbered 1, 2, 3 without gaps'); });
-    if (thread.options.some(option => option.text.includes('\n'))) fail('an option is one line of text');
+    if (thread.options.some(option => /[\r\n]/.test(option.text))) fail('an option is one line of text');
+    // Reading takes the recommendation from the text, so a flag that disagrees with it would change on saving.
+    for (const option of thread.options) if (option.recommended !== recommendedText.test(option.text)) fail(`option ${option.n} is recommended exactly when its text says (recommended)`);
   } else if (thread.decides || thread.number !== undefined || thread.options.length) {
     fail('a comment has no decides, number or options');
   }
@@ -99,13 +104,17 @@ export function validateThread(thread: Thread): void {
     if (!entryKinds.includes(entry.kind)) fail(`unknown entry kind ${entry.kind}`);
     if (entry.kind === 'answer' && !entry.actor.startsWith('person:')) fail('only a person writes an answer');
     if (entry.choice !== undefined && !thread.options.some(option => option.n === entry.choice)) fail(`choice ${entry.choice} is not an option`);
+    // A line break in a field would write lines that read back as other fields or entries.
+    if ([entry.source, entry.settledAs].some(field => field !== undefined && /[\r\n]/.test(field))) fail("an entry's Source and Settled as are one line of text");
   }
+  // Reading turns a carriage return into a line end, which the escaping of structure lines never saw.
+  if ([thread.context, ...thread.entries.map(entry => entry.note)].some(text => text.includes('\r'))) fail('text holds no carriage return');
 }
 
 function optionText(line: string): Option {
   const match = /^(\d+)\. (.*)$/s.exec(line)!;
   const text = match[2]!.trim();
-  return { n: Number(match[1]), text, recommended: /\(recommended\)/.test(text) };
+  return { n: Number(match[1]), text, recommended: recommendedText.test(text) };
 }
 
 /** Parses one thread file; any format error names the file's thread. */
