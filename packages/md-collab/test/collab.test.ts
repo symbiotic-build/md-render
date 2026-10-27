@@ -969,3 +969,18 @@ it('redraws the list without a question removed while the reader typed when the 
       .toEqual({ card: false, first: true });
   });
 });
+
+it('moves the highlight of an open question with the passage an agent moved it to', async () => {
+  await sidebar('store-moved', async (page, store) => {
+    // Without transitions, a computed background is the one the reader sees.
+    await page.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    await page.evaluate(`document.querySelector('#ov-card-1 .ov-qh').click()`);
+    const lit = (text: string) => `getComputedStyle([...document.querySelectorAll('[data-block]')].find(element => element.localName === 'p' && element.textContent.includes(${JSON.stringify(text)}))).backgroundColor !== 'rgba(0, 0, 0, 0)'`;
+    expect(await page.evaluate(lit('Identifiers may be long.'))).toBe(true);
+    const { thread } = await store.read('spec', 'q01-how-long-may-an-identifier-be');
+    const moved = { ...thread, anchors: [anchorAt(view, 'docs/long.md', [7, 7], 'main'), ...thread.anchors.slice(1)] };
+    await writeFile(path.join(store.root, 'spec/threads', thread.id + '.md'), serializeThread(moved));
+    await until(page, lit('Next paragraph.'));
+    expect(await page.evaluate(`({ old: ${lit('Identifiers may be long.')}, now: ${lit('Next paragraph.')} })`)).toEqual({ old: false, now: true });
+  });
+});

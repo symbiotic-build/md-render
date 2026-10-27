@@ -66,7 +66,9 @@ const WHO = { operator: 'You', lead: 'Lead', measurement: 'Measure' };
 const elementsOf = anchor => anchor.blocks.map(id => mdRender.block(anchor.path, id)).filter(Boolean);
 let permanent = [], transient = [];
 function markDocument() {
+  // Every mark is drawn again from the current threads, so a passage an anchor left keeps none.
   for (const { element, classes } of permanent) element.classList.remove(...classes);
+  document.querySelectorAll('[data-ov-items]').forEach(element => { element.classList.remove('ov-active', 'ov-done'); delete element.dataset.ovItems; });
   document.querySelectorAll('.ov-tags').forEach(box => box.remove());
   permanent = [];
   for (const item of items) {
@@ -85,6 +87,7 @@ function markDocument() {
         if (!first) continue;
         const host = first.tagName === 'TR' ? first.firstElementChild : first;
         host.classList.add('ov-anchor');
+        permanent.push({ element: host, classes: ['ov-anchor'] });
         let box = host.querySelector(':scope > .ov-tags');
         if (!box) { box = document.createElement('span'); box.className = 'ov-tags'; host.prepend(box); }
         const tag = document.createElement('button');
