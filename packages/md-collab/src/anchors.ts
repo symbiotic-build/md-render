@@ -1,67 +1,53 @@
-// Anchors point at text for one commit; at load they are found again by block ID, then quote, then lines.
+// An anchor names one rendered block and keeps its text from when it was written. At load it is
+// the same block, the block as updated since, or removed (operator decision of 2026-10-27).
 import type { Block, SiteView } from 'md-render';
 import type { Anchor } from './thread.js';
 
-export type AnchorMethod = 'block' | 'quote' | 'lines' | 'orphan';
+export type AnchorState = 'same' | 'updated' | 'removed';
 
 export interface ResolvedAnchor {
   anchor: Anchor;
-  method: AnchorMethod;
-  /** The blocks the anchor covers now, in source order; empty when orphaned. */
-  blocks: Pick<Block, 'path' | 'id' | 'lines'>[];
+  state: AnchorState;
+  /** The block the anchor names now: the same block, or its updated version; null when removed. */
+  block: Block | null;
 }
 
-const normalise = (text: string): string => text.replace(/\s+/g, ' ').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').trim();
+/** A block's section: the section ID its block ID starts with, `top` before the first heading. */
+const sectionOf = (block: Block): string => block.heading ?? 'top';
 
 function documentBlocks(view: SiteView, path: string): readonly Block[] {
   return view.documents.find(document => document.path === path)?.blocks ?? [];
 }
-function covering(blocks: readonly Block[], first: number, last: number): Block[] {
-  return blocks.filter(block => block.lines[0] <= last && block.lines[1] >= first);
-}
-/** The blocks from `start` that span as many lines as the anchor did; saved lines start at their first block. */
-function span(blocks: readonly Block[], start: Block, anchor: Anchor): Block[] {
-  return covering(blocks, start.lines[0], start.lines[0] + (anchor.lines[1] - anchor.lines[0]));
-}
-const pick = (blocks: Block[]) => blocks.map(({ path, id, lines }) => ({ path, id, lines }));
 
-/** Finds the anchor in the current documents; `commit` is the documents' current commit, if known. */
-export function resolveAnchor(anchor: Anchor, view: SiteView, commit: string | null): ResolvedAnchor {
+/**
+ * Finds the anchor's block in the current documents. The block with the anchor's ID is the same
+ * block, since the ID ends in a hash of its text. Otherwise the block of the same tag at the same
+ * position in the same section is that block updated. Otherwise the block is removed.
+ */
+export function resolveAnchor(anchor: Anchor, view: SiteView): ResolvedAnchor {
   const blocks = documentBlocks(view, anchor.path);
-  if (anchor.block) {
-    const start = blocks.find(block => block.id === anchor.block);
-    if (start) return { anchor, method: 'block', blocks: pick(span(blocks, start, anchor)) };
-  }
-  if (anchor.quote) {
-    const quote = normalise(anchor.quote);
-    const matches = blocks.filter(block => normalise(block.text).includes(quote));
-    if (matches.length) {
-      const nearest = matches.reduce((best, block) => Math.abs(block.lines[0] - anchor.lines[0]) < Math.abs(best.lines[0] - anchor.lines[0]) ? block : best);
-      return { anchor, method: 'quote', blocks: pick(span(blocks, nearest, anchor)) };
-    }
-  }
-  if (commit && sameCommit(anchor.commit, commit)) {
-    const found = covering(blocks, anchor.lines[0], anchor.lines[1]);
-    if (found.length) return { anchor, method: 'lines', blocks: pick(found) };
-  }
-  return { anchor, method: 'orphan', blocks: [] };
+  const same = blocks.find(block => block.id === anchor.block);
+  if (same) return { anchor, state: 'same', block: same };
+  const section = anchor.block.slice(0, anchor.block.lastIndexOf('~'));
+  const updated = blocks.filter(block => sectionOf(block) === section)[anchor.position - 1];
+  if (updated?.tag === anchor.tag) return { anchor, state: 'updated', block: updated };
+  return { anchor, state: 'removed', block: null };
 }
 
-/** Abbreviated and full commit hashes name the same commit when one is a prefix of the other. */
-export function sameCommit(a: string, b: string): boolean {
-  return a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a));
+/** The anchor for one rendered block: its ID, tag, position in its section from 1, and text. */
+export function blockAnchor(view: SiteView, path: string, block: Block, role: Anchor['role']): Anchor {
+  const position = documentBlocks(view, path).filter(other => sectionOf(other) === sectionOf(block)).indexOf(block) + 1;
+  return { role, path, block: block.id, tag: block.tag, position, text: block.text };
 }
 
 /**
- * Makes an anchor for source lines in the current documents: block ID and quote come from the
- * first rendered block with text that the lines cover, and the saved lines run from that block's first line to
- * the last covered block's last line, so resolution by block or quote covers the same blocks.
- * Lines that cover no rendered block are refused.
+ * The anchor for a citation's source lines, which only an imported question list carries: the
+ * first rendered block with text that the lines cover. Lines that cover no rendered block are refused.
  */
-export function anchorAt(view: SiteView, path: string, lines: [number, number], commit: string, role: Anchor['role']): Anchor {
+export function anchorAt(view: SiteView, path: string, lines: [number, number], role: Anchor['role']): Anchor {
   if (!view.documents.some(document => document.path === path)) throw new Error(`${path} is not a rendered document`);
-  const found = covering(documentBlocks(view, path), lines[0], lines[1]);
+  const found = documentBlocks(view, path).filter(block => block.lines[0] <= lines[1] && block.lines[1] >= lines[0]);
   const first = found.find(block => block.text) ?? found[0];
   if (!first) throw new Error(`${path}:${lines[0]}-${lines[1]} covers no rendered text`);
-  return { role, path, commit, lines: [first.lines[0], found.at(-1)!.lines[1]], block: first.id, quote: first.text.slice(0, 80) };
+  return blockAnchor(view, path, first, role);
 }

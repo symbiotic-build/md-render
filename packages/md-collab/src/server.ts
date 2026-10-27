@@ -5,15 +5,13 @@ import { mkdir, readdir, readFile, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { loadCorpus, renderSinglePage, type RenderExtension, type SiteView } from 'md-render';
+import { blockAnchor, resolveAnchor } from './anchors.js';
 import type { SettledDecision } from './settled.js';
 import { pageState, settledDecisions } from './state.js';
 import { checkStoreOutside, ConflictError, FileStore } from './store.js';
-import type { Anchor, Entry, Thread } from './thread.js';
+import type { Entry, EntryKind, Thread } from './thread.js';
 
-const run = promisify(execFile);
 const browserFile = (name: string) => new URL(`./browser/${name}`, import.meta.url);
 
 export interface ServeOptions {
@@ -26,11 +24,6 @@ export interface ServeOptions {
   mermaid?: boolean;
 }
 export interface Session { url: string; close(): Promise<void> }
-
-async function documentsCommit(root: string): Promise<string | null> {
-  try { return (await run('git', ['-C', root, 'rev-parse', 'HEAD'])).stdout.trim() || null; }
-  catch { return null; }
-}
 
 /**
  * The modification time, by path, of each file in the folder that `pick` accepts, and with `deep`
@@ -57,11 +50,11 @@ export async function collabExtension(): Promise<RenderExtension> {
 }
 
 /**
- * One rendered generation: the page, the view and commit its anchors resolve against, and the settled
+ * One rendered generation: the page, the view its anchors resolve against, and the settled
  * decisions read with it. The page carries its generation, a random identity of its render, so a page
  * can tell it is out of date, also after the server restarted.
  */
-interface Snapshot { generation: string; html: string; view: SiteView; commit: string | null; settled: SettledDecision[] }
+interface Snapshot { generation: string; html: string; view: SiteView; settled: SettledDecision[] }
 
 function send(response: ServerResponse, status: number, body: unknown, type = 'application/json; charset=utf-8'): void {
   response.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -73,6 +66,9 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
   for await (const chunk of request) chunks.push(chunk as Buffer);
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
 }
+
+/** The entries the page writes: answers, comments, reopening, and the reader's choices on a changed passage. */
+const pageKinds: EntryKind[] = ['answer', 'comment', 'reopened', 'settled', 'withdrawn', 'kept-open', 'fix-requested'];
 
 export async function serve(options: ServeOptions): Promise<Session> {
   if (!/^person:\S+$/.test(options.person)) throw new Error(`--person must be person:<login>, not ${options.person}`);
@@ -87,7 +83,7 @@ export async function serve(options: ServeOptions): Promise<Session> {
     const generation = randomBytes(8).toString('hex');
     const extension: RenderExtension = { name: sidebar.name, prepare: async view => ({ ...await sidebar.prepare(view), data: { generation } }) };
     const { html, view } = await renderSinglePage(options.documents, { mermaid: options.mermaid }, [extension]);
-    return { generation, html, view, commit: await documentsCommit(root), settled: settledDecisions(collection, view) };
+    return { generation, html, view, settled: settledDecisions(collection, view) };
   }
   // The documents' modification times as last seen: recorded before the first render, and again by
   // each check that finds a change, before the render it starts reads its files. So an edit made
@@ -96,7 +92,7 @@ export async function serve(options: ServeOptions): Promise<Session> {
   let documentTimes = await markdownTimes();
   let snapshot = await render();
   // Checks every anchor once at start, so a broken collection fails before the page opens.
-  await pageState({ store, collection, view: snapshot.view, settled: snapshot.settled, commit: snapshot.commit, person: options.person });
+  await pageState({ store, collection, view: snapshot.view, settled: snapshot.settled, person: options.person });
 
   // Open pages hear about changes: "changed" after a store write, "reload" after the documents change,
   // "failed" when a re-render fails. A page that stops reading is disconnected; it reloads its state
@@ -142,8 +138,8 @@ export async function serve(options: ServeOptions): Promise<Session> {
     if (host !== new URL(origin).host && host !== `localhost:${new URL(origin).port}`) return send(response, 403, { error: `Open ${origin}` });
     if (request.method === 'GET' && url.pathname === '/') return send(response, 200, snapshot.html, 'text/html; charset=utf-8');
     if (request.method === 'GET' && url.pathname === '/api/state') {
-      const { generation, view, settled, commit } = snapshot;
-      return send(response, 200, { generation, ...await pageState({ store, collection, view, settled, commit, person: options.person }) });
+      const { generation, view, settled } = snapshot;
+      return send(response, 200, { generation, ...await pageState({ store, collection, view, settled, person: options.person }) });
     }
     if (request.method === 'GET' && url.pathname === '/api/events') {
       response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });
@@ -158,29 +154,30 @@ export async function serve(options: ServeOptions): Promise<Session> {
     const at = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
     const entryMatch = /^\/api\/threads\/([a-z0-9][a-z0-9-]*)\/entries$/.exec(url.pathname);
     if (entryMatch) {
-      const kind = body.kind;
-      if (kind !== 'answer' && kind !== 'comment' && kind !== 'reopened') return send(response, 400, { error: 'kind must be answer, comment or reopened' });
+      const kind = body.kind as EntryKind;
+      if (!pageKinds.includes(kind)) return send(response, 400, { error: `kind must be ${pageKinds.join(', ')}` });
       const entry: Entry = { at, actor: options.person, kind, note: typeof body.note === 'string' ? body.note.trim() : '' };
       if (body.choice !== undefined && body.choice !== null) entry.choice = Number(body.choice);
       if (kind === 'answer' && entry.choice === undefined && !entry.note) return send(response, 400, { error: 'An answer needs a choice or a note' });
-      const saved = await store.append(collection.name, entryMatch[1]!, entry, typeof body.version === 'string' ? body.version : undefined);
+      const version = typeof body.version === 'string' ? body.version : undefined;
+      // Keeping a thread open on its updated passages moves each updated anchor to its block as it reads now.
+      const anchors = kind === 'kept-open' ? (await store.read(collection.name, entryMatch[1]!)).thread.anchors.map(anchor => {
+        const { state, block } = resolveAnchor(anchor, snapshot.view);
+        return state === 'updated' ? blockAnchor(snapshot.view, anchor.path, block!, anchor.role) : anchor;
+      }) : undefined;
+      const saved = await store.append(collection.name, entryMatch[1]!, entry, version, anchors);
       return send(response, 200, { id: saved.thread.id, version: saved.version });
     }
     if (url.pathname === '/api/comments') {
       const note = typeof body.note === 'string' ? body.note.trim() : '';
-      const anchors = Array.isArray(body.anchors) ? body.anchors as Anchor[] : [];
-      if (!note || !anchors.length) return send(response, 400, { error: 'A comment needs text and a selected passage' });
+      const block = snapshot.view.documents.find(document => document.path === body.path)?.blocks.find(item => item.id === body.block);
+      if (!note || !block) return send(response, 400, { error: 'A comment needs text and a selected passage in a rendered document' });
       const thread: Thread = {
         id: `c-${at.replace(/[^0-9]/g, '').slice(0, 14)}-${randomBytes(2).toString('hex')}`,
         kind: 'comment', title: note.split('\n')[0]!.slice(0, 80),
-        anchors: anchors.map((anchor, index) => ({
-          role: index === 0 ? 'main' : 'also', path: String(anchor.path), commit: snapshot.commit ?? 'unknown',
-          lines: [Number(anchor.lines?.[0]), Number(anchor.lines?.[1])],
-          ...(anchor.block ? { block: String(anchor.block) } : {}), ...(anchor.quote ? { quote: String(anchor.quote).slice(0, 200) } : {}),
-        })),
+        anchors: [blockAnchor(snapshot.view, String(body.path), block, 'main')],
         context: '', options: [], entries: [{ at, actor: options.person, kind: 'comment', note }],
       };
-      if (!thread.anchors.every(anchor => snapshot.view.documents.some(document => document.path === anchor.path))) return send(response, 400, { error: 'The selection is not in a rendered document' });
       const saved = await store.create(collection.name, thread);
       return send(response, 200, { id: saved.thread.id, version: saved.version });
     }

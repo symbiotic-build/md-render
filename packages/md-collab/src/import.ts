@@ -76,7 +76,7 @@ const slug = (text: string): string => text.toLowerCase().replace(/`/g, '').repl
  * citation outside the settled chapters; every other citation is an also anchor.
  */
 export function questionThreads(questions: ListedQuestion[], options: {
-  view: SiteView; corpusRoot: string; commit: string; actor: string; at: string; settled: string[]; idPrefix?: string;
+  view: SiteView; corpusRoot: string; actor: string; at: string; settled: string[]; idPrefix?: string;
   /** The question list's folder, which its relative links start from. */
   base: string;
   /** Receives one line per citation that was kept as text because it names no rendered document. */
@@ -85,7 +85,7 @@ export function questionThreads(questions: ListedQuestion[], options: {
   const corpusPath = (file: string): string => path.relative(options.corpusRoot, file).split(path.sep).join('/');
   return questions.map(question => {
     const anchors: Anchor[] = [];
-    // The cited path and lines of each anchor; saved anchor lines start at their first block.
+    // The cited path and lines of each anchor, in anchor order.
     const cites: { path: string; lines: [number, number] }[] = [];
     const add = (citation: { file: string; lines: [number, number] }, role: Anchor['role']) => {
       const target = corpusPath(citation.file);
@@ -95,7 +95,7 @@ export function questionThreads(questions: ListedQuestion[], options: {
         return;
       }
       if (cites.some(cite => cite.path === target && cite.lines[0] === citation.lines[0] && cite.lines[1] === citation.lines[1])) return;
-      anchors.push(anchorAt(options.view, target, citation.lines, options.commit, role));
+      anchors.push(anchorAt(options.view, target, citation.lines, role));
       cites.push({ path: target, lines: citation.lines });
     };
     const rendered = (item: { file: string }) => options.view.documents.some(document => document.path === corpusPath(item.file));

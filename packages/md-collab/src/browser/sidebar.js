@@ -137,6 +137,9 @@ function wireLinks(root, item) {
     if (cite) { event.preventDefault(); showAnchor(item.anchors[Number(cite[1])]); }
   });
 }
+const isClosed = item => item.status === 'settled' || item.status === 'withdrawn';
+// A thread's passage that changed since it was written: "updated" shows the word changes, "removed" the old text.
+const changed = item => item.kind !== 'decision' && !isClosed(item) ? item.anchors.filter(anchor => anchor.state !== 'same') : [];
 function passageLinks(item) {
   const box = document.createElement('div'); box.className = 'ov-links';
   for (const anchor of item.anchors) {
@@ -145,11 +148,41 @@ function passageLinks(item) {
     button.className = 'ov-link' + (found ? '' : ' ov-missing');
     button.innerHTML = `<b>${anchor.role === 'main' ? 'Main passage' : 'Also cited'}</b> · `;
     const chapter = mdRender.documents().find(d => d.path === anchor.path)?.title || anchor.path;
-    button.append(`${chapter} · ${anchor.label}${found ? '' : ' (no longer found)'}`);
+    button.append(`${chapter} · ${anchor.label}${anchor.state === 'updated' ? ' (updated)' : anchor.state === 'removed' ? ' (removed)' : ''}`);
     button.addEventListener('click', () => showAnchor(anchor));
     box.append(button);
   }
   if (!item.anchors.length) box.innerHTML = '<span class="ov-none">No single passage; see the context.</span>';
+  const flagged = changed(item);
+  if (flagged.length) box.append(changeBox(item, flagged));
+  return box;
+}
+// The reader decides what a changed passage means for the thread; each choice is an entry agents read with md-collab list.
+function changeBox(item, flagged) {
+  const box = document.createElement('div'); box.className = 'ov-change';
+  for (const anchor of flagged) {
+    const part = document.createElement('div'); part.className = 'ov-was';
+    part.innerHTML = anchor.state === 'updated'
+      ? '<b>Updated</b> since this was written: ' + anchor.diff.map(run => run.change === '=' ? esc(run.text) : `<${run.change === '-' ? 'del' : 'ins'}>${esc(run.text)}</${run.change === '-' ? 'del' : 'ins'}>`).join(' ')
+      : '<b>Removed</b>. It read: ' + esc(anchor.text);
+    box.append(part);
+  }
+  const foot = document.createElement('div'); foot.className = 'ov-foot';
+  const action = (label, entry) => { const b = document.createElement('button'); b.className = 'ov-btn'; b.textContent = label; b.addEventListener('click', () => addEntry(item, entry)); foot.append(b); };
+  if (flagged.some(anchor => anchor.state === 'updated')) {
+    action('Mark done', { kind: 'settled', note: 'Done: the passage was updated.' });
+    action('Keep open', { kind: 'kept-open', note: '' });
+    action('Send to a fix run', { kind: 'fix-requested', note: '' });
+  } else {
+    action('Close', { kind: 'withdrawn', note: 'Closed: the passage was removed.' });
+    const label = document.createElement('label'); label.className = 'ov-note-l';
+    label.append('Note for an agent', Object.assign(document.createElement('textarea'), { className: 'ov-note', id: 'ov-agent-' + item.id, value: drafts.get('ov-agent-' + item.id) ?? '' }));
+    box.append(label);
+    const save = document.createElement('button'); save.className = 'ov-btn'; save.textContent = 'Save note';
+    save.addEventListener('click', () => { const note = label.querySelector('textarea').value.trim(); if (note) addEntry(item, { kind: 'comment', note }); });
+    foot.append(save);
+  }
+  box.append(foot);
   return box;
 }
 
@@ -162,7 +195,7 @@ async function post(url, body) {
 }
 async function addEntry(item, entry) {
   // A draft is cleared only when it still holds what was sent: typing during the save stays.
-  const sent = ['ov-note-' + item.number, 'ov-reply-' + item.id].map(key => [key, drafts.get(key)]);
+  const sent = ['ov-note-' + item.number, 'ov-reply-' + item.id, 'ov-agent-' + item.id].map(key => [key, drafts.get(key)]);
   try {
     await post(`/api/threads/${item.id}/entries`, { ...entry, version: item.version });
     for (const [key, value] of sent) if (drafts.get(key) === value) drafts.delete(key);
@@ -400,7 +433,8 @@ async function loadOnce() {
   fillFilters();
   if (typing()) redrawPending = true; else renderList();
   renderCounts(); markDocument();
-  status(`Answers are saved to ${state.collection.title} as ${state.person.replace(/^person:/, '')}.${state.orphans.length ? ` ${state.orphans.length} passages are no longer found.` : ''}`, state.orphans.length > 0);
+  const flagged = state.threads.flatMap(changed).length;
+  status(`Answers are saved to ${state.collection.title} as ${state.person.replace(/^person:/, '')}.${flagged ? ` ${flagged} passages changed since they were annotated.` : ''}`, flagged > 0);
 }
 const events = new EventSource('/api/events');
 // Each connection, the first and every reconnection, starts with a fresh state: writes made while
@@ -414,23 +448,18 @@ mdRender.onNavigate(() => { if (view === 'q' && filter === 'page') renderList();
 
 /* ---------- comments on selected text ---------- */
 let selection = null;
-function selectedAnchors(range) {
-  const blockOf = node => (node.nodeType === 1 ? node : node.parentElement)?.closest('[data-block]');
-  const start = blockOf(range.startContainer), end = blockOf(range.endContainer);
+// A comment names the block where the selection starts.
+function selectedBlock(range) {
+  const start = (range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement)?.closest('[data-block]');
   const chapter = start?.closest('.single-page');
-  if (!start || !end || chapter !== end.closest('.single-page')) return null;
-  const lines = [Number(start.dataset.sourceLines.split('-')[0]), Number(end.dataset.sourceLines.split('-')[1])];
-  // The quote is the reader's text only: margin tags inside the selection are left out.
-  const copy = range.cloneContents();
-  copy.querySelectorAll('.ov-tags').forEach(tags => tags.remove());
-  return [{ path: chapter.dataset.sourcePath, lines, block: start.dataset.block, quote: copy.textContent.replace(/\s+/g, ' ').trim().slice(0, 200) }];
+  return start && chapter ? { path: chapter.dataset.sourcePath, block: start.dataset.block } : null;
 }
 document.addEventListener('selectionchange', () => {
   const current = getSelection(), pop = $('#ov-sel');
   if (!current.rangeCount || current.isCollapsed || !$('#md-render-content')?.contains(current.anchorNode)) { pop.style.display = 'none'; return; }
-  const anchors = selectedAnchors(current.getRangeAt(0));
-  if (!anchors) { pop.style.display = 'none'; return; }
-  selection = anchors;
+  const block = selectedBlock(current.getRangeAt(0));
+  if (!block) { pop.style.display = 'none'; return; }
+  selection = block;
   const rect = current.getRangeAt(0).getBoundingClientRect();
   pop.style.display = 'block';
   pop.style.top = (scrollY + rect.bottom + 8) + 'px';
@@ -446,11 +475,11 @@ $('#ov-comment-cancel').addEventListener('click', () => { $('#ov-composer').hidd
 $('#ov-comment-save').addEventListener('click', async () => {
   // As with a note's draft, a completed save closes and empties the box only when it still holds
   // the text and the passage that were saved: typing during the save stays.
-  const text = $('#ov-comment').value, anchors = selection, note = text.trim();
-  if (!note || !anchors) { toast('Write the comment first.'); return; }
+  const text = $('#ov-comment').value, passage = selection, note = text.trim();
+  if (!note || !passage) { toast('Write the comment first.'); return; }
   try {
-    await post('/api/comments', { anchors, note });
-    if ($('#ov-comment').value === text && selection === anchors) { $('#ov-composer').hidden = true; $('#ov-comment').value = ''; }
+    await post('/api/comments', { ...passage, note });
+    if ($('#ov-comment').value === text && selection === passage) { $('#ov-composer').hidden = true; $('#ov-comment').value = ''; }
     toast('Comment saved.'); await load();
   } catch (error) { toast(error.message); }
 });

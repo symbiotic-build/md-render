@@ -131,3 +131,9 @@ td > .ov-tags, th > .ov-tags { left: -4px; top: -10px; flex-direction: row; }
 .ov-composer .ov-foot { align-items: center; }
 .ov-none { color: var(--muted); font-size: 13px; padding: 8px; }
 .ov-save { padding: 3px 10px; font-size: 12.5px; }
+/* A passage that changed since its thread was written: the word changes, or the old text. */
+.ov-change { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--ov-pen); background: var(--ov-pen-soft); border-radius: 4px; font-size: 13px; }
+.ov-change .ov-was { margin-bottom: 6px; }
+.ov-change del { background: color-mix(in srgb, var(--ov-pen) 25%, transparent); }
+.ov-change ins { background: var(--ov-ok-soft); color: var(--ov-ok); text-decoration: none; }
+.ov-change .ov-foot { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; }

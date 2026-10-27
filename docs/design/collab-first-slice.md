@@ -103,7 +103,7 @@ Extensions apply to the single page only, where every document is present, so `b
 - **Thread:** one annotation: a kind, anchors, kind fields and dated entries. One file.
 - **Collection:** a folder of threads about one document set, such as `memory-storage`.
 - **Store:** the folder that holds collections. The first store is a directory in a git checkout outside the documents' working tree.
-- **Entry:** one dated step in a thread: `raised`, `comment`, `answer`, `settled`, `reopened` or `withdrawn`.
+- **Entry:** one dated step in a thread: `raised`, `comment`, `answer`, `settled`, `reopened`, `withdrawn`, `kept-open` or `fix-requested`.
 - **Actor:** who wrote an entry: `person:<github-login>` or `agent:<product>/<session>`.
 
 ### Thread file
@@ -120,14 +120,16 @@ topic: Exact numbers in schemas
 anchors:
   - role: main
     path: docs/specs/memory-storage/schemas-and-values.md
-    commit: 7aaff7d
-    lines: [73, 73]
     block: decimal~3f9a1c
-    quote: "logical notation, not submittable source"
+    tag: p
+    position: 2
+    text: Write decimals in the logical notation, not submittable source.
   - role: also
     path: docs/specs/memory-storage/decisions.md
-    commit: 7aaff7d
-    lines: [461, 472]
+    block: decision-bounded-decimal~8c01d2
+    tag: p
+    position: 3
+    text: A bounded decimal type with a declared scale.
 settled_as: null
 ---
 
@@ -154,8 +156,9 @@ Keep the annotation names short.
 - A line of context or note text that starts with `#`, `Choice: `, `Source: ` or `Settled as: `, after any number of backslashes, is written with one more backslash, inside fenced code too; reading removes exactly one. So no text can end a section or an entry or be read as a field, the parser never tracks fences, and an unclosed fence cannot swallow the entries. An option, a `Source:` value and a `Settled as:` value are one line, and no text holds a carriage return, which reading would turn into a line end; a write that breaks this is refused. An option is recommended exactly when its text says "(recommended)", since reading takes the recommendation from the text.
 - `kind` is `comment` or `question` in this slice. A comment has no options, `decides` or `number`.
 - `decides` is `operator`, `lead` or `measurement`. Every operator question has a `number`, unique in its collection; the page offers answers only for numbered questions. Lead and measurement questions have none.
-- An anchor needs `path`, `commit` and `lines`; `block` and `quote` are written by the tool when it can. The tool saves `lines` from the first line of the block it names to the last line of the last block cited, so resolution by block or quote covers the same blocks.
-- The status comes from the entries: the last of `raised`, `reopened`, `answered`, `settled` and `withdrawn` decides it, and `comment` entries never change it. `answer` makes it `answered`.
+- An anchor names one rendered block as it was when the anchor was written: its `path`, its block ID in `block`, its element in `tag`, its `position` from 1 among the blocks of its section, and its whitespace-normalised `text`. The section is the part of the block ID before `~`. An imported citation names the first block with text that its lines cover; a comment on a selection names the block where the selection starts. Line numbers and commits are not stored (operator decision of 2026-10-27, [Anchors name a block and its text](#decision-anchors-name-a-block-and-its-text)).
+- The status comes from the entries: the last of `raised`, `reopened`, `answered`, `settled` and `withdrawn` decides it, and `comment`, `kept-open` and `fix-requested` entries never change it. `answer` makes it `answered`.
+- `kept-open` records that the reader kept the thread open on its updated passages; the same write moves each updated anchor to its block as it reads now. `fix-requested` records that the reader sent the thread's changed passage to a fix run, which starts outside md-collab; agents read both with `md-collab list --json`.
 - Only a `person:` actor writes an `answer`. An agent that records an answer the operator gave in chat writes it as the person with the line `Source: chat` in the entry.
 
 ### Settled decisions
@@ -172,12 +175,15 @@ md-collab reads `### Decision:` sections from the decision chapters a collection
 
 ### Anchor resolution
 
-At every load, each anchor is matched against the current `SiteView`:
+At every load, each anchor is matched against the current `SiteView`, in this order (operator decision of 2026-10-27):
 
-1. the block with the same `block` ID in the same path;
-2. otherwise the block in that path whose text contains `quote`, nearest to the old lines;
-3. otherwise, when the store's `commit` equals the documents' current commit, the blocks overlapping `lines`;
-4. otherwise the anchor is orphaned. The page lists orphaned anchors, and `md-collab check` reports them with exit code 1.
+1. **Same.** The block with the anchor's `block` ID is in the same path. Its text is unchanged, since the ID ends in a hash of the text. The page shows it as normal.
+2. **Updated.** Otherwise, the block at the same `position` in the same section with the same `tag` is the anchor's block with changed text. It stays attached, and the page flags it "updated" with a word-level diff of the anchor's `text` against the text now. The reader marks it done (a `settled` entry), keeps it open (a `kept-open` entry, which moves the anchor to the block as it reads now) or sends it to a fix run (a `fix-requested` entry).
+3. **Removed.** Otherwise the block is gone. The page shows it as "removed" with the anchor's `text`. The reader closes the thread (a `withdrawn` entry) or leaves a note for an agent (a `comment` entry).
+
+A settled or withdrawn thread no longer needs its passage, so the page shows no flag for it. `md-collab check` prints each updated and removed anchor of the other threads and exits 1 when there is one. The word diff is the sequence diff of the operator's prompt-scope `src/diff.ts`, applied to words.
+
+A block keeps its section across edits only while the section keeps its ID: renaming a heading that has no explicit anchor before it gives the section a new ID, and the section's annotated blocks then show as removed.
 
 ### Commands
 
@@ -198,10 +204,10 @@ Setting up a review:
 
 1. **Prerequisites.** The documents are in a git checkout. The store is a folder outside that checkout's working tree; `import` and `serve` refuse a store inside it.
 2. **Create the collection.** `init` writes `<store>/<collection>/collection.yaml` and prints `Created collection <name> in <store>`. It refuses a collection that exists. `--settled` names each decision chapter by its corpus path, for example `docs/specs/memory-storage/decisions.md`.
-3. **Import the questions.** `import` reads a House Rules question list, anchors each citation in the documents at their current commit and prints `Imported <n> questions into <collection>`, plus one line per citation kept as text because it names no rendered document. It refuses the whole list, before writing anything, when a question number repeats in the list or is already in the collection.
+3. **Import the questions.** `import` reads a House Rules question list, anchors each citation to the first rendered block with text that its lines cover and prints `Imported <n> questions into <collection>`, plus one line per citation kept as text because it names no rendered document. It refuses the whole list, before writing anything, when a question number repeats in the list or is already in the collection.
 4. **Serve the page.** `serve` prints `md-collab: open http://127.0.0.1:<port>/` and runs until Ctrl+C. The operator answers there.
 5. **Read the answers.** `list` prints one line per thread with its status and latest answer; `--json` prints the threads. `answer`, `comment` and `resolve` print `<id>: <kind> recorded; status <status>`.
-6. **Check anchors.** `check` prints each orphaned anchor and each missing settled chapter and exits 1 when there is one; otherwise it prints `All anchors resolve`.
+6. **Check anchors.** `check` prints each updated or removed anchor of a thread that is not settled or withdrawn, and each missing settled chapter, and exits 1 when there is one; otherwise it prints `All anchors resolve`.
 
 ### Store writes
 
@@ -235,10 +241,10 @@ Each invariant names the failure it prevents and the test that checks it at the 
 - Annotation text is rendered through the same sanitizer as documents; raw HTML stays escaped.
 - The page reads threads from `GET /api/state` and receives changes over server-sent events from `/api/events`: a store change, such as an agent's new question, reloads the threads, and a change to the documents re-renders the page and reloads it. The operator confirmed on 2026-10-24 that live updates are needed.
 - The server uses no file watches. Every second it reads with `stat` the modification time of each Markdown file under the documents' root, outside `.git` and `node_modules`, and of each thread file in the store's `threads` folder; drafts and the lock start with a dot and are not thread files. A Markdown file that changed, appeared or disappeared starts the normal re-render, which sends `reload`. A thread file that changed, appeared or disappeared sends `changed`. The server records the documents' times before the first render and again whenever a check finds a change, before the render it starts reads its files, so an edit made during a render starts the next one. A folder that cannot be read, or that disappears during the check, is skipped and never stops the server. The page loads every thread when it connects.
-- One render runs at a time; a change during a render starts one more after it. A render publishes its page, view, commit and settled decisions together, and only when it succeeds; it takes the settled decisions from the text it rendered, which the view carries, so History always describes the page's text. A failed render keeps the last good page and sends `failed` with the error, which the page shows. Stopping the server stops the checks, starts no further render and waits for the check and the render running. The checks start only after the server listens, so a start that fails leaves none running.
+- One render runs at a time; a change during a render starts one more after it. A render publishes its page, view and settled decisions together, and only when it succeeds; it takes the settled decisions from the text it rendered, which the view carries, so History always describes the page's text. A failed render keeps the last good page and sends `failed` with the error, which the page shows. Stopping the server stops the checks, starts no further render and waits for the check and the render running. The checks start only after the server listens, so a start that fails leaves none running.
 - The page loads the threads at start and each time the event stream opens, so a reconnection catches up on writes it missed. Every page and every state carry the identity of the render they come from, random for each render, so renders of a restarted server never match an older page; a page whose render differs from the state's reloads before it shows the state, so a reconnection also catches up on a render it missed, also from a server restarted on the same port. One state request runs at a time, so an older response never replaces a newer one. A page that stops reading the stream is disconnected and catches up when it reconnects.
 - A change that arrives while the reader types a note in the list updates the counts at once and redraws the list when the focus leaves the sidebar, also when it moves from the note to a button in the sidebar first; notes being written survive the redraw. The comment box for selected text is not in the list, so typing there never holds a redraw back. A save clears a note's draft only when the draft still holds the text that was saved; a comment save closes and empties the comment box only when it still holds the saved text and passage.
-- The sidebar has the approved Questions view and the History view of the 2026-10-24 prototype. Comments on a text selection anchor to the selected blocks.
+- The sidebar has the approved Questions view and the History view of the 2026-10-24 prototype. A comment on a text selection anchors to the block where the selection starts.
 
 ## Recovery
 
@@ -253,7 +259,7 @@ What each refusal leaves behind, who acts and how.
 | `Collection <name> is locked by <lock file>, which names no process; …` | The lock file of a writer that crashed before it wrote its process number. Every write to the collection is refused. | The person or agent that sees the message | Check that no md-collab command is writing to the collection, then delete the named lock file and repeat the write. |
 | `Collection <name> is locked by process <n>, which no longer runs; …` | The lock file `<store>/<collection>/.lock` of a crashed writer. Every write to the collection is refused. | The person or agent that sees the message | Check that no md-collab command is writing to the collection, then delete the named lock file and repeat the write. |
 | A thread file that does not parse, or a repeated question number from a hand edit | The file; every read of the collection fails and names it. | Whoever edited the store | Fix or remove the named file in the store's git checkout, for example with `git checkout -- <file>`. |
-| `check` reports an orphaned anchor | The thread, unchanged; the page lists the passage as no longer found. | The agent that owns the question | Find where the text went. If a decision settles the question, record it with `resolve`; otherwise add a `comment` that names the passage now in question. |
+| `check` reports an updated or removed anchor | The thread, unchanged; the page flags the passage. | The reader on the page; for a `fix-requested` entry or a note, an agent | The reader marks it done, keeps it open, sends it to a fix run, closes it or leaves a note. An agent that reads a `fix-requested` entry or a note fixes the document or answers with a `comment`. |
 | `Thread <id>: only a person writes an answer` | Nothing written. | The agent that tried to answer | Leave the answer to the person. When the person answered in chat, record it as that person: `answer <id> --by person:<login> --source chat`. |
 | `Extension <name> failed: <message>` | Nothing written. `serve` does not start; during a re-render the last good page stays. | The extension's maintainer; for `md-collab`, whoever installed it | Fix the extension the message names. For `md-collab`, rebuild or reinstall the package so its sidebar files are the shipped ones. |
 | `check` reports a missing settled chapter, or `serve` refuses one | `collection.yaml` names a chapter that is not rendered. | The collection's owner | Fix the path in `collection.yaml`, or render the folder that holds the chapter. |
@@ -289,9 +295,19 @@ What each refusal leaves behind, who acts and how.
 
 **Authority:** Lead decision, 2026-10-24, under the approved owner of anchors (md-render).
 
-**Reason:** One rule for both systems; the ID survives line moves and changes when the text changes, which is when an anchor must fall back to its quote.
+**Reason:** One rule for both systems; the ID survives line moves and changes when the text changes, which is when the page shows an anchor's passage as updated.
 
 **Rejected alternatives:** Line numbers only, which break on every edit above the block. Sequential block numbers, which shift when a block is inserted.
+
+### Decision: anchors name a block and its text
+
+**Choice:** A comment or question stores its block's ID and the block's exact text when it was written. A block with the same ID shows as normal. The same block with changed text stays attached and is flagged "updated" with a word-level diff of the old text against the new; the reader marks it done, keeps it open or sends it to a fix run. A block that is gone shows as "removed" with its old text; the reader closes the question or leaves a note for an agent. Line numbers are no longer used. The same block with changed text is the block at the same position in the same section, with the same tag.
+
+**Authority:** Operator decision, 2026-10-27. The rule for recognising the same block with changed text is a lead proposal of 2026-10-27.
+
+**Reason:** A commit names a revision, not the text a working tree held, so line numbers could attach a comment to unrelated text. The reader judges a changed passage better than a quote search does.
+
+**Rejected alternatives:** A quote search, then the lines at the same commit, which attached comments to unrelated text after an uncommitted edit.
 
 ## Size
 

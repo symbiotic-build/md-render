@@ -3,8 +3,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { renderView } from 'md-render';
 import { resolveAnchor } from './anchors.js';
 import { parseQuestionList, questionThreads } from './import.js';
@@ -25,12 +23,7 @@ const usage = `Usage:
 An actor is person:<login> or agent:<product>/<session>. Only a person answers; an agent that copies an
 answer from chat records it as the person with --source chat.`;
 
-const run = promisify(execFile);
 const now = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-async function headCommit(root: string): Promise<string> {
-  try { return (await run('git', ['-C', root, 'rev-parse', 'HEAD'])).stdout.trim(); }
-  catch { throw new Error(`${root} is not in a git repository; anchors need the documents' commit`); }
-}
 
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -74,7 +67,7 @@ async function main(argv: string[]): Promise<number> {
       const skipped: string[] = [];
       const threads = questionThreads(parseQuestionList(await readFile(file, 'utf8'), path.resolve(file)), {
         skipped,
-        view, corpusRoot: root, commit: await headCommit(root), actor: need('by'), at: values.at ?? now(), settled: info.settled, base: path.dirname(path.resolve(file)),
+        view, corpusRoot: root, actor: need('by'), at: values.at ?? now(), settled: info.settled, base: path.dirname(path.resolve(file)),
       });
       // Refuses the whole list, before writing, when a number repeats in it or is already in the collection.
       await store.createAll(collection, threads);
@@ -107,20 +100,22 @@ async function main(argv: string[]): Promise<number> {
       await append(positionals[0] ?? '', { at: now(), actor: need('by'), kind: 'settled', settledAs: need('settled-as'), note: values.note ?? '' });
       return 0;
     case 'check': {
-      const { view, root } = await renderView(positionals[0] ?? '.', { mermaid: false });
-      const commit = await headCommit(root);
-      let orphans = 0;
+      const { view } = await renderView(positionals[0] ?? '.', { mermaid: false });
+      let problems = 0;
+      // A settled or withdrawn thread no longer needs its passage.
       for (const { thread } of await store.list(collection)) {
+        if (['settled', 'withdrawn'].includes(threadStatus(thread))) continue;
         for (const anchor of thread.anchors) {
-          if (resolveAnchor(anchor, view, commit).method !== 'orphan') continue;
-          orphans++;
-          console.log(`orphan\t${thread.id}\t${anchor.path}:${anchor.lines[0]}-${anchor.lines[1]}`);
+          const { state } = resolveAnchor(anchor, view);
+          if (state === 'same') continue;
+          problems++;
+          console.log(`${state}\t${thread.id}\t${anchor.path}\t${anchor.block}`);
         }
       }
       const info = await store.collection(collection);
-      for (const file of info.settled) if (!view.documents.some(document => document.path === file)) { orphans++; console.log(`missing settled chapter\t${file}`); }
-      console.log(orphans ? `${orphans} problems` : 'All anchors resolve');
-      return orphans ? 1 : 0;
+      for (const file of info.settled) if (!view.documents.some(document => document.path === file)) { problems++; console.log(`missing settled chapter\t${file}`); }
+      console.log(problems ? `${problems} problems` : 'All anchors resolve');
+      return problems ? 1 : 0;
     }
     default:
       console.error(`Unknown command ${command}\n\n${usage}`);

@@ -19,18 +19,19 @@ The store must be a folder outside the documents' git working tree; `import` and
 
 - **Questions for you** lists the operator questions. Choosing an option saves an answer; "Save note" saves the note with it.
 - **History** lists every question, lead and measurement item, comment and settled decision, newest first, with filters for who decides, status, topic and chapter.
-- Selecting text and choosing **Comment** adds a comment thread on that passage.
+- Selecting text and choosing **Comment** adds a comment thread on the block where the selection starts.
+- A thread whose passage changed shows it as **updated**, with the changed words, or **removed**, with its old text. The reader marks it done, keeps it open or sends it to a fix run, or closes it or leaves a note for an agent.
 
 Answers and comments are written to the store at once. An agent sees them with `md-collab list`.
 
 ## Commands for agents
 
-- `import <questions.md> <documents>`: turns a House Rules question list (`### 1\. Title`, context, numbered options with one "(recommended)") into question threads. Each `[file.md:72-73](link)` citation, in the context or an option, becomes an anchor. A line `Main passage: [file.md:72](link)` names the main passage; otherwise it is the first citation outside the settled chapters. A question number that repeats in the list or is already in the collection refuses the whole list.
+- `import <questions.md> <documents>`: turns a House Rules question list (`### 1\. Title`, context, numbered options with one "(recommended)") into question threads. Each `[file.md:72-73](link)` citation, in the context or an option, becomes an anchor on the first rendered block with text that its lines cover. A line `Main passage: [file.md:72](link)` names the main passage; otherwise it is the first citation outside the settled chapters. A question number that repeats in the list or is already in the collection refuses the whole list.
 - `list [--status answered] [--json]`: threads with their status and latest answer.
 - `answer <id> --by person:<login> --choice <n> [--note <text>] --source chat`: records an answer the person gave in chat. Only a person answers.
 - `comment <id> --by <actor> --note <text>`: adds a comment to a thread.
 - `resolve <id> --by <actor> --settled-as <path#anchor>`: marks a question settled by a decision in the specification.
-- `check <documents>`: exits 1 and lists every anchor whose text is no longer found.
+- `check <documents>`: exits 1 and lists every updated or removed anchor of a thread that is not settled or withdrawn.
 
 An actor is `person:<login>` or `agent:<product>/<session>`.
 

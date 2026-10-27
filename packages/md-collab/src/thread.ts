@@ -3,17 +3,20 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 export type ThreadKind = 'comment' | 'question';
 export type Decider = 'operator' | 'lead' | 'measurement';
-export type EntryKind = 'raised' | 'comment' | 'answer' | 'settled' | 'reopened' | 'withdrawn';
+export type EntryKind = 'raised' | 'comment' | 'answer' | 'settled' | 'reopened' | 'withdrawn' | 'kept-open' | 'fix-requested';
 export type Status = 'open' | 'answered' | 'settled' | 'withdrawn';
 
-/** A pointer to a place in a document, valid for one commit; block and quote re-find it later. */
+/**
+ * One rendered block, as it was when the anchor was written: its ID, its tag, its position from 1
+ * among the blocks of its section, and its whitespace-normalised text.
+ */
 export interface Anchor {
   role: 'main' | 'also';
   path: string;
-  commit: string;
-  lines: [number, number];
-  block?: string;
-  quote?: string;
+  block: string;
+  tag: string;
+  position: number;
+  text: string;
 }
 
 export interface Option { n: number; text: string; recommended: boolean }
@@ -46,7 +49,7 @@ export interface Thread {
 
 const idPattern = /^[a-z0-9][a-z0-9-]*$/;
 const actorPattern = /^(?:person|agent):\S+$/;
-const entryKinds: EntryKind[] = ['raised', 'comment', 'answer', 'settled', 'reopened', 'withdrawn'];
+const entryKinds: EntryKind[] = ['raised', 'comment', 'answer', 'settled', 'reopened', 'withdrawn', 'kept-open', 'fix-requested'];
 const timestamp = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/;
 const recommendedText = /\(recommended\)/;
 const frontKeys = new Set(['id', 'kind', 'title', 'decides', 'number', 'priority', 'topic', 'anchors', 'settled_as']);
@@ -58,7 +61,7 @@ const structure = /^\\*(?:#|Choice: |Source: |Settled as: )/;
 const escapeText = (text: string): string => text.split('\n').map(line => structure.test(line) ? '\\' + line : line).join('\n');
 const unescapeText = (text: string): string => text.split('\n').map(line => /^\\/.test(line) && structure.test(line.slice(1)) ? line.slice(1) : line).join('\n');
 
-/** The status the entries give: the latest of raised, reopened, answer, settled and withdrawn decides. */
+/** The status the entries give: the latest of raised, reopened, answer, settled and withdrawn decides; comment, kept-open and fix-requested never change it. */
 export function threadStatus(thread: Pick<Thread, 'entries'>): Status {
   let status: Status = 'open';
   for (const entry of thread.entries) {
@@ -93,9 +96,8 @@ export function validateThread(thread: Thread): void {
   }
   for (const anchor of thread.anchors) {
     if (anchor.role !== 'main' && anchor.role !== 'also') fail('anchor role is main or also');
-    if (!anchor.path || !anchor.commit) fail('an anchor needs path and commit');
-    const [first, last] = anchor.lines ?? [];
-    if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last) || first! < 1 || last! < first!) fail(`anchor lines are invalid for ${anchor.path}`);
+    if (!anchor.path || !anchor.block.includes('~') || !anchor.tag) fail('an anchor needs path, block and tag');
+    if (!Number.isSafeInteger(anchor.position) || anchor.position < 1) fail(`anchor position is invalid for ${anchor.path}`);
   }
   if (thread.anchors.filter(anchor => anchor.role === 'main').length > 1) fail('more than one main anchor');
   for (const entry of thread.entries) {
@@ -167,7 +169,9 @@ export function parseThread(source: string): Thread {
     ...(front.number !== undefined && front.number !== null ? { number: Number(front.number) } : {}),
     ...(front.priority ? { priority: String(front.priority) } : {}),
     ...(front.topic ? { topic: String(front.topic) } : {}),
-    anchors: ((front.anchors ?? []) as Anchor[]).map(anchor => ({ ...anchor, commit: String(anchor.commit), lines: [Number(anchor.lines?.[0]), Number(anchor.lines?.[1])] as [number, number] })),
+    anchors: ((front.anchors ?? []) as Partial<Anchor>[]).map(anchor => ({
+      role: anchor.role!, path: String(anchor.path ?? ''), block: String(anchor.block ?? ''), tag: String(anchor.tag ?? ''), position: Number(anchor.position), text: String(anchor.text ?? ''),
+    })),
     ...(front.settled_as ? { settledAs: String(front.settled_as) } : {}),
     context, options, entries,
   };
@@ -183,10 +187,7 @@ export function serializeThread(thread: Thread): string {
   if (thread.number !== undefined) front.number = thread.number;
   if (thread.priority) front.priority = thread.priority;
   if (thread.topic) front.topic = thread.topic;
-  front.anchors = thread.anchors.map(anchor => ({
-    role: anchor.role, path: anchor.path, commit: anchor.commit, lines: anchor.lines,
-    ...(anchor.block ? { block: anchor.block } : {}), ...(anchor.quote ? { quote: anchor.quote } : {}),
-  }));
+  front.anchors = thread.anchors.map(anchor => ({ role: anchor.role, path: anchor.path, block: anchor.block, tag: anchor.tag, position: anchor.position, text: anchor.text }));
   if (thread.settledAs) front.settled_as = thread.settledAs;
   const parts = [`---\n${stringifyYaml(front, { lineWidth: 0, flowCollectionPadding: false }).trimEnd()}\n---`, ''];
   if (thread.context) parts.push(escapeText(thread.context), '');

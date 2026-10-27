@@ -23,7 +23,6 @@ const withBrowser = useBrowser();
 const run = promisify(execFile);
 let root: string;
 let docs: string;
-let commit: string;
 let view: SiteView;
 const spec = `# Storage
 
@@ -100,14 +99,13 @@ beforeAll(async () => {
   await writeFile(path.join(docs, 'docs/more-decisions.md'), moreDecisions);
   await writeFile(path.join(docs, 'docs/long.md'), long);
   for (const args of [['init', '-q'], ['add', '.'], ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'docs']]) await run('git', ['-C', docs, ...args]);
-  commit = (await run('git', ['-C', docs, 'rev-parse', 'HEAD'])).stdout.trim();
   view = (await renderView(path.join(docs, 'docs'), { mermaid: false })).view;
 });
 afterAll(async () => { if (root) await rm(root, { recursive: true, force: true }); });
 
 const question = (): Thread => ({
   id: 'q01-identifier-length', kind: 'question', title: 'How long may an identifier be?', decides: 'operator', number: 1, topic: 'Limits',
-  anchors: [{ role: 'main', path: 'docs/storage.md', commit: 'abcdef1', lines: [9, 9], block: 'limits~x', quote: 'Identifiers may be long.' }],
+  anchors: [{ role: 'main', path: 'docs/storage.md', block: 'limits~000000', tag: 'p', position: 3, text: 'Identifiers may be long.' }],
   context: '`FACT` The spec says identifiers may be long.',
   options: [{ n: 1, text: '**Cap at 256 bytes (recommended).**', recommended: true }, { n: 2, text: 'No cap.', recommended: false }],
   entries: [{ at: '2026-10-22T13:09:00Z', actor: 'agent:claude-code/memory', kind: 'raised', note: '' }],
@@ -115,7 +113,7 @@ const question = (): Thread => ({
 
 // The question list with a citation inside an option, as the import and the page see it.
 const citingList = questionList.replace('2. No cap.', '2. No cap, as [storage.md:7](docs/storage.md) allows.');
-const imported = () => questionThreads(parseQuestionList(citingList, path.join(docs, 'questions.md')), { view, corpusRoot: docs, commit, actor: 'agent:test/1', at: '2026-10-24T00:00:00Z', settled: ['docs/decisions.md'], base: docs });
+const imported = () => questionThreads(parseQuestionList(citingList, path.join(docs, 'questions.md')), { view, corpusRoot: docs, actor: 'agent:test/1', at: '2026-10-24T00:00:00Z', settled: ['docs/decisions.md'], base: docs });
 /** Reads a server-sent event stream until `text` arrives; fails when the stream ends first or after `ms`. */
 async function heard(reader: ReadableStreamDefaultReader<Uint8Array>, text: string, ms = 10_000): Promise<string> {
   let received = '';
@@ -309,23 +307,32 @@ it('gives up on a held lock after ten seconds even when the clock moves back', a
   }
 });
 
-it('finds an anchor again by block, then quote, then lines, and reports an orphan', async () => {
-  const anchor = anchorAt(view, 'docs/storage.md', [9, 9], commit, 'main');
-  expect(anchor).toMatchObject({ path: 'docs/storage.md', lines: [9, 9], quote: 'Identifiers may be long.' });
-  expect(anchor.block).toMatch(/^limits~[0-9a-f]{6}$/);
-  expect(resolveAnchor(anchor, view, commit)).toMatchObject({ method: 'block', blocks: [{ id: anchor.block, lines: [9, 9] }] });
-  expect(resolveAnchor({ ...anchor, block: 'limits~000000', lines: [30, 30] }, view, null)).toMatchObject({ method: 'quote', blocks: [{ lines: [9, 9] }] });
-  expect(resolveAnchor({ ...anchor, block: undefined, quote: undefined }, view, commit.slice(0, 7))).toMatchObject({ method: 'lines' });
-  expect(resolveAnchor({ ...anchor, block: undefined, quote: 'Gone text.' }, view, 'f'.repeat(40))).toMatchObject({ method: 'orphan', blocks: [] });
-  expect(() => anchorAt(view, 'docs/storage.md', [2, 2], commit, 'main')).toThrow('docs/storage.md:2-2 covers no rendered text');
+// Edits to the storage chapter after a comment was written on its "Identifiers may be long." paragraph.
+it.each([
+  ['the text is unchanged', (text: string) => text, { state: 'same', blocks: 1, diff: null }],
+  ['a paragraph is added before it', (text: string) => text.replace('The write group', 'A new rule.\n\nThe write group'), { state: 'same', blocks: 1, diff: null }],
+  ['its section heading is renamed under the same explicit anchor', (text: string) => text.replace('## Limits', '## Caps'), { state: 'same', blocks: 1, diff: null }],
+  ['its words change', (text: string) => text.replace('may be long', 'may be very long'), { state: 'updated', blocks: 1, diff: [{ change: '=', text: 'Identifiers may be' }, { change: '+', text: 'very' }, { change: '=', text: 'long.' }] }],
+  ['it is deleted', (text: string) => text.replace('\nIdentifiers may be long.\n', ''), { state: 'removed', blocks: 0, diff: null }],
+  ['it becomes a list item', (text: string) => text.replace('Identifiers may be long.', '- Identifiers may be long.'), { state: 'removed', blocks: 0, diff: null }],
+  ['its section gets another name', (text: string) => text.replace('<a id="limits"></a>\n\n## Limits', '## Caps'), { state: 'removed', blocks: 0, diff: null }],
+])('shows a passage whose chapter changed as the same block, updated or removed when %s', async (name, edit, expected) => {
+  const copy = path.join(root, 'edit-' + name.replace(/\W+/g, '-'));
+  await cp(docs, copy, { recursive: true });
+  await writeFile(path.join(copy, 'docs/storage.md'), edit(spec));
+  const edited = (await renderView(path.join(copy, 'docs'), { mermaid: false })).view;
+  const store = new FileStore(path.join(root, 'store-edit-' + name.replace(/\W+/g, '-')));
+  const collection = { name: 'spec', title: 'Edits', settled: [] };
+  await store.createCollection(collection);
+  await store.create('spec', { ...agentComment('c-on-identifiers'), anchors: [anchorAt(view, 'docs/storage.md', [9, 9], 'main')] });
+  const [anchor] = (await pageState({ store, collection, view: edited, settled: [], person: 'person:operator' })).threads[0]!.anchors;
+  expect({ state: anchor!.state, blocks: anchor!.blocks.length, text: anchor!.text, diff: anchor!.diff }).toEqual({ ...expected, text: 'Identifiers may be long.' });
 });
 
-it('covers every passage of a citation that starts inside its first paragraph', () => {
-  // Lines 4-7 start inside the paragraph of lines 3-5 and end in the paragraph on line 7.
-  const anchor = anchorAt(view, 'docs/long.md', [4, 7], commit, 'main');
-  const expected = [{ path: 'docs/long.md', id: expect.stringMatching(/^long~/), lines: [3, 5] }, { path: 'docs/long.md', id: expect.stringMatching(/^long~/), lines: [7, 7] }];
-  expect(resolveAnchor(anchor, view, 'f'.repeat(40))).toEqual({ anchor, method: 'block', blocks: expected });
-  expect(resolveAnchor({ ...anchor, block: undefined }, view, 'f'.repeat(40))).toEqual({ anchor: { ...anchor, block: undefined }, method: 'quote', blocks: expected });
+it('anchors a citation to the first block with text that its lines cover', () => {
+  // Lines 4-7 start inside the paragraph of lines 3-5, the second block of the Long section.
+  expect(anchorAt(view, 'docs/long.md', [4, 7], 'main')).toEqual({ role: 'main', path: 'docs/long.md', block: expect.stringMatching(/^long~[0-9a-f]{6}$/), tag: 'p', position: 2, text: 'First line second line third line.' });
+  expect(() => anchorAt(view, 'docs/storage.md', [2, 2], 'main')).toThrow('docs/storage.md:2-2 covers no rendered text');
 });
 
 it('reads settled decisions with their dates and deciders from the specification', async () => {
@@ -385,7 +392,7 @@ it('shows each settled decision with its title, date, decider and a link to its 
   const store = new FileStore(path.join(root, 'store-settled'));
   const collection = { name: 'spec', title: 'Settled', settled: ['docs/decisions.md', 'docs/more-decisions.md'] };
   await store.createCollection(collection);
-  const state = await pageState({ store, collection, view, settled: settledDecisions(collection, view), commit, person: 'person:operator' });
+  const state = await pageState({ store, collection, view, settled: settledDecisions(collection, view), person: 'person:operator' });
   // History opens the first block of a decision's passage.
   const opened = (anchor: PageState['settled'][number]['anchors'][number]) => {
     const block = view.documents.find(document => document.path === anchor.path)!.blocks.find(item => item.id === anchor.blocks[0]);
@@ -403,7 +410,8 @@ it('imports a House Rules question list with its cited passages as anchors', () 
   expect(listed).toMatchObject([{ number: 1, topic: 'Limits', title: 'How long may an identifier be?', options: [{ n: 1, recommended: true }, { n: 2, recommended: false }] }]);
   const [thread] = imported();
   expect(thread!.id).toBe('q01-how-long-may-an-identifier-be');
-  expect(thread!.anchors.map(anchor => [anchor.role, anchor.path, anchor.lines])).toEqual([['main', 'docs/storage.md', [9, 9]], ['also', 'docs/decisions.md', [9, 11]], ['also', 'docs/storage.md', [7, 7]]]);
+  // Each citation names the first block with text that its lines cover.
+  expect(thread!.anchors.map(anchor => [anchor.role, anchor.path, anchor.text])).toEqual([['main', 'docs/storage.md', 'Identifiers may be long.'], ['also', 'docs/decisions.md', 'Choice: Keep the write group at 4 MiB (limits).'], ['also', 'docs/storage.md', 'The write group is 4 MiB.']]);
   expect(thread!.context).toContain('([storage.md:9](#md-collab-anchor-0))');
   expect(thread!.context).toContain('([decisions.md:9-11](#md-collab-anchor-1))');
   expect(thread!.context).not.toContain('Answer like so');
@@ -414,7 +422,7 @@ it('serves the page only under its own host and accepts writes only from its own
   const storeRoot = path.join(root, 'store-b');
   const store = new FileStore(storeRoot);
   await store.createCollection({ name: 'spec', title: 'Spec review', settled: ['docs/decisions.md'] });
-  const [thread] = questionThreads(parseQuestionList(questionList, path.join(docs, 'questions.md')), { view, corpusRoot: docs, commit, actor: 'agent:test/1', at: '2026-10-24T00:00:00Z', settled: ['docs/decisions.md'], base: docs });
+  const [thread] = questionThreads(parseQuestionList(questionList, path.join(docs, 'questions.md')), { view, corpusRoot: docs, actor: 'agent:test/1', at: '2026-10-24T00:00:00Z', settled: ['docs/decisions.md'], base: docs });
   const created = await store.create('spec', thread!);
   const session = await serve({ documents: path.join(docs, 'docs'), store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
   try {
@@ -430,7 +438,7 @@ it('serves the page only under its own host and accepts writes only from its own
     expect(html).toContain("connect-src 'self'");
     const headers = { 'content-type': 'application/json' };
     const state = await (await fetch(origin + '/api/state', { headers })).json();
-    expect(state.threads[0]).toMatchObject({ id: created.thread.id, status: 'open', number: 1, anchors: [{ role: 'main', method: 'block' }, { role: 'also', method: 'block' }] });
+    expect(state.threads[0]).toMatchObject({ id: created.thread.id, status: 'open', number: 1, anchors: [{ role: 'main', state: 'same' }, { role: 'also', state: 'same' }] });
     expect(state.settled.map((decision: { id: string; decidedBy: string[] }) => [decision.id, decision.decidedBy])).toEqual([['docs/decisions.md#decision-fixed-group', ['operator']], ['docs/decisions.md#decision-redo', ['lead']]]);
     const answer = JSON.stringify({ kind: 'answer', choice: 1, note: 'Yes.', version: created.version });
     expect((await fetch(origin + `/api/threads/${created.thread.id}/entries`, { method: 'POST', headers: { ...headers, origin: 'https://evil.example' }, body: answer })).status).toBe(403);
@@ -446,7 +454,7 @@ it('serves the page only under its own host and accepts writes only from its own
     await store.append('spec', created.thread.id, { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'Seen?' });
     await heard(reader, 'event: changed');
     await reader.cancel();
-    const comment = await fetch(origin + '/api/comments', { method: 'POST', headers: { ...headers, origin }, body: JSON.stringify({ note: 'Is 4 MiB measured?', anchors: [{ path: 'docs/storage.md', lines: [7, 7], quote: 'The write group is 4 MiB.' }] }) });
+    const comment = await fetch(origin + '/api/comments', { method: 'POST', headers: { ...headers, origin }, body: JSON.stringify({ note: 'Is 4 MiB measured?', path: 'docs/storage.md', block: groupBlock() }) });
     expect(comment.status).toBe(200);
     const after = await (await fetch(origin + '/api/state', { headers })).json();
     expect(after.threads.map((item: { kind: string; status: string }) => [item.kind, item.status])).toEqual([['comment', 'open'], ['question', 'answered']]);
@@ -610,8 +618,10 @@ window.fetch = async (url, init) => { if (init?.method === 'POST') { posts.push(
 const PageEvents = window.EventSource;
 window.EventSource = class extends PageEvents { constructor(...args) { super(...args); window.sidebarEvents = this; } };`;
 const until = (page: BrowserSession, expression: string) => page.evaluate(`new Promise((resolve, reject) => { const start = performance.now(); (function check() { const value = ${expression}; if (value) resolve(value); else if (performance.now() - start > 5000) reject(new Error('Timed out: ' + ${JSON.stringify(expression)})); else setTimeout(check, 50); })(); })`);
-const agentComment = (id: string): Thread => ({ id, kind: 'comment', title: 'Agent note', anchors: [{ role: 'main', path: 'docs/storage.md', commit, lines: [7, 7] }], context: '', options: [],
+const agentComment = (id: string): Thread => ({ id, kind: 'comment', title: 'Agent note', anchors: [anchorAt(view, 'docs/storage.md', [7, 7], 'main')], context: '', options: [],
   entries: [{ at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'Agent note' }] });
+/** The block ID of the storage chapter's 4 MiB paragraph, as the page sends it with a comment. */
+const groupBlock = () => view.documents.find(document => document.path === 'docs/storage.md')!.blocks.find(block => block.text === 'The write group is 4 MiB.')!.id;
 
 /** Serves a store holding the imported question and opens the page in the test browser. */
 async function sidebar(name: string, work: (page: BrowserSession, store: FileStore, session: Session) => Promise<void>, documents = path.join(docs, 'docs')): Promise<void> {
@@ -796,4 +806,80 @@ it("names a question's note box by its label even when an annotation carries the
     await until(page, `document.getElementById('ov-count').textContent === '0 / 2 answered'`);
     expect(await page.evaluate(`[...document.querySelector('#ov-card-2 textarea').labels].map(label => label.textContent)`)).toEqual(['Your note']);
   });
+});
+
+/** Opens a thread's row in History and returns what its changed-passage box shows: the deleted and inserted words, or the old text. */
+async function changeBox(page: BrowserSession, id: string): Promise<{ text: string; deleted: string[]; inserted: string[]; actions: string[] }> {
+  await page.evaluate(`document.getElementById('ov-v-h').click()`);
+  await page.evaluate(`[...document.getElementById('ov-list').children].find(row => row.id === 'ov-h-${id}').querySelector('.ov-hh').click()`);
+  return page.evaluate(`(() => { const box = [...document.getElementById('ov-list').children].find(row => row.id === 'ov-h-${id}').querySelector('.ov-change');
+    return box ? { text: box.querySelector('.ov-was').textContent, deleted: [...box.querySelectorAll('del')].map(e => e.textContent), inserted: [...box.querySelectorAll('ins')].map(e => e.textContent), actions: [...box.querySelectorAll('button')].map(b => b.textContent) } : null; })()`);
+}
+
+it('anchors a comment on a selection to the block where it starts, and shows the words that changed in that block', async () => {
+  const copy = path.join(root, 'repo-selection');
+  await cp(docs, copy, { recursive: true });
+  await sidebar('store-selection', async (page, store) => {
+    // From inside the first paragraph of the Long chapter into the next one.
+    await page.evaluate(`(() => {
+      const [first, second] = [...document.querySelectorAll('[data-source-path="docs/long.md"] p')];
+      const range = document.createRange(); range.setStart(first.firstChild, 11); range.setEnd(second.firstChild, 4);
+      getSelection().removeAllRanges(); getSelection().addRange(range);
+    })()`);
+    await until(page, `getComputedStyle(document.getElementById('ov-sel')).display === 'block'`);
+    await page.evaluate(`(() => { document.getElementById('ov-selbtn').click(); document.getElementById('ov-comment').value = 'Two lines are enough.'; document.getElementById('ov-comment-save').click(); })()`);
+    await until(page, `document.getElementById('ov-toast').textContent === 'Comment saved.'`);
+    const [comment] = (await store.list('spec')).filter(({ thread }) => thread.kind === 'comment');
+    expect(comment!.thread.anchors.map(({ path: file, tag, position, text }) => ({ file, tag, position, text }))).toEqual([{ file: 'docs/long.md', tag: 'p', position: 2, text: 'First line second line third line.' }]);
+    await page.waitForNavigation(() => writeFile(path.join(copy, 'docs/long.md'), long.replace('second line', 'second row')));
+    await until(page, `document.getElementById('ov-v-hn').textContent === '4'`);
+    expect(await changeBox(page, comment!.thread.id)).toEqual({ text: 'Updated since this was written: First line second line row third line.', deleted: ['line'], inserted: ['row'], actions: ['Mark done', 'Keep open', 'Send to a fix run'] });
+  }, path.join(copy, 'docs'));
+});
+
+// The reader's three choices on a passage whose words changed, and what each records for agents.
+it.each([
+  ['Mark done', 'settled', 'settled', 'updated'],
+  ['Keep open', 'kept-open', 'open', 'same'],
+  ['Send to a fix run', 'fix-requested', 'open', 'updated'],
+])('records "%s" on a commented passage whose words changed', async (label, kind, status, state) => {
+  const copy = path.join(root, 'repo-choice-' + kind);
+  await cp(docs, copy, { recursive: true });
+  await writeFile(path.join(copy, 'docs/long.md'), long.replace('Next paragraph.', 'Next paragraph, edited.'));
+  const edited = (await renderView(path.join(copy, 'docs'), { mermaid: false })).view;
+  await sidebar('store-choice-' + kind, async (page, store) => {
+    await store.create('spec', { ...agentComment('c-next'), anchors: [anchorAt(view, 'docs/long.md', [7, 7], 'main')] });
+    await until(page, `document.getElementById('ov-v-hn').textContent === '4'`);
+    expect((await changeBox(page, 'c-next'))?.inserted).toEqual(['edited.']);
+    await page.evaluate(`[...document.querySelectorAll('#ov-h-c-next .ov-change button')].find(button => button.textContent === ${JSON.stringify(label)}).click()`);
+    for (const deadline = Date.now() + 5000; (await store.read('spec', 'c-next')).thread.entries.length < 2; await delay(50)) {
+      if (Date.now() > deadline) throw new Error(`${label} wrote no entry`);
+    }
+    const { thread } = await store.read('spec', 'c-next');
+    expect({ kind: thread.entries.at(-1)!.kind, status: threadStatus(thread), state: resolveAnchor(thread.anchors[0]!, edited).state }).toEqual({ kind, status, state });
+  }, path.join(copy, 'docs'));
+});
+
+it('shows a commented passage that was removed with its old text, and records a note for an agent and closing', async () => {
+  const copy = path.join(root, 'repo-removed');
+  await cp(docs, copy, { recursive: true });
+  await writeFile(path.join(copy, 'docs/long.md'), long.replace('\nNext paragraph.\n', ''));
+  await sidebar('store-removed-passage', async (page, store) => {
+    await store.create('spec', { ...agentComment('c-next'), anchors: [anchorAt(view, 'docs/long.md', [7, 7], 'main')] });
+    await until(page, `document.getElementById('ov-v-hn').textContent === '4'`);
+    expect(await changeBox(page, 'c-next')).toEqual({ text: 'Removed. It read: Next paragraph.', deleted: [], inserted: [], actions: ['Close', 'Save note'] });
+    await page.evaluate(`(() => { const row = document.getElementById('ov-h-c-next'); row.querySelector('.ov-change textarea').value = 'Say where this went.'; [...row.querySelectorAll('.ov-change button')].find(b => b.textContent === 'Save note').click(); })()`);
+    for (const deadline = Date.now() + 5000; (await store.read('spec', 'c-next')).thread.entries.length < 2; await delay(50)) {
+      if (Date.now() > deadline) throw new Error('Save note wrote no entry');
+    }
+    await until(page, `[...document.querySelectorAll('#ov-h-c-next .ov-change button')].some(b => b.textContent === 'Close')`);
+    await page.evaluate(`[...document.querySelectorAll('#ov-h-c-next .ov-change button')].find(b => b.textContent === 'Close').click()`);
+    for (const deadline = Date.now() + 5000; (await store.read('spec', 'c-next')).thread.entries.length < 3; await delay(50)) {
+      if (Date.now() > deadline) throw new Error('Close wrote no entry');
+    }
+    const { thread } = await store.read('spec', 'c-next');
+    expect({ entries: thread.entries.slice(1).map(({ actor, kind, note }) => ({ actor, kind, note })), status: threadStatus(thread) }).toEqual({
+      entries: [{ actor: 'person:operator', kind: 'comment', note: 'Say where this went.' }, { actor: 'person:operator', kind: 'withdrawn', note: 'Closed: the passage was removed.' }], status: 'withdrawn',
+    });
+  }, path.join(copy, 'docs'));
 });

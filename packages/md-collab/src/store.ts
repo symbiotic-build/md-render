@@ -7,7 +7,7 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { parseThread, serializeThread, threadStatus, type Entry, type Thread } from './thread.js';
+import { parseThread, serializeThread, threadStatus, type Anchor, type Entry, type Thread } from './thread.js';
 
 /** A collection's settings: its title and the specification chapters that hold settled decisions. */
 export interface Collection { name: string; title: string; settled: string[] }
@@ -197,13 +197,16 @@ export class FileStore {
     });
   }
 
-  /** Appends one entry, refusing when the file is no longer at `expected`. */
-  async append(collection: string, id: string, entry: Entry, expected?: string): Promise<StoredThread> {
+  /**
+   * Appends one entry, refusing when the file is no longer at `expected`. A `kept-open` entry also
+   * replaces the thread's anchors with `anchors`, which name the blocks the reader kept it on.
+   */
+  async append(collection: string, id: string, entry: Entry, expected?: string, anchors?: Anchor[]): Promise<StoredThread> {
     return this.locked(collection, async () => {
       const current = await this.read(collection, id);
       if (expected !== undefined && current.version !== expected) throw new ConflictError(id);
       if (entry.kind === 'answer' && current.thread.kind !== 'question') throw new Error(`Thread ${id} is a comment and takes no answer`);
-      const next: Thread = { ...current.thread, entries: [...current.thread.entries, entry] };
+      const next: Thread = { ...current.thread, entries: [...current.thread.entries, entry], ...(anchors ? { anchors } : {}) };
       if (entry.kind === 'settled' && entry.settledAs) next.settledAs = entry.settledAs;
       const text = serializeThread(next);
       const file = this.file(collection, id);

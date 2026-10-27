@@ -1,6 +1,7 @@
 // The page's view of one collection: threads with resolved anchors and rendered text, plus settled decisions.
 import { documentHtml, parseDocument, type SiteView } from 'md-render';
-import { resolveAnchor, type AnchorMethod } from './anchors.js';
+import { resolveAnchor, type AnchorState } from './anchors.js';
+import { diffWords, type WordChange } from './diff.js';
 import { readSettled, type SettledDecision } from './settled.js';
 import type { Collection, FileStore } from './store.js';
 import { threadStatus, type Decider, type Entry, type Status, type ThreadKind } from './thread.js';
@@ -9,8 +10,13 @@ export interface PageAnchor {
   role: 'main' | 'also';
   path: string;
   label: string;
-  method: AnchorMethod;
+  state: AnchorState;
+  /** The rendered blocks to mark and open: a thread's one block, or a decision's section; empty when removed. */
   blocks: string[];
+  /** The text the anchor was written on; a removed block shows it. */
+  text: string;
+  /** For an updated block, its words from the written text to the text now. */
+  diff: WordChange[] | null;
 }
 export interface PageThread {
   id: string;
@@ -40,11 +46,9 @@ export interface PageSettled {
 }
 export interface PageState {
   collection: { name: string; title: string };
-  commit: string | null;
   person: string;
   threads: PageThread[];
   settled: PageSettled[];
-  orphans: { thread: string; path: string; lines: [number, number] }[];
 }
 
 /** Markdown from threads and decisions, through md-render's sanitizer; raw HTML stays escaped. */
@@ -67,20 +71,21 @@ export function settledDecisions(collection: Collection, view: SiteView): Settle
 
 /** The page's state: the store's threads now, and the settled decisions of the rendered documents. */
 export async function pageState(options: {
-  store: FileStore; collection: Collection; view: SiteView; settled: SettledDecision[]; commit: string | null; person: string;
+  store: FileStore; collection: Collection; view: SiteView; settled: SettledDecision[]; person: string;
 }): Promise<PageState> {
-  const { view, commit } = options;
+  const { view } = options;
   const stored = await options.store.list(options.collection.name);
-  const orphans: PageState['orphans'] = [];
   const threads = await Promise.all(stored.map(async ({ thread, version }): Promise<PageThread> => ({
     id: thread.id, kind: thread.kind, title: thread.title, decides: thread.decides ? [thread.decides] : [],
     number: thread.number ?? null, priority: thread.priority ?? null, topic: thread.topic ?? null,
     status: threadStatus(thread), contextHtml: await markdownHtml(thread.context),
     options: await Promise.all(thread.options.map(async option => ({ n: option.n, recommended: option.recommended, html: await inlineHtml(option.text.replace(/\s*\(recommended\)/, '')) }))),
     anchors: thread.anchors.map(anchor => {
-      const resolved = resolveAnchor(anchor, view, commit);
-      if (resolved.method === 'orphan') orphans.push({ thread: thread.id, path: anchor.path, lines: anchor.lines });
-      return { role: anchor.role, path: anchor.path, label: `${anchor.path.split('/').pop()}:${anchor.lines[0]}${anchor.lines[1] !== anchor.lines[0] ? '-' + anchor.lines[1] : ''}`, method: resolved.method, blocks: resolved.blocks.map(block => block.id) };
+      const { state, block } = resolveAnchor(anchor, view);
+      return {
+        role: anchor.role, path: anchor.path, label: anchor.text.length > 60 ? anchor.text.slice(0, 59) + '…' : anchor.text || anchor.block,
+        state, blocks: block ? [block.id] : [], text: anchor.text, diff: state === 'updated' ? diffWords(anchor.text, block!.text) : null,
+      };
     }),
     entries: thread.entries, settledAs: thread.settledAs ?? null, version,
   })));
@@ -90,8 +95,8 @@ export async function pageState(options: {
     const blocks = view.documents.find(item => item.path === file)!.blocks.filter(block => block.heading === decision.id).map(block => block.id);
     settled.push({
       id: `${file}#${decision.id}`, title: decision.title, topic: decision.topic, date: decision.date, decidedBy: decision.decidedBy,
-      anchors: [{ role: 'main', path: file, label: `${file.split('/').pop()}#${decision.id}`, method: blocks.length ? 'block' : 'orphan', blocks }],
+      anchors: [{ role: 'main', path: file, label: `${file.split('/').pop()}#${decision.id}`, state: blocks.length ? 'same' : 'removed', blocks, text: decision.title, diff: null }],
     });
   }
-  return { collection: { name: options.collection.name, title: options.collection.title }, commit, person: options.person, threads, settled, orphans };
+  return { collection: { name: options.collection.name, title: options.collection.title }, person: options.person, threads, settled };
 }
