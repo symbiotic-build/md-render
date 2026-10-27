@@ -50,6 +50,7 @@ document.body.classList.add('ov-on');
 const listItem = id => [...$('#ov-list').children].find(element => element.id === id);
 
 let state = null, items = [], view = 'q', openQ = null, openH = null, filter = 'all';
+let decisionsById = new Map();
 const hf = { who: '', status: '', topic: '', chapter: '' };
 const toast = message => { const t = $('#ov-toast'); t.textContent = message; t.classList.add('ov-show'); clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove('ov-show'), 3200); };
 let disconnected = false, loadError = null;
@@ -294,9 +295,9 @@ function renderQuestions(list) {
     const title = card.querySelector('.ov-title'); title.textContent = item.title;
     const text = summary(item); if (text) { const s = document.createElement('span'); s.className = 'ov-sum'; s.textContent = text; title.append(s); }
     card.querySelector('.ov-qh').addEventListener('click', () => openQuestion(open ? null : item.number, true));
-    if (item.status === 'settled') {
+    if (open && item.status === 'settled') {
       const settled = item.entries.filter(entry => entry.kind === 'settled').pop();
-      const decision = state.settled.find(decision => decision.id === settled?.settledAs);
+      const decision = decisionsById.get(settled?.settledAs);
       const box = document.createElement('div'); box.className = 'ov-decision';
       box.innerHTML = decision
         ? `<p>Decided by ${esc(decision.decidedBy.join(' and '))} on ${esc(fmtDay(decision.date))}: ${esc(decision.title)}</p><p><b>Choice:</b> ${esc(decision.choice ?? 'Not recorded')}</p><p><b>Reason:</b> ${esc(decision.reason ?? 'Not recorded')}</p><button class="ov-link">Open the decision</button>`
@@ -492,6 +493,7 @@ async function loadOnce() {
   // The documents were rendered again while this page missed the reload notice: show the new render.
   if (next.generation !== mdRender.extensionData('md-collab')?.generation) { location.reload(); return; }
   state = next;
+  decisionsById = new Map(state.settled.map(decision => [decision.id, decision]));
   loadError = null;
   items = [
     ...state.threads,
