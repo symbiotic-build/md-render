@@ -193,9 +193,13 @@ async function prepareExtensions(view: SiteView, extensions: RenderExtension[]):
     if (output.connect !== undefined && typeof output.connect !== 'boolean') throw refuse('its connect is not a boolean');
     // HTML parsing turns CR LF and CR into LF before the browser checks the hash, so embed and hash that text.
     const script = output.script?.replace(/\r\n?/g, '\n');
-    // </script ends the element early, and <!-- then <script makes the HTML parser take the end tag as script text.
-    const unsafe = script && /<\/script|<!--|<script/i.exec(script);
-    if (unsafe) throw refuse(`its script contains ${unsafe[0]}`);
+    // One rule: no control character but tab and line feed, which HTML parsing may change (NUL becomes U+FFFD),
+    // and no </script, which ends the element early, or <!-- and <script, which together hide the end tag.
+    const unsafe = script && /[\0-\x08\x0b-\x1f\x7f]|<\/script|<!--|<script/i.exec(script);
+    if (unsafe) {
+      const [text] = unsafe;
+      throw refuse(`its script contains ${text.length === 1 ? `U+${text.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}` : text}`);
+    }
     // Copy only the declared fields, so a returned name never replaces the registered one.
     prepared.push({ name: extension.name, styles: output.styles, script, data: output.data, connect: output.connect });
   }

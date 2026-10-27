@@ -75,7 +75,7 @@ Each of these stops the render with `Extension <name> failed: <reason>`, and the
 - `prepare` returns something other than an object: `prepare did not return an object`.
 - `styles` or `script` is not a string: `its <field> is not a string`.
 - `connect` is not a boolean: `its connect is not a boolean`.
-- The script contains `</script`, `<!--` or `<script`, in any case: `its script contains <text>`. The first ends the script element early. The other two together make the HTML parser read the end tag as script text.
+- The script breaks the one rule for script text: `its script contains <text>`. After its line endings become LF, the script may contain no control character other than tab and line feed, that is no U+0000 to U+001F except U+0009 and U+000A, and no U+007F. It may also not contain `</script`, `<!--` or `<script`, in any case. `<text>` is the first offending character, named by its code point such as `U+0000`, or the first offending tag text. The HTML parser treats control characters as errors and replaces U+0000, so the script would no longer match its hash. `</script` ends the script element early, and the other two together make the HTML parser read the end tag as script text.
 
 `renderSinglePage` returns `{ html, view, root, warnings }` without writing a file; `root` is the corpus root. `renderView(input, options)` returns `{ view, root, warnings }` without building a page. It skips the theme and page asset files, the page HTML and the transforms that only shape it, and the diagrams.
 

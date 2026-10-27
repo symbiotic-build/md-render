@@ -204,6 +204,8 @@ it('stops the render when an extension fails or is malformed', async () => {
     [returns('tag', { script: 'x = "</script>"' }), 'Extension tag failed: its script contains </script'],
     [returns('tag', { script: 'x = "<!--<script>"' }), 'Extension tag failed: its script contains <!--'],
     [returns('tag', { script: 'x = "<SCRIPT>"' }), 'Extension tag failed: its script contains <SCRIPT'],
+    [returns('control', { script: 'x = "a\0b"' }), 'Extension control failed: its script contains U+0000'],
+    [returns('control', { script: 'x = 1;\n\t// \x1b[0m' }), 'Extension control failed: its script contains U+001B'],
     [returns('odd', false), 'Extension odd failed: prepare did not return an object'],
     [returns('odd', 42), 'Extension odd failed: prepare did not return an object'],
     [returns('odd', { script: 0 }), 'Extension odd failed: its script is not a string'],
