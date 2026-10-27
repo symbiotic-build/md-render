@@ -322,8 +322,10 @@ it.each([
   ['its section heading is renamed under the same explicit anchor', (text: string) => text.replace('## Limits', '## Caps'), { state: 'same', blocks: 1, diff: null }],
   ['its words change', (text: string) => text.replace('may be long', 'may be very long'), { state: 'updated', blocks: 1, diff: [{ change: '=', text: 'Identifiers may be' }, { change: '+', text: 'very' }, { change: '=', text: 'long.' }] }],
   ['it is deleted', (text: string) => text.replace('\nIdentifiers may be long.\n', ''), { state: 'removed', blocks: 0, diff: null }],
-  ['it becomes a list item', (text: string) => text.replace('Identifiers may be long.', '- Identifiers may be long.'), { state: 'removed', blocks: 0, diff: null }],
-  ['its section gets another name', (text: string) => text.replace('<a id="limits"></a>\n\n## Limits', '## Caps'), { state: 'removed', blocks: 0, diff: null }],
+  // A list item with the same words has the same ID, so only changed words show the tag rule.
+  ['it becomes a list item with other words', (text: string) => text.replace('Identifiers may be long.', '- Identifiers may be very long.'), { state: 'removed', blocks: 0, diff: null }],
+  // The anchor now names an empty section before a new heading; the paragraph sits in the new one.
+  ['its section gets another name', (text: string) => text.replace('## Limits', '## Earlier\n\n## Caps'), { state: 'removed', blocks: 0, diff: null }],
 ])('shows a passage whose chapter changed as the same block, updated or removed when %s', async (name, edit, expected) => {
   const copy = path.join(root, 'edit-' + name.replace(/\W+/g, '-'));
   await cp(docs, copy, { recursive: true });
@@ -922,12 +924,12 @@ it.each([
 ])('records "%s" on a commented passage whose words changed', async (label, kind, status, state) => {
   const copy = path.join(root, 'repo-choice-' + kind);
   await cp(docs, copy, { recursive: true });
-  await writeFile(path.join(copy, 'docs/long.md'), long.replace('Next paragraph.', 'Next paragraph, edited.'));
+  await writeFile(path.join(copy, 'docs/long.md'), long.replace('Next paragraph.', 'Next short paragraph.'));
   const edited = (await renderView(path.join(copy, 'docs'), { mermaid: false })).view;
   await sidebar('store-choice-' + kind, async (page, store) => {
     await store.create('spec', { ...agentComment('c-next'), anchors: [anchorAt(view, 'docs/long.md', [7, 7], 'main')] });
     await until(page, `document.getElementById('ov-v-hn').textContent === '4'`);
-    expect((await changeBox(page, 'c-next'))?.inserted).toEqual(['edited.']);
+    expect((await changeBox(page, 'c-next'))?.inserted).toEqual(['short']);
     await page.evaluate(`[...document.querySelectorAll('#ov-h-c-next .ov-change button')].find(button => button.textContent === ${JSON.stringify(label)}).click()`);
     for (const deadline = Date.now() + 5000; (await store.read('spec', 'c-next')).thread.entries.length < 2; await delay(50)) {
       if (Date.now() > deadline) throw new Error(`${label} wrote no entry`);
