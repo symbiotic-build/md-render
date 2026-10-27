@@ -984,3 +984,19 @@ it('moves the highlight of an open question with the passage an agent moved it t
     expect(await page.evaluate(`({ old: ${lit('Identifiers may be long.')}, now: ${lit('Next paragraph.')} })`)).toEqual({ old: false, now: true });
   });
 });
+
+it('keeps warning about a failed re-render after the threads change, until a render succeeds', async () => {
+  const copy = path.join(root, 'repo-failed');
+  await cp(docs, copy, { recursive: true });
+  await sidebar('store-failed', async (page, store) => {
+    const warned = `document.getElementById('ov-status').textContent.includes('rendering them failed')`;
+    await writeFile(path.join(copy, 'docs/long.md'), '---\ntitle: [1]\n---\n' + long);
+    await until(page, warned);
+    // An agent's thread arrives after the failure; the page loads the threads again.
+    await store.create('spec', agentComment('c-after-failure'));
+    await until(page, `document.getElementById('ov-v-hn').textContent === '4'`);
+    expect(await page.evaluate(warned)).toBe(true);
+    await page.waitForNavigation(() => writeFile(path.join(copy, 'docs/long.md'), long));
+    await until(page, `document.getElementById('ov-status').textContent.startsWith('Answers are saved')`);
+  }, path.join(copy, 'docs'));
+});

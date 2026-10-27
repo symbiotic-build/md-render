@@ -440,7 +440,8 @@ async function loadOnce() {
   if (typing()) redrawPending = true; else renderList();
   renderCounts(); markDocument();
   const flagged = state.threads.flatMap(changed).length;
-  status(`Answers are saved to ${state.collection.title} as ${state.person.replace(/^person:/, '')}.${flagged ? ` ${flagged} passages changed since they were annotated.` : ''}`, flagged > 0);
+  if (state.renderError) status(`The documents changed, but rendering them failed: ${state.renderError}. This page shows the last good version.`, true);
+  else status(`Answers are saved to ${state.collection.title} as ${state.person.replace(/^person:/, '')}.${flagged ? ` ${flagged} passages changed since they were annotated.` : ''}`, flagged > 0);
 }
 const events = new EventSource('/api/events');
 // Each connection, the first and every reconnection, starts with a fresh state: writes made while
@@ -448,7 +449,8 @@ const events = new EventSource('/api/events');
 events.onopen = () => { load(); };
 events.addEventListener('changed', () => { load(); });
 events.addEventListener('reload', () => { location.reload(); });
-events.addEventListener('failed', event => status(`The documents changed, but rendering them failed: ${JSON.parse(event.data).error}. This page shows the last good version.`, true));
+// The state carries the failure until a render succeeds, so the warning stays through later loads.
+events.addEventListener('failed', () => { load(); });
 events.onerror = () => status('Lost the connection to md-collab. Answers made now are not saved; restart it and reload.', true);
 mdRender.onNavigate(() => { if (view === 'q' && filter === 'page') renderList(); });
 

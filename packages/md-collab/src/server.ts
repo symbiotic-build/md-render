@@ -123,6 +123,8 @@ export async function serve(options: ServeOptions): Promise<Session> {
   // One render at a time; changes that arrive during a render start one more render after it. After
   // close, no render starts, and close waits for the one running.
   let rendering: Promise<void> | undefined;
+  // The last re-render's failure, until a render succeeds: every state carries it, so a page warns about it also after a reload or a reconnection.
+  let renderError: string | null = null;
   let again = false;
   let closed = false;
   function rerender(): void {
@@ -131,8 +133,9 @@ export async function serve(options: ServeOptions): Promise<Session> {
     rendering = (async () => {
       do {
         again = false;
-        try { snapshot = await render(); notify('reload'); }
+        try { snapshot = await render(); renderError = null; notify('reload'); }
         catch (error) {
+          renderError = (error as Error).message;
           console.error(`md-collab: re-render failed: ${(error as Error).message}`);
           notify('failed', { error: (error as Error).message });
         }
@@ -154,7 +157,7 @@ export async function serve(options: ServeOptions): Promise<Session> {
     if (request.method === 'GET' && url.pathname === '/') return send(response, 200, snapshot.html, 'text/html; charset=utf-8');
     if (request.method === 'GET' && url.pathname === '/api/state') {
       const { generation, view, settled } = snapshot;
-      return send(response, 200, { generation, ...await pageState({ store, collection, view, settled, person: options.person }) });
+      return send(response, 200, { generation, renderError, ...await pageState({ store, collection, view, settled, person: options.person }) });
     }
     if (request.method === 'GET' && url.pathname === '/api/events') {
       response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });
