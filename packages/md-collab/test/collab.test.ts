@@ -980,12 +980,32 @@ it("names a question's note box by its label even when an annotation carries the
   });
 });
 
+/** Clicks a visible, named button through browser input, checking that it receives the pointer. */
+async function clickControl(page: BrowserSession, selector: string, name?: string): Promise<void> {
+  const control = await page.evaluate<{ x: number; y: number; visible: boolean; enabled: boolean; hit: boolean; name: string }>(`(() => {
+    const root = document.querySelector(${JSON.stringify(selector)});
+    const button = ${name === undefined ? "root" : `[...root.querySelectorAll('button')].find(button => (button.getAttribute('aria-label') || button.innerText).trim() === ${JSON.stringify(name)})`};
+    if (!button) return null;
+    button.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+    const rect = button.getBoundingClientRect(), x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+    return { x, y, visible: button.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && rect.width > 0 && rect.height > 0,
+      enabled: !button.disabled, hit: button.contains(document.elementFromPoint(x, y)), name: (button.getAttribute('aria-label') || button.innerText).trim() };
+  })()`);
+  expect(control, `Visible and operable control: ${name ?? selector}`).toMatchObject({ visible: true, enabled: true, hit: true, name: name ?? expect.any(String) });
+  expect(control.name.length).toBeGreaterThan(0);
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: control.x, y: control.y });
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: control.x, y: control.y, button: 'left', clickCount: 1 });
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: control.x, y: control.y, button: 'left', clickCount: 1 });
+}
+
 /** Opens a thread's row in History and returns what its changed-passage box shows: the deleted and inserted words, or the old text. */
 async function changeBox(page: BrowserSession, id: string): Promise<{ text: string; deleted: string[]; inserted: string[]; actions: string[] }> {
-  await page.evaluate(`document.getElementById('ov-v-h').click()`);
-  await page.evaluate(`[...document.getElementById('ov-list').children].find(row => row.id === 'ov-h-${id}').querySelector('.ov-hh').click()`);
+  await clickControl(page, '#ov-v-h');
+  await clickControl(page, '#ov-h-' + id + ' .ov-hh');
+  expect(await page.evaluate(`(() => { const box = document.querySelector('#ov-h-${id} .ov-change');
+    return box?.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && [...box.querySelectorAll('.ov-was, button, textarea')].every(element => element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) && [...box.querySelectorAll('button')].every(button => !button.disabled && button.innerText.trim()) && [...box.querySelectorAll('textarea')].every(textarea => [...textarea.labels].some(label => label.innerText.trim())); })()`), 'Changed passages and accessible controls are visible').toBe(true);
   return page.evaluate(`(() => { const box = [...document.getElementById('ov-list').children].find(row => row.id === 'ov-h-${id}').querySelector('.ov-change');
-    return box ? { text: box.querySelector('.ov-was').textContent, deleted: [...box.querySelectorAll('del')].map(e => e.textContent), inserted: [...box.querySelectorAll('ins')].map(e => e.textContent), actions: [...box.querySelectorAll('button')].map(b => b.textContent) } : null; })()`);
+    return box ? { text: box.querySelector('.ov-was').innerText, deleted: [...box.querySelectorAll('del')].map(e => e.innerText), inserted: [...box.querySelectorAll('ins')].map(e => e.innerText), actions: [...box.querySelectorAll('button')].map(b => b.innerText) } : null; })()`);
 }
 
 it('anchors a comment on a selection over two paragraphs to both, the first as the main passage, and shows the words that changed in it', async () => {
@@ -1027,7 +1047,7 @@ it.each([
     await store.create('spec', { ...agentComment('c-next'), anchors: anchorsAt(view, 'docs/long.md', [7, 7], 'main') }, known());
     await until(page, `document.getElementById('ov-v-hn').textContent === '4'`);
     expect((await changeBox(page, 'c-next'))?.inserted).toEqual(['short']);
-    await page.evaluate(`[...document.querySelectorAll('#ov-h-c-next .ov-change button')].find(button => button.textContent === ${JSON.stringify(label)}).click()`);
+    await clickControl(page, '#ov-h-c-next .ov-change', label);
     for (const deadline = Date.now() + 5000; (await store.read('spec', 'c-next')).thread.entries.length < 2; await delay(50)) {
       if (Date.now() > deadline) throw new Error(`${label} wrote no entry`);
     }
@@ -1047,12 +1067,13 @@ it('shows a commented passage that was removed with its old text, and records a 
     await store.create('spec', { ...agentComment('c-next'), anchors: anchorsAt(view, 'docs/long.md', [7, 7], 'main') }, known());
     await until(page, `document.getElementById('ov-v-hn').textContent === '4'`);
     expect(await changeBox(page, 'c-next')).toEqual({ text: 'Removed. It read: Next paragraph.', deleted: [], inserted: [], actions: ['Close', 'Save note'] });
-    await page.evaluate(`(() => { const row = document.getElementById('ov-h-c-next'); row.querySelector('.ov-change textarea').value = 'Say where this went.'; [...row.querySelectorAll('.ov-change button')].find(b => b.textContent === 'Save note').click(); })()`);
+    await page.evaluate(`document.querySelector('#ov-h-c-next .ov-change textarea').value = 'Say where this went.'`);
+    await clickControl(page, '#ov-h-c-next .ov-change', 'Save note');
     for (const deadline = Date.now() + 5000; (await store.read('spec', 'c-next')).thread.entries.length < 2; await delay(50)) {
       if (Date.now() > deadline) throw new Error('Save note wrote no entry');
     }
     await until(page, `[...document.querySelectorAll('#ov-h-c-next .ov-change button')].some(b => b.textContent === 'Close')`);
-    await page.evaluate(`[...document.querySelectorAll('#ov-h-c-next .ov-change button')].find(b => b.textContent === 'Close').click()`);
+    await clickControl(page, '#ov-h-c-next .ov-change', 'Close');
     for (const deadline = Date.now() + 5000; (await store.read('spec', 'c-next')).thread.entries.length < 3; await delay(50)) {
       if (Date.now() > deadline) throw new Error('Close wrote no entry');
     }
@@ -1132,12 +1153,13 @@ it("moves between a thread's cited passages with its previous and next buttons, 
     await store.create('spec', agentComment('c-one'), known());
     await until(page, `document.getElementById('ov-v-hn').textContent === '5'`);
     await page.evaluate(`document.getElementById('ov-v-h').click()`);
-    const open = (id: string) => page.evaluate(`[...document.getElementById('ov-list').children].find(row => row.id === 'ov-h-${id}').querySelector('.ov-hh').click()`);
+    const open = (id: string) => clickControl(page, '#ov-h-' + id + ' .ov-hh');
     // What the reader of a row finds: the count, the named buttons, and the chapter shown.
     const seen = (id: string) => page.evaluate(`(() => { const row = [...document.getElementById('ov-list').children].find(row => row.id === 'ov-h-${id}');
       const named = name => row.querySelector('button[aria-label="' + name + '"]');
-      return { count: row.querySelector('[aria-live]')?.textContent ?? null, previous: !!named('Previous passage'), next: !!named('Next passage'), shown: mdRender.currentDocument() }; })()`);
-    const press = (id: string, name: string) => page.evaluate(`[...document.getElementById('ov-list').children].find(row => row.id === 'ov-h-${id}').querySelector('button[aria-label="${name}"]').click()`);
+      const visible = element => !!element?.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+      return { count: row.querySelector('[aria-live]')?.innerText ?? null, group: visible(row.querySelector('[role="group"][aria-label="Cited passages"]')), previous: visible(named('Previous passage')), next: visible(named('Next passage')), shown: mdRender.currentDocument() }; })()`);
+    const press = (id: string, name: string) => clickControl(page, '#ov-h-' + id + ' [aria-label="Cited passages"]', name);
     await open('c-three');
     const steps = [await seen('c-three')];
     await press('c-three', 'Next passage');
@@ -1149,10 +1171,10 @@ it("moves between a thread's cited passages with its previous and next buttons, 
     await open('c-one');
     steps.push(await seen('c-one'));
     expect(steps).toEqual([
-      { count: '1 of 3', previous: true, next: true, shown: 'docs/storage.md' },
-      { count: '2 of 3', previous: true, next: true, shown: 'docs/decisions.md' },
-      { count: '1 of 3', previous: true, next: true, shown: 'docs/storage.md' },
-      { count: null, previous: false, next: false, shown: 'docs/storage.md' },
+      { count: '1 of 3', group: true, previous: true, next: true, shown: 'docs/storage.md' },
+      { count: '2 of 3', group: true, previous: true, next: true, shown: 'docs/decisions.md' },
+      { count: '1 of 3', group: true, previous: true, next: true, shown: 'docs/storage.md' },
+      { count: null, group: false, previous: false, next: false, shown: 'docs/storage.md' },
     ]);
   });
 });
