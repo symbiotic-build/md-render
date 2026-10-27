@@ -510,8 +510,8 @@ mdRender.onNavigate(() => { if (view === 'q' && filter === 'page') renderList();
 
 /* ---------- comments on selected text ---------- */
 let selection = null;
-// A comment names blocks whose own text is selected in the chapter where it starts; the server
-// keeps one anchor per cited block, the first as the main passage.
+// The browser sends every block whose text is touched in the chapter where the selection starts.
+// The server keeps only the innermost blocks, the first as the main passage.
 function selectedBlocks(range) {
   const start = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
   const chapter = start?.closest('.single-page');
@@ -525,15 +525,7 @@ function selectedBlocks(range) {
     if (range.compareBoundaryPoints(Range.END_TO_END, part) < 0) part.setEnd(range.endContainer, range.endOffset);
     return part.toString().trim() !== '';
   };
-  const covered = new Set();
-  const nodes = document.createTreeWalker(chapter, NodeFilter.SHOW_TEXT);
-  while (nodes.nextNode()) {
-    const node = nodes.currentNode;
-    if (!node.textContent.trim() || !touches(node)) continue;
-    const block = node.parentElement?.closest('[data-block]');
-    if (block) covered.add(block.dataset.block);
-  }
-  const blocks = [...chapter.querySelectorAll('[data-block]')].map(element => element.dataset.block).filter(id => covered.has(id));
+  const blocks = [...chapter.querySelectorAll('[data-block]')].filter(touches).map(element => element.dataset.block);
   return blocks.length ? { path: chapter.dataset.sourcePath, blocks } : null;
 }
 document.addEventListener('selectionchange', () => {

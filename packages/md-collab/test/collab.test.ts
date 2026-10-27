@@ -403,26 +403,22 @@ it('anchors an imported citation to each block its lines cover, the first as the
   expect(() => anchorsAt(view, 'docs/storage.md', [2, 2], 'main')).toThrow('docs/storage.md:2-2 covers no rendered text');
 });
 
-it('keeps distinct parent text and child anchors while collapsing a pure wrapper', async () => {
+it('anchors nested citations only to the innermost blocks, including a child plus its blank separator', async () => {
   const folder = path.join(root, 'nested-selection');
   await mkdir(folder);
-  await writeFile(path.join(folder, 'nested.md'), '# Nested\n\n- Parent policy.\n  - Child policy.\n\n> First quoted paragraph.\n>\n> Second quoted paragraph.\n');
+  await writeFile(path.join(folder, 'nested.md'), '# Nested\n\n- Parent policy.\n  - Child policy.\n\n  - Sibling policy.\n\n> First quoted paragraph.\n>\n> Second quoted paragraph.\n');
   const { view: nested } = await renderView(folder, { mermaid: false });
   const passages = (lines: [number, number]) => anchorsAt(nested, 'nested.md', lines, 'main')
     .map(anchor => ({ role: anchor.role, text: nested.documents[0]!.blocks.find(block => block.id === anchor.block)!.text }));
-  expect(passages([4, 4]), 'A child-only citation must not acquire its parent').toEqual([{ role: 'main', text: 'Child policy.' }]);
-  expect(passages([3, 4])).toEqual([
-    { role: 'main', text: 'Parent policy. Child policy.' },
-    { role: 'also', text: 'Child policy.' },
+  for (const lines of [[4, 4], [3, 4], [4, 5]] as [number, number][]) {
+    expect(passages(lines), `Citation ${lines.join('-')} anchors only the child`).toEqual([{ role: 'main', text: 'Child policy.' }]);
+  }
+  expect(passages([3, 10])).toEqual([
+    { role: 'main', text: 'Child policy.' },
+    { role: 'also', text: 'Sibling policy.' },
+    { role: 'also', text: 'First quoted paragraph.' },
+    { role: 'also', text: 'Second quoted paragraph.' },
   ]);
-  const selected = anchorsAt(nested, 'nested.md', [3, 8], 'main');
-  expect(selected.map(anchor => ({ role: anchor.role, text: nested.documents[0]!.blocks.find(block => block.id === anchor.block)!.text })))
-    .toEqual([
-      { role: 'main', text: 'Parent policy. Child policy.' },
-      { role: 'also', text: 'Child policy.' },
-      { role: 'also', text: 'First quoted paragraph.' },
-      { role: 'also', text: 'Second quoted paragraph.' },
-    ]);
 });
 
 it('reads settled decisions with their dates and deciders from the specification', async () => {
@@ -1015,7 +1011,7 @@ async function changeBox(page: BrowserSession, id: string): Promise<{ text: stri
     return box ? { text: box.querySelector('.ov-was').innerText, deleted: [...box.querySelectorAll('del')].map(e => e.innerText), inserted: [...box.querySelectorAll('ins')].map(e => e.innerText), actions: [...box.querySelectorAll('button')].map(b => b.innerText) } : null; })()`);
 }
 
-it('anchors child-only browser selections to the child and includes the parent when its own words are selected', async () => {
+it('anchors browser selections of child words or parent and child words only to the child', async () => {
   const copy = path.join(root, 'repo-nested-browser-selection');
   await cp(docs, copy, { recursive: true });
   await writeFile(path.join(copy, 'docs/nested.md'), '# Nested\n\n- Parent policy.\n  - Child policy.\n');
@@ -1025,7 +1021,7 @@ it('anchors child-only browser selections to the child and includes the parent w
     await page.evaluate(`mdRender.show({ path: 'docs/nested.md' })`);
     for (const [includeParent, texts] of [
       [false, ['Child policy.']],
-      [true, ['Parent policy. Child policy.', 'Child policy.']],
+      [true, ['Child policy.']],
     ] as const) {
       await page.evaluate(`(() => {
         const chapter = document.querySelector('[data-source-path="docs/nested.md"]');
@@ -1049,6 +1045,31 @@ it('anchors child-only browser selections to the child and includes the parent w
       expect(comment.anchors.map(anchor => ({ role: anchor.role, path: anchor.path, text: blocks.find(block => block.id === anchor.block)!.text })))
         .toEqual(texts.map((text, index) => ({ role: index ? 'also' : 'main', path: 'docs/nested.md', text })));
     }
+  }, path.join(copy, 'docs'));
+});
+
+it('anchors a Mermaid caption-through-source selection only to the source block when diagrams are disabled', async () => {
+  const copy = path.join(root, 'repo-mermaid-selection');
+  await cp(docs, copy, { recursive: true });
+  await writeFile(path.join(copy, 'docs/diagram.md'), '# Diagram\n\n```mermaid\ngraph TD\n  A --> B\n```\n');
+  const { view: diagram } = await renderView(path.join(copy, 'docs'), { mermaid: false });
+  const blocks = diagram.documents.find(document => document.path === 'docs/diagram.md')!.blocks;
+  await sidebar('store-mermaid-selection', async (page, store) => {
+    await page.evaluate(`mdRender.show({ path: 'docs/diagram.md' })`);
+    await page.evaluate(`(() => {
+      const figure = document.querySelector('[data-source-path="docs/diagram.md"] figure');
+      const caption = figure.querySelector('figcaption'), code = figure.querySelector('code');
+      const range = document.createRange(); range.setStart(caption.firstChild, 0); range.setEnd(code.firstChild, code.firstChild.textContent.length);
+      getSelection().removeAllRanges(); getSelection().addRange(range);
+    })()`);
+    await until(page, `getComputedStyle(document.getElementById('ov-sel')).display === 'block'`);
+    await clickControl(page, '#ov-selbtn');
+    await page.evaluate(`document.getElementById('ov-comment').value = 'Diagram source only.'`);
+    await clickControl(page, '#ov-comment-save');
+    await until(page, `document.getElementById('ov-v-hn').textContent === '4'`);
+    const comment = (await store.list('spec')).find(({ thread }) => thread.title === 'Diagram source only.')!.thread;
+    expect(comment.anchors.map(anchor => ({ role: anchor.role, path: anchor.path, tag: blocks.find(block => block.id === anchor.block)!.tag, text: blocks.find(block => block.id === anchor.block)!.text })))
+      .toEqual([{ role: 'main', path: 'docs/diagram.md', tag: 'pre', text: 'graph TD A --> B' }]);
   }, path.join(copy, 'docs'));
 });
 
