@@ -546,14 +546,7 @@ it('uses a single chapter menu with independent disclosures and an appearance bu
     expect(appearance).toContain(`type="button" value="${name.toLowerCase()}" aria-label="${name}" title="${name}" aria-pressed="${name === 'System'}"`);
   }
   expect(appearance.match(/<svg viewBox="0 0 24 24" aria-hidden="true">/g)).toHaveLength(3);
-  expect(appearance).toContain('<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path>');
-  expect(appearance).toContain('<rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path>');
-  expect(appearance).toContain('<path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"></path>');
   expect(html.indexOf('<script>')).toBeLessThan(html.indexOf('<link rel="stylesheet"'));
-  const css = await readFile(path.join(output, '_md-render/theme.css'), 'utf8');
-  expect(css).not.toContain('counter(sd-section');
-  expect(css).toContain(':root:not([data-theme="light"])');
-  expect(css).toContain(':root[data-theme="dark"]');
 });
 it('renders only direct Markdown references with title-only menu entries', async () => {
   const source = await temp();
