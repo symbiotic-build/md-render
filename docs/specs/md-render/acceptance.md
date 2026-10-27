@@ -483,3 +483,49 @@ This case checks explicit exceptions to bundling without broken local links.
 **Expected:** Missing labels remain non-link text with warnings. Oversized files visibly show omission and size; files at the limit are bundled. Invalid policy, line destinations and in-root symlinks reject visibly.
 
 **Implementation:** [test/bundled-files.test.ts::lists oversized files and missing labels visibly without local URLs](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::rejects invalid bundle policies](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::rejects unsupported source line fragments](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::refuses linked symlinks inside the input root](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::omits oversized additional Markdown before parsing while exempting selected pages](../../../test/bundled-files.test.ts), [test/bundled-files.test.ts::visibly omits a linked file that grows beyond the read budget after stat](../../../test/bundled-files.test.ts)
+
+<a id="test-extension-render"></a>
+## Acceptance test: block identity and extensions
+
+This case checks block attributes, the corpus view and embedded extension output.
+
+**Method:** test.
+
+**Requirements:** [Let extensions find rendered blocks](requirements.md#req-extensions).
+
+**Inputs:** Two synthetic pages with a paragraph over two lines, a list, a table, a Mermaid fence, a linked text file, an explicit anchor and repeated text, plus probe extensions; a page with text before its first heading, an inline anchor and each supported anchor form before a heading; a second corpus rendered without extensions.
+
+**Expected:** Every block carries its source lines and an ID made from its heading and text hash; an explicit anchor in each supported form names its section, as it names the menu entry, and repeats get `-2`. A paragraph that holds only anchors is a block too. A Mermaid figure and its source carry the fence's lines, with and without the diagram renderer; the figure's text is the fence's, so its ID is the same in a view without diagrams. Plain-text source pages have no blocks. The extension sees each document's blocks in a frozen view that an earlier extension cannot change, and its style, data and script reach the single page with the script hash and the requested connection policy. Renders without extensions write, in folder and single-file output, the bytes the merge base wrote. A failing, misnamed, duplicate or script-closing extension stops the render, as does a script that contains `<!--`, `<script` or a control character other than tab and line feed, named by its code point, a result that is not an object, or a field of the wrong type. An extension's data keeps its registered name when its result names another extension.
+
+**Implementation:** [test/extensions.test.ts::marks every Markdown block with its source lines and a stable block ID](../../../test/extensions.test.ts), [test/extensions.test.ts::names blocks after an explicit anchor before a heading and numbers repeated text](../../../test/extensions.test.ts), [test/extensions.test.ts::names a section after the explicit anchor before its heading, in every supported anchor form](../../../test/extensions.test.ts), [test/extensions.test.ts::gives source pages of plain text files no blocks](../../../test/extensions.test.ts), [test/extensions.test.ts::gives a Mermaid figure and its source the fence lines, with and without the diagram renderer](../../../test/extensions.test.ts), [test/extensions.test.ts::gives a Mermaid figure the text of its fence, whatever the diagram renderer drew](../../../test/extensions.test.ts), [test/extensions.test.ts::keeps main's output bytes for renders without extensions (recorded from main at dd43046)](../../../test/extensions.test.ts), [test/extensions.test.ts::passes the rendered corpus to an extension and embeds its output in the single page](../../../test/extensions.test.ts), [test/extensions.test.ts::gives every extension the same read-only view, whatever an earlier one tries to change](../../../test/extensions.test.ts), [test/extensions.test.ts::stops the render when an extension fails or is malformed](../../../test/extensions.test.ts), [test/extensions.test.ts::keeps the registered name of an extension whose output names another one](../../../test/extensions.test.ts)
+
+<a id="test-extension-source"></a>
+## Acceptance test: document text in the view
+
+This case checks that the view gives extensions the text md-render rendered.
+
+**Method:** test.
+
+**Requirements:** [Let extensions find rendered blocks](requirements.md#req-extensions).
+
+**Inputs:** The two synthetic pages and the linked text file of the block identity case, with a probe extension.
+
+**Expected:** Each document in the view carries in `markdown` the text of its file as md-render read it; the source page of the linked text file carries that file's text.
+
+**Implementation:** [test/extensions.test.ts::gives an extension the text of each document as md-render read it](../../../test/extensions.test.ts)
+
+<a id="test-extension-browser"></a>
+## Acceptance test: extension browser interface
+
+This case checks the browser interface through the real browser fixture.
+
+**Method:** test.
+
+**Requirements:** [Let extensions find rendered blocks](requirements.md#req-extensions).
+
+**Inputs:** A single-file page with two documents and an extension that records navigation; a page with a drawn diagram; an extension script with Windows line endings.
+
+**Expected:** The interface is frozen at version 1, lists the documents, finds blocks by source lines and by ID, shows a block in another document and reports the change, shows a document without a block at its top, and returns null for an unknown document. Showing a drawn diagram's source opens the disclosure that holds it. A script with Windows line endings runs. After `show` opens another chapter, a link back to the previous chapter opens it.
+
+**Implementation:** [test/extensions.test.ts::lets an extension find blocks by source line and show them in the single page](../../../test/extensions.test.ts), [test/extensions.test.ts::opens the collapsed Mermaid source that show() selects](../../../test/extensions.test.ts), [test/extensions.test.ts::runs an extension script written with Windows line endings](../../../test/extensions.test.ts), [test/extensions.test.ts::follows a link back to the previous chapter after show() opened another one](../../../test/extensions.test.ts)
+

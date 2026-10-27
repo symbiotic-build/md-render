@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadCorpus, readSource, within, type Corpus } from './corpus.js';
 import { bundleReferences, type ReferenceTarget } from './references.js';
 import { renderDiagrams } from './diagrams.js';
-import { documentHtml, documentOutline, parseDocument, transformUrls, type OutlineEntry, type ParsedDocument } from './markdown.js';
+import { documentOutline, parseDocument, renderDocument, transformUrls, type OutlineEntry, type ParsedDocument } from './markdown.js';
 
 const assets = '_md-render';
 /** Static rendering options. Mermaid can be disabled to exercise the offline fallback. */
@@ -18,6 +18,33 @@ export interface RenderOptions {
   /** Versioned session policy; bounds HTML requests and HTTP asset freshness. */
   navigation?: { version: 1; cachePages?: number; assetMaxAgeSeconds?: number };
 }
+
+/** One rendered Markdown block, as extensions see it. */
+export interface Block {
+  readonly id: string;
+  readonly path: string;
+  readonly lines: readonly [number, number];
+  readonly tag: string;
+  readonly text: string;
+  readonly heading: string | null;
+}
+/**
+ * Read-only view of the rendered corpus, in reading order; md-render freezes it. `markdown` is the
+ * text md-render read and rendered, so an extension never reads the file again.
+ */
+export interface SiteView {
+  readonly documents: readonly { readonly path: string; readonly title: string; readonly markdown: string; readonly anchors: readonly string[]; readonly blocks: readonly Block[] }[];
+}
+/** What an extension adds to every page. `connect` allows fetch to the page's own origin. */
+export interface ExtensionOutput { styles?: string; script?: string; data?: unknown; connect?: boolean }
+/** A render-time extension of the single page; `prepare` runs once, after rendering and before the page is written. */
+export interface RenderExtension { name: string; prepare(view: SiteView): ExtensionOutput | Promise<ExtensionOutput> }
+/** A prepared extension's output, ready to embed. */
+export interface PreparedExtension extends ExtensionOutput { name: string }
+const extensionName = /^[a-z][a-z0-9-]*$/;
+/** Script text safe inside an HTML script element. */
+const scriptJson = (value: unknown): string => JSON.stringify(value).replace(/</g, '\\u003c');
+const sha256 = (value: string): string => `'sha256-${createHash('sha256').update(value).digest('base64')}'`;
 /** Output summary. All files are rebuildable from the input corpus and theme. */
 export interface RenderResult { directory: string; pages: string[]; links: number; mermaid: boolean; warnings: string[] }
 
@@ -53,7 +80,7 @@ async function themeAssets(files: Map<string, Buffer>, theme: string): Promise<s
 }
 
 /** Builds the shared reading shell with either external or embedded resources. */
-export function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, body: string, logo: string | undefined, themeInit: string, cachePages: number, single?: SinglePage): string {
+export function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: string, body: string, logo: string | undefined, themeInit: string, cachePages: number, single?: SinglePage, extensions: PreparedExtension[] = []): string {
   const doc = docs.get(file)!;
   const href = (target: string): string => escapeHtml(single ? single.url(target) : relativeUrl(file, target));
   // Compare titles in menu order, including section links and group headings.
@@ -93,9 +120,9 @@ export function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: st
   }
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="${single ? single.policy : `default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'sha256-${createHash('sha256').update(themeInit).digest('base64')}'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'`}">
+<meta http-equiv="Content-Security-Policy" content="${single ? single.policy : `default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' ${sha256(themeInit)}; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'`}">
 <meta name="md-render-navigation" content="${escapeHtml(JSON.stringify({ version: 1, cachePages }))}">
-<script>${themeInit}</script><title>${escapeHtml(doc.title)}</title>${single ? `<style>${single.styles}</style>` : `<link rel="stylesheet" href="${href(`${assets}/base.css`)}"><link rel="stylesheet" href="${href(`${assets}/theme.css`)}">`}</head>
+<script>${themeInit}</script><title>${escapeHtml(doc.title)}</title>${single ? `<style>${single.styles}</style>` : `<link rel="stylesheet" href="${href(`${assets}/base.css`)}"><link rel="stylesheet" href="${href(`${assets}/theme.css`)}">`}${extensions.map(extension => extension.styles ? `<style data-md-render-extension="${extension.name}">${extension.styles.replace(/<\/style/gi, '\\3c /style')}</style>` : '').join('')}</head>
 <body><a class="skip-link" href="#md-render-content">Skip to document</a>
 <header class="menu-bar"><button id="menu-button" type="button" aria-expanded="true" aria-controls="document-menu">Menu</button><a class="site-title" href="${href(pagePath(corpus.files[0]!.path))}">${logo ? `<img src="${href(`${assets}/${logo}`)}" alt="Theme logo">` : ''}<span>Documentation</span></a></header>
 <aside class="sidebar" id="document-menu" aria-label="Documentation menu"><button id="menu-close" type="button">Close menu</button><nav aria-label="Document map">${sidebar}</nav><div class="theme-switch" role="group" aria-label="Appearance">${[
@@ -104,8 +131,8 @@ export function page(corpus: Corpus, docs: Map<string, ParsedDocument>, file: st
   ['dark', 'Dark', '<path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"></path>'],
 ].map(([value, label, icon]) => `<button type="button" value="${value}" aria-label="${label}" title="${label}" aria-pressed="${value === 'system'}"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg></button>`).join('')}</div></aside>
 <main id="md-render-content">${single ? single.content : pageContent(corpus, docs, file, body, href)}</main>
-${single ? `<script>${single.script}</script>` : `<script src="${href(`${assets}/navigation.js`)}" defer></script>`}
-</body></html>`;
+${extensions.map(extension => extension.data === undefined ? '' : `<script type="application/json" id="md-render-extension-data-${extension.name}">${scriptJson(extension.data)}</script>`).join('')}${single ? `<script>${single.script}</script>` : `<script src="${href(`${assets}/navigation.js`)}" defer></script>`}
+${extensions.map(extension => extension.script ? `<script>${extension.script}</script>` : '').join('')}</body></html>`;
 }
 
 /** Page shell inputs for an embedded export; all resources are already resolved. */
@@ -139,10 +166,61 @@ export interface PreparedSite {
   links: number;
   mermaid: boolean;
   warnings: string[];
+  /** The rendered corpus as extensions see it; built only when a caller asks for it. */
+  view?: SiteView;
+  extensions: PreparedExtension[];
 }
 
-/** Renders every source before writing pages. Links resolve against the same parsed snapshot. */
-export async function prepareSite(input: string, options: RenderOptions = {}, bundle = false): Promise<PreparedSite> {
+/** Runs each extension once on the rendered snapshot; a failure stops the render. */
+async function prepareExtensions(view: SiteView, extensions: RenderExtension[]): Promise<PreparedExtension[]> {
+  const names = new Set<string>();
+  for (const { name } of extensions) {
+    if (!extensionName.test(name)) throw new Error(`Invalid extension name: ${name}`);
+    if (names.has(name)) throw new Error(`Duplicate extension name: ${name}`);
+    names.add(name);
+  }
+  const prepared: PreparedExtension[] = [];
+  for (const extension of extensions) {
+    let output: ExtensionOutput;
+    try { output = await extension.prepare(view); }
+    catch (error) { throw new Error(`Extension ${extension.name} failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error }); }
+    const refuse = (reason: string): Error => new Error(`Extension ${extension.name} failed: ${reason}`);
+    // JavaScript callers reach this point without the types, so check what prepare returned.
+    if (typeof output !== 'object' || output === null || Array.isArray(output)) throw refuse('prepare did not return an object');
+    for (const field of ['styles', 'script'] as const) {
+      if (output[field] !== undefined && typeof output[field] !== 'string') throw refuse(`its ${field} is not a string`);
+    }
+    if (output.connect !== undefined && typeof output.connect !== 'boolean') throw refuse('its connect is not a boolean');
+    // HTML parsing turns CR LF and CR into LF before the browser checks the hash, so embed and hash that text.
+    const script = output.script?.replace(/\r\n?/g, '\n');
+    // One rule: no control character but tab and line feed, which HTML parsing may change (NUL becomes U+FFFD),
+    // and no </script, which ends the element early, or <!-- and <script, which together hide the end tag.
+    const unsafe = script && /[\0-\x08\x0b-\x1f\x7f]|<\/script|<!--|<script/i.exec(script);
+    if (unsafe) {
+      const [text] = unsafe;
+      throw refuse(`its script contains ${text.length === 1 ? `U+${text.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}` : text}`);
+    }
+    // Copy only the declared fields, so a returned name never replaces the registered one.
+    prepared.push({ name: extension.name, styles: output.styles, script, data: output.data, connect: output.connect });
+  }
+  return prepared;
+}
+
+/** Freezes the view and everything in it, so no extension can change what another one sees. */
+function freeze<T>(value: T): T {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    for (const item of Object.values(value)) freeze(item);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+/**
+ * Renders every source before writing pages. Links resolve against the same parsed snapshot.
+ * The view, with every document's blocks, is built only for extensions or when `withView` asks for it.
+ * Without `page`, only the view is wanted: theme files, page HTML and diagrams are skipped.
+ */
+export async function prepareSite(input: string, options: RenderOptions = {}, bundle = false, extensionList: RenderExtension[] = [], withView = extensionList.length > 0, page = true): Promise<PreparedSite> {
   const maxFileBytes = options.bundle?.maxFileBytes ?? 5_000_000;
   if (options.bundle && options.bundle.version !== 1 || !Number.isSafeInteger(maxFileBytes) || maxFileBytes < 0) {
     throw new Error('Invalid version-1 bundle configuration');
@@ -156,9 +234,9 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
   }
   const corpus = await loadCorpus(input);
   const files = new Map<string, Buffer>();
-  for (const name of ['base.css', 'navigation.js']) files.set(`${assets}/${name}`, await readFile(fileURLToPath(new URL(`../themes/${name}`, import.meta.url))));
-  const logo = await themeAssets(files, options.theme ?? 'default');
-  const themeInit = await readFile(fileURLToPath(new URL('../themes/theme-init.js', import.meta.url)), 'utf8');
+  if (page) for (const name of ['base.css', 'navigation.js']) files.set(`${assets}/${name}`, await readFile(fileURLToPath(new URL(`../themes/${name}`, import.meta.url))));
+  const logo = page ? await themeAssets(files, options.theme ?? 'default') : undefined;
+  const themeInit = page ? await readFile(fileURLToPath(new URL('../themes/theme-init.js', import.meta.url)), 'utf8') : '';
   const docs = new Map(corpus.files.map((file) => [file.path, parseDocument(file.markdown, 'Untitled chapter')]));
   if (corpus.files.some(file => file.path === assets || file.path.startsWith(assets + '/'))) throw new Error('Input uses reserved directory: ' + assets);
   // Only initial documents discover references. Parse all direct targets before URL validation.
@@ -303,9 +381,13 @@ export async function prepareSite(input: string, options: RenderOptions = {}, bu
     const bytes = references?.bytes(path.resolve(corpus.root, file)) ?? await readSource(corpus.root, file);
     files.set(file, bytes);
   }
-  const bodies = await Promise.all([...docs.values()].map(doc => documentHtml(doc)));
-  const diagrams = await renderDiagrams(bodies, options.mermaid !== false);
-  return { corpus, docs, bodies: diagrams.pages.map(html => bundle ? html.replace(/file:/gi, value => value.slice(0, -1) + '&#58;') : html), files, logo, themeInit, cachePages, links, mermaid: diagrams.available, warnings };
+  const rendered = await Promise.all([...docs.values()].map(doc => renderDocument(doc, { blocks: withView, mark: extensionList.length > 0, html: page })));
+  const view: SiteView | undefined = withView ? freeze({ documents: [...docs].map(([path, doc], index) => ({
+    path, title: doc.title, markdown: doc.markdown, anchors: [...doc.anchors], blocks: rendered[index]!.blocks.map(block => ({ ...block, path })),
+  })) }) : undefined;
+  const diagrams = page ? await renderDiagrams(rendered.map(result => result.html), options.mermaid !== false) : { pages: rendered.map(result => result.html), available: false };
+  const extensions = view ? await prepareExtensions(view, extensionList) : [];
+  return { corpus, docs, bodies: diagrams.pages.map(html => bundle ? html.replace(/file:/gi, value => value.slice(0, -1) + '&#58;') : html), files, logo, themeInit, cachePages, links, mermaid: diagrams.available, warnings, view, extensions };
 }
 
 /** Writes the existing folder layout from one validated snapshot. */

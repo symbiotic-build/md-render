@@ -167,6 +167,17 @@ The export continues.
 
 **Rejected alternatives:** Relaxing selected-page validation hides input defects. Refusing stale reference fragments prevents the requested export.
 
+<a id="extension-choice"></a>
+## Expose blocks to extensions
+
+**Choice:** In a single-page render with extensions, mark every rendered Markdown block with its source lines and a block ID, and let the extensions add style, script and data to that page through a typed interface and a version-1 browser interface. `renderView` and `renderSinglePage` return the blocks of every render they make; folder output and the single-file export take no extensions and keep their bytes.
+
+**Authority:** Operator-approved framework of 2026-10-24: md-render owns rendering, block identity and anchors; tools that write, such as md-collab, use it and never edit its output. The interface details are a lead proposal of the same day.
+
+**Reason:** Annotation tools must find the text a comment or question is about. Source lines and block IDs make that exact, and render-time extensions keep md-render's page policy and markup under its own tests.
+
+**Rejected alternatives:** Editing the finished HTML afterwards depends on markup md-render never promised and on matching text. Adding annotation features to md-render reverses its non-goals of editing, remote hosting and live reload.
+
 <a id="open-questions"></a>
 ## Open questions and implementation evidence
 

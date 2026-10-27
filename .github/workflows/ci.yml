@@ -13,10 +13,26 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile < /dev/null
-      - name: Find the runner's Chromium browser
+      # Every browser test runs in this pinned test-only Chrome, never the runner's desktop browser (#31).
+      - name: Install the pinned chrome-headless-shell
+        env:
+          CHROME_VERSION: 156.0.8078.47
+          CHROME_SHA256: 0d5acc62c3e213f8c87d3c298d66ffcf9a236d12ea4b9f85318bf85dbc279daa
         run: |
-          browser=$(command -v google-chrome)
-          echo "MD_RENDER_BROWSER=$browser" >> "$GITHUB_ENV"
+          zip="$RUNNER_TEMP/chrome-headless-shell-linux64.zip"
+          curl -fsSL -o "$zip" "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64/chrome-headless-shell-linux64.zip" < /dev/null
+          echo "$CHROME_SHA256  $zip" | sha256sum --check --strict
+          unzip -q "$zip" -d "$RUNNER_TEMP" < /dev/null
+          # Ubuntu 24.04 lets only programs with an AppArmor profile create the user namespace Chrome's sandbox needs; this profile covers only the pinned binary.
+          sudo tee /etc/apparmor.d/chrome-headless-shell > /dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile chrome-headless-shell $RUNNER_TEMP/chrome-headless-shell-linux64/chrome-headless-shell flags=(unconfined) {
+            userns,
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/chrome-headless-shell
+          echo "MD_RENDER_BROWSER=$RUNNER_TEMP/chrome-headless-shell-linux64/chrome-headless-shell" >> "$GITHUB_ENV"
       - run: pnpm typecheck < /dev/null
       - run: pnpm build < /dev/null
       - run: pnpm test:report < /dev/null
