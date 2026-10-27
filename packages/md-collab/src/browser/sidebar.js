@@ -379,13 +379,15 @@ function renderCounts() {
   $('#ov-v-hn').textContent = items.length;
 }
 function openQuestion(number, fromPanel) {
-  openQ = number;
-  if (number != null && !visible(byNumber(number))) setFilter('all');
+  const item = number == null ? null : byNumber(number);
+  // A card drawn before its question was removed: redraw the list without it.
+  openQ = item ? number : null;
+  if (item && !visible(item)) setFilter('all');
   renderList(); markDocument();
-  if (number == null) return;
+  if (!item) return;
   if (innerWidth < 900 && !fromPanel) $('#ov-panel').classList.add('ov-show');
   listItem('ov-card-' + number)?.scrollIntoView({ block: 'start' });
-  if (fromPanel) showAnchor(byNumber(number).anchors.find(a => a.role === 'main'));
+  if (fromPanel) showAnchor(item.anchors.find(a => a.role === 'main'));
 }
 function openItem(id) {
   openH = id; const item = byId(id);

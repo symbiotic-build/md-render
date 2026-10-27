@@ -952,3 +952,20 @@ it('shows a commented passage that was removed with its old text, and records a 
     });
   }, path.join(copy, 'docs'));
 });
+
+it('redraws the list without a question removed while the reader typed when the reader opens its card', async () => {
+  await sidebar('store-removed-question', async (page, store) => {
+    await store.create('spec', { ...imported()[0]!, id: 'q02-second-question', title: 'Second question', number: 2 });
+    await until(page, `document.getElementById('ov-count').textContent === '0 / 2 answered'`);
+    // The reader types a note, so the list is not redrawn when the question goes.
+    await page.evaluate(`(() => {
+      document.querySelector('#ov-card-1 .ov-qh').click();
+      const note = document.getElementById('ov-note-1');
+      note.focus(); note.value = 'Draft answer'; note.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await rm(path.join(store.root, 'spec/threads/q02-second-question.md'));
+    await until(page, `document.getElementById('ov-count').textContent === '0 / 1 answered'`);
+    expect(await page.evaluate(`(() => { document.querySelector('#ov-card-2 .ov-qh').click(); return { card: !!document.getElementById('ov-card-2'), first: !!document.getElementById('ov-card-1') }; })()`))
+      .toEqual({ card: false, first: true });
+  });
+});
