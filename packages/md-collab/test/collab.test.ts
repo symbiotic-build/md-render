@@ -805,6 +805,8 @@ async function sidebar(name: string, work: (page: BrowserSession, store: FileSto
   try {
     await withBrowser(async page => {
       await page.send('Page.addScriptToEvaluateOnNewDocument', { source: pageScript });
+      // A desktop window, where the sidebar stays open beside the documents.
+      await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
       await page.navigate(session.url);
       await until(page, `document.getElementById('ov-v-hn')?.textContent === '3'`);
       await work(page, store, session);
@@ -815,8 +817,6 @@ async function sidebar(name: string, work: (page: BrowserSession, store: FileSto
 
 it("shows the sidebar in a real browser and adds an agent's new thread without a reload", async () => {
   await sidebar('store-c', async (page, store) => {
-    // A desktop window, where the sidebar stays open beside the documents.
-    await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
     // The question's tag sits on its main passage, in the storage chapter.
     expect(await page.evaluate(`mdRender.show({ path: 'docs/storage.md' }).then(() => {
       // Seen means rendered, not hidden or transparent by CSS, and with an area inside the window.
