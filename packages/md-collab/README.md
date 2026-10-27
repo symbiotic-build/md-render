@@ -9,11 +9,15 @@ The design and its decisions are in [docs/design/collab-first-slice.md](../../do
 ## Start
 
 ```sh
+git init ~/annotations
 md-collab init --store ~/annotations --collection memory-storage --title "Memory storage spec" \
   --settled docs/specs/memory-storage/decisions.md
 md-collab import questions.md path/to/repository/docs --store ~/annotations --collection memory-storage --by agent:claude-code/session-1
+git -C ~/annotations add -A && git -C ~/annotations commit -m "Import memory-storage questions"
 md-collab serve path/to/repository/docs --store ~/annotations --collection memory-storage --person person:your-login
 ```
+
+The store is a git repository of its own, so a damaged thread file can be restored from it. md-collab writes files and never commits: the agent that imports commits the store after the import, and commits again after each review session. Git restores only what was committed, so answers and comments written since the last commit are lost by a restore.
 
 The store must be a folder outside the documents' git working tree; `import` and `serve` refuse one inside it. `serve` prints a `127.0.0.1` address. Open it in a browser on the same computer. `serve` checks the store and the documents once a second. What agents add then appears in the open page, and an edit to the documents, also one saved by renaming a new file over the old one, refreshes it.
 
