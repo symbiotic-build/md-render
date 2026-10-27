@@ -863,7 +863,6 @@ it("shows the sidebar in a real browser and adds an agent's new thread without a
 
 it('shows the decision on a settled question and opens its heading', async () => {
   await sidebar('store-question-decision', async (page, store) => {
-    await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
     await store.append('spec', imported()[0]!.id, { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'settled', settledAs: 'docs/decisions.md#decision-fixed-group', note: '' });
     await until(page, `document.querySelector('#ov-card-1 .ov-sum')?.textContent === 'Settled'`);
     expect(await page.evaluate(`document.querySelector('#ov-card-1 .ov-decision')`)).toBe(null);
