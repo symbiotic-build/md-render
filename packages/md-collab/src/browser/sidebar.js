@@ -451,7 +451,8 @@ events.addEventListener('changed', () => { load(); });
 events.addEventListener('reload', () => { location.reload(); });
 // The state carries the failure until a render succeeds, so the warning stays through later loads.
 events.addEventListener('failed', () => { load(); });
-events.onerror = () => status('Lost the connection to md-collab. Answers made now are not saved; restart it and reload.', true);
+// Only live updates stop; each save still reports whether it worked.
+events.onerror = () => status('Live updates from md-collab are disconnected; this page tries to reconnect. If md-collab stopped, restart it and reload.', true);
 mdRender.onNavigate(() => { if (view === 'q' && filter === 'page') renderList(); });
 
 /* ---------- comments on selected text ---------- */

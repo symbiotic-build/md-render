@@ -1000,3 +1000,13 @@ it('keeps warning about a failed re-render after the threads change, until a ren
     await until(page, `document.getElementById('ov-status').textContent.startsWith('Answers are saved')`);
   }, path.join(copy, 'docs'));
 });
+
+it('says live updates are disconnected when the event stream fails, and saves an answer meanwhile', async () => {
+  await sidebar('store-stream-lost', async (page, store) => {
+    await page.evaluate(`(() => { window.sidebarEvents.close(); window.sidebarEvents.dispatchEvent(new Event('error')); })()`);
+    expect(await page.evaluate(`document.getElementById('ov-status').textContent`)).toBe('Live updates from md-collab are disconnected; this page tries to reconnect. If md-collab stopped, restart it and reload.');
+    await page.evaluate(`(() => { document.querySelector('#ov-card-1 .ov-qh').click(); document.querySelector('#ov-card-1 .ov-opt').click(); })()`);
+    await until(page, `document.querySelector('#ov-card-1 .ov-saved')?.textContent.startsWith('Saved')`);
+    expect((await store.read('spec', 'q01-how-long-may-an-identifier-be')).thread.entries.map(entry => [entry.kind, entry.choice])).toEqual([['raised', undefined], ['answer', 1]]);
+  });
+});
