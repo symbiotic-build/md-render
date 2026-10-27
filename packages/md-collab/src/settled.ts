@@ -11,11 +11,9 @@ export interface SettledDecision {
   path: string;
   date: string | null;
   decidedBy: Decider[];
-  choice: string | null;
-  reason: string | null;
 }
 
-const fieldNames = ['Authority', 'Decided by', 'Date', 'Choice', 'Reason'] as const;
+const fieldNames = ['Authority', 'Decided by', 'Date'] as const;
 type FieldName = (typeof fieldNames)[number];
 const isoDate = /\b(\d{4}-\d\d-\d\d)\b/g;
 
@@ -70,7 +68,7 @@ export function readSettled(document: SiteView['documents'][number]): SettledDec
     const { fields, heading, title, id } = section;
     if (!fields.Authority) throw new Error(`${document.path}:${heading.position?.start.line}: decision "${title}" needs Authority`);
     const dates = fields.Date ? [fields.Date] : [...fields.Authority.matchAll(isoDate)].map(match => match[1]!).sort();
-    decisions.push({ id, title, topic, path: document.path, date: dates.at(-1) ?? null, decidedBy: decidersOf(fields.Authority, fields['Decided by']), choice: fields.Choice ?? null, reason: fields.Reason ?? null });
+    decisions.push({ id, title, topic, path: document.path, date: dates.at(-1) ?? null, decidedBy: decidersOf(fields.Authority, fields['Decided by']) });
     section = undefined;
   };
   for (const node of parseDocument(document.markdown, '').tree.children) {

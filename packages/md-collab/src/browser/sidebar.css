@@ -50,8 +50,6 @@ td > .ov-tags, th > .ov-tags { left: -4px; top: -10px; flex-direction: row; }
 .ov-sum { display: block; font-size: 12.5px; font-weight: 500; color: var(--ov-ok); margin-top: 2px; }
 .ov-body { display: none; padding: 0 14px 14px; }
 .ov-q.ov-open .ov-body { display: block; }
-.ov-decision { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; margin-bottom: 12px; font-size: 13.5px; overflow-wrap: anywhere; }
-.ov-decision p { margin: 0 0 .5em; }
 .ov-ctx { font-size: 13.5px; color: var(--muted); }
 .ov-ctx p { margin: 0 0 .5em; }
 .ov-ctx code, .ov-opt code { font: .86em var(--mono, monospace); background: var(--tint); padding: .05em .3em; border-radius: 4px; overflow-wrap: anywhere; }

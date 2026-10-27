@@ -289,21 +289,11 @@ function renderQuestions(list) {
     card.id = 'ov-card-' + item.number;
     card.innerHTML = `<button class="ov-qh" aria-expanded="${open}"><span class="ov-num">${item.number}</span><span class="ov-title"></span></button>
       <div class="ov-body"><div class="ov-ctx">${item.contextHtml}</div><div class="ov-opts" role="group" aria-label="Options"></div>
-      <label class="ov-note-l">${item.status === 'settled' ? 'Comment or overrule' : 'Your note'}<textarea class="ov-note" id="ov-note-${item.number}" placeholder="Optional: explain, ask for more context, or answer in your own words"></textarea></label>
+      <label class="ov-note-l">Your note<textarea class="ov-note" id="ov-note-${item.number}" placeholder="Optional: explain, ask for more context, or answer in your own words"></textarea></label>
       <div class="ov-foot"><span class="ov-saved"></span><span><button class="ov-clear">Clear answer</button> <button class="ov-btn ov-save">Save note</button></span></div></div>`;
     const title = card.querySelector('.ov-title'); title.textContent = item.title;
     const text = summary(item); if (text) { const s = document.createElement('span'); s.className = 'ov-sum'; s.textContent = text; title.append(s); }
     card.querySelector('.ov-qh').addEventListener('click', () => openQuestion(open ? null : item.number, true));
-    if (item.status === 'settled') {
-      const settled = item.entries.filter(entry => entry.kind === 'settled').pop();
-      const decision = state.settled.find(decision => decision.id === settled?.settledAs);
-      const box = document.createElement('div'); box.className = 'ov-decision';
-      box.innerHTML = decision
-        ? `<p>Decided by ${esc(decision.decidedBy.join(' and '))} on ${esc(fmtDay(decision.date))}: ${esc(decision.title)}</p><p><b>Choice:</b> ${esc(decision.choice ?? 'Not recorded')}</p><p><b>Reason:</b> ${esc(decision.reason ?? 'Not recorded')}</p><button class="ov-link">Open the decision</button>`
-        : `<p>Settled as ${esc(settled?.settledAs)}</p>`;
-      if (decision) box.querySelector('button').addEventListener('click', () => showAnchor(decision.anchors[0]));
-      card.querySelector('.ov-body').prepend(box);
-    }
     card.querySelector('.ov-ctx').after(passageLinks(item));
     wireLinks(card.querySelector('.ov-ctx'), item);
     const note = card.querySelector('textarea[id="ov-note-' + item.number + '"]'); note.value = drafts.get(note.id) ?? answer?.note ?? '';
