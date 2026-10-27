@@ -1,11 +1,13 @@
 // The local page: one loopback server. Every request needs the server's own Host, so a site that
 // rebinds its name to 127.0.0.1 is refused; writes also need the page's own Origin.
 import { randomBytes } from 'node:crypto';
-import { mkdir, readdir, readFile, stat } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
-import { loadCorpus, renderSinglePage, type RenderExtension, type SiteView } from 'md-render';
+import { promisify } from 'node:util';
+import { renderSinglePage, type RenderExtension, type SiteView } from 'md-render';
 import { blockAnchor, resolveAnchor } from './anchors.js';
 import type { SettledDecision } from './settled.js';
 import { pageState, settledDecisions } from './state.js';
@@ -45,6 +47,17 @@ async function fileStates(folder: string, pick: (name: string) => boolean, deep:
 }
 const sameStates = (a: Map<string, string>, b: Map<string, string>) => a.size === b.size && [...a].every(([file, state]) => b.get(file) === state);
 
+/**
+ * The folder the checks walk: the documents' git working tree, or outside git the selected
+ * folder. It is found without reading a document, before the first render reads them.
+ */
+async function checkedFolder(documents: string): Promise<string> {
+  const selected = await realpath(documents);
+  const folder = (await stat(selected)).isDirectory() ? selected : path.dirname(selected);
+  try { return (await promisify(execFile)('git', ['-C', folder, 'rev-parse', '--show-toplevel'])).stdout.trim() || folder; }
+  catch { return folder; }
+}
+
 /** The md-render extension that adds the sidebar. */
 export async function collabExtension(): Promise<RenderExtension> {
   const [styles, script] = await Promise.all([readFile(browserFile('sidebar.css'), 'utf8'), readFile(browserFile('sidebar.js'), 'utf8')]);
@@ -77,22 +90,22 @@ export async function serve(options: ServeOptions): Promise<Session> {
   const store = new FileStore(path.resolve(options.store));
   const collection = await store.collection(options.collection);
   const sidebar = await collabExtension();
-  const { root } = await loadCorpus(options.documents);
-  await checkStoreOutside(store.root, root);
   // A render builds a whole snapshot; only a successful one replaces the current snapshot. Its
   // settled decisions come from the text it rendered, so a failed render discards them too.
-  async function render(): Promise<Snapshot> {
+  async function render(): Promise<Snapshot & { root: string }> {
     const generation = randomBytes(8).toString('hex');
     const extension: RenderExtension = { name: sidebar.name, prepare: async view => ({ ...await sidebar.prepare(view), data: { generation } }) };
-    const { html, view } = await renderSinglePage(options.documents, { mermaid: options.mermaid }, [extension]);
-    return { generation, html, view, settled: settledDecisions(collection, view) };
+    const { html, view, root } = await renderSinglePage(options.documents, { mermaid: options.mermaid }, [extension]);
+    return { generation, html, view, root, settled: settledDecisions(collection, view) };
   }
   // The documents' file states as last seen: recorded before the first render, and again by each
   // check that finds a change, before the render it starts reads its files. So an edit made during
-  // a render starts the next one.
-  const markdownStates = () => fileStates(root, name => /\.md$/i.test(name), true);
+  // a render starts the next one, and startup reads each document once, in the first render.
+  const checked = await checkedFolder(options.documents);
+  const markdownStates = () => fileStates(checked, name => /\.md$/i.test(name), true);
   let documentStates = await markdownStates();
   let snapshot = await render();
+  await checkStoreOutside(store.root, snapshot.root);
   // Checks every anchor once at start, so a broken collection fails before the page opens.
   await pageState({ store, collection, view: snapshot.view, settled: snapshot.settled, person: options.person });
 
