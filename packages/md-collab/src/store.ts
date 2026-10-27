@@ -236,9 +236,15 @@ export class FileStore {
    */
   private async writeSnapshots(collection: string, anchors: Anchor[], snapshots: Snapshot[]): Promise<void> {
     const named = new Map<string, Snapshot>();
+    const supplied = new Map<string, Map<string, Snapshot>>();
+    for (const snapshot of snapshots) {
+      let byHash = supplied.get(snapshot.path);
+      if (!byHash) supplied.set(snapshot.path, byHash = new Map());
+      byHash.set(snapshot.hash, snapshot);
+    }
     for (const anchor of anchors) {
       const file = this.snapshotPath(collection, anchor.path, anchor.snapshot);
-      const given = snapshots.find(snapshot => snapshot.path === anchor.path && snapshot.hash === anchor.snapshot);
+      const given = supplied.get(anchor.path)?.get(anchor.snapshot);
       if (given) { named.set(file, given); continue; }
       const exists = await access(file).then(() => true, error => code(error) === 'ENOENT' ? false : Promise.reject(error));
       if (!exists) throw new Error(`The anchor on ${anchor.path} names snapshot ${anchor.snapshot}, which is not in ${collection}; nothing was written`);
