@@ -89,6 +89,7 @@ export function questionThreads(questions: ListedQuestion[], options: {
   const corpusPath = (file: string): string => path.relative(options.corpusRoot, file).split(path.sep).join('/');
   return questions.map(question => {
     const anchors: Anchor[] = [];
+    const anchorIndexes = new Map<string, Map<string, number>>();
     // Each citation's path and lines, and the index of the anchor on its first block.
     const cites: { path: string; lines: [number, number]; index: number }[] = [];
     const add = (citation: { file: string; lines: [number, number] }, role: Anchor['role']) => {
@@ -101,8 +102,13 @@ export function questionThreads(questions: ListedQuestion[], options: {
       if (cites.some(cite => cite.path === target && cite.lines[0] === citation.lines[0] && cite.lines[1] === citation.lines[1])) return;
       // A block that an earlier citation already anchors keeps that one anchor.
       const indexes = anchorsAt(options.view, target, citation.lines, role).map(anchor => {
-        const known = anchors.findIndex(other => other.path === anchor.path && other.block === anchor.block);
-        return known >= 0 ? known : anchors.push(anchor) - 1;
+        let byBlock = anchorIndexes.get(anchor.path);
+        if (!byBlock) anchorIndexes.set(anchor.path, byBlock = new Map());
+        const known = byBlock.get(anchor.block);
+        if (known !== undefined) return known;
+        const index = anchors.push(anchor) - 1;
+        byBlock.set(anchor.block, index);
+        return index;
       });
       cites.push({ path: target, lines: citation.lines, index: indexes[0]! });
     };
