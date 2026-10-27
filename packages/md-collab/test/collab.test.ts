@@ -439,7 +439,7 @@ it('reads the decisions md-render renders: none from a code fence, and one after
   await writeFile(path.join(folder, 'decisions.md'), "# Decisions\n\n## Format\n\nAn example:\n\n```markdown\n### Decision: Only an example\n\n**Choice:** None.\n```\n\n<a id='decision-quoted'></a>\n\n### Decision: Quoted anchor\n\n**Choice:** Single quotes.\n\n**Authority:** Lead decision, 2026-10-20.\n");
   const { view: rendered } = await renderView(folder, { mermaid: false });
   expect(readSettled(rendered.documents[0]!)).toEqual([
-    { id: 'decision-quoted', title: 'Quoted anchor', topic: 'Format', path: 'decisions.md', date: '2026-10-20', decidedBy: ['lead'] },
+    { id: 'decision-quoted', title: 'Quoted anchor', topic: 'Format', path: 'decisions.md', date: '2026-10-20', decidedBy: ['lead'], choice: 'Single quotes.', reason: null },
   ]);
 });
 
@@ -449,7 +449,7 @@ it("keeps a decision's own Authority when its fenced example shows field lines",
   await writeFile(path.join(folder, 'decisions.md'), '# Decisions\n\n### Decision: Example fields\n\n**Choice:** The real choice.\n\n**Authority:** Lead decision, 2026-10-20.\n\nA decision is written like this:\n\n```markdown\n**Choice:** Example only\n\n**Authority:** Operator decision, 2030-01-01.\n```\n');
   const { view: rendered } = await renderView(folder, { mermaid: false });
   expect(readSettled(rendered.documents[0]!)).toEqual([
-    { id: 'decision-example-fields', title: 'Example fields', topic: null, path: 'decisions.md', date: '2026-10-20', decidedBy: ['lead'] },
+    { id: 'decision-example-fields', title: 'Example fields', topic: null, path: 'decisions.md', date: '2026-10-20', decidedBy: ['lead'], choice: 'The real choice.', reason: null },
   ]);
 });
 
@@ -460,7 +460,7 @@ it.each([['a backslash', '\\'], ['two spaces', '  ']])('reads the decider and da
   await writeFile(path.join(folder, 'decisions.md'), `# Decisions\n\n### Decision: Broken line\n\n**Choice:** One.\n\n**Authority:** Lead${mark}\ndecision, 2026-10-20.\n`);
   const { view: rendered } = await renderView(folder, { mermaid: false });
   expect(readSettled(rendered.documents[0]!)).toEqual([
-    { id: 'decision-broken-line', title: 'Broken line', topic: null, path: 'decisions.md', date: '2026-10-20', decidedBy: ['lead'] },
+    { id: 'decision-broken-line', title: 'Broken line', topic: null, path: 'decisions.md', date: '2026-10-20', decidedBy: ['lead'], choice: 'One.', reason: null },
   ]);
 });
 
@@ -485,9 +485,9 @@ it('shows each settled decision with its title, date, decider and a link to its 
     return `${anchor.path} ${block?.tag} ${block?.text}`;
   };
   expect(state.settled.map(({ anchors, ...decision }) => ({ ...decision, opens: anchors.map(opened) }))).toEqual([
-    { id: 'docs/decisions.md#decision-fixed-group', title: 'Fixed write group', topic: 'Storage choices', date: '2026-10-12', decidedBy: ['operator'], opens: ['docs/decisions.md h3 Decision: Fixed write group'] },
-    { id: 'docs/decisions.md#decision-redo', title: 'Separate redo call', topic: 'Storage choices', date: '2026-10-14', decidedBy: ['lead'], opens: ['docs/decisions.md h3 Decision: Separate redo call'] },
-    { id: 'docs/more-decisions.md#decision-redo', title: 'Redo in one place', topic: null, date: '2026-10-15', decidedBy: ['lead'], opens: ['docs/more-decisions.md h3 Decision: Redo in one place'] },
+    { id: 'docs/decisions.md#decision-fixed-group', title: 'Fixed write group', topic: 'Storage choices', date: '2026-10-12', decidedBy: ['operator'], choice: 'Keep the write group at 4 MiB (limits).', reason: 'One size is simpler.', opens: ['docs/decisions.md h3 Decision: Fixed write group'] },
+    { id: 'docs/decisions.md#decision-redo', title: 'Separate redo call', topic: 'Storage choices', date: '2026-10-14', decidedBy: ['lead'], choice: 'Two calls.', reason: 'Easier to test.', opens: ['docs/decisions.md h3 Decision: Separate redo call'] },
+    { id: 'docs/more-decisions.md#decision-redo', title: 'Redo in one place', topic: null, date: '2026-10-15', decidedBy: ['lead'], choice: 'One place.', reason: null, opens: ['docs/more-decisions.md h3 Decision: Redo in one place'] },
   ]);
 });
 
@@ -858,6 +858,30 @@ it("shows the sidebar in a real browser and adds an agent's new thread without a
     await store.create('spec', agentComment('c-agent-note'), known());
     expect(await until(page, `document.getElementById('ov-v-hn').textContent === '4'`)).toBe(true);
     expect(await page.evaluate(`window.sameDocument`)).toBe(true);
+  });
+});
+
+it('shows the decision on a settled question and opens its heading', async () => {
+  await sidebar('store-question-decision', async (page, store) => {
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    await store.append('spec', imported()[0]!.id, { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'settled', settledAs: 'docs/decisions.md#decision-fixed-group', note: '' });
+    await until(page, `document.querySelector('#ov-card-1 .ov-sum')?.textContent === 'Settled'`);
+    await page.evaluate(`document.querySelector('#ov-card-1 .ov-qh').click()`);
+    expect(await page.evaluate(`(() => {
+      const card = document.getElementById('ov-card-1');
+      return { decision: [...card.querySelectorAll('.ov-decision p')].map(p => p.innerText),
+        options: [...card.querySelectorAll('.ov-opt')].map(button => button.innerText.replace(/\\s+/g, ' ').trim()),
+        note: card.querySelector('.ov-note-l').innerText };
+    })()`)).toEqual({
+      decision: [expect.stringMatching(/^Decided by operator on .+: Fixed write group$/), 'Choice: Keep the write group at 4 MiB (limits).', 'Reason: One size is simpler.'],
+      options: ['1 Cap at 256 bytes. recommended', '2 No cap, as storage.md:7 allows.'], note: 'Comment or overrule',
+    });
+    await page.evaluate(`[...document.querySelectorAll('#ov-card-1 button')].find(button => button.textContent === 'Open the decision').click()`);
+    const heading = view.documents.find(document => document.path === 'docs/decisions.md')!.blocks.find(block => block.tag === 'h3' && block.heading === 'decision-fixed-group')!.id;
+    expect(await until(page, `(() => {
+      const heading = mdRender.block('docs/decisions.md', ${JSON.stringify(heading)}), rect = heading.getBoundingClientRect();
+      return mdRender.currentDocument() === 'docs/decisions.md' && heading.checkVisibility() && rect.top >= 0 && rect.bottom <= innerHeight && heading.innerText;
+    })()`)).toBe('Decision: Fixed write group');
   });
 });
 
