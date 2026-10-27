@@ -46,7 +46,7 @@ Object.defineProperty(globalThis, 'mdRender', { enumerable: false, value: Object
     // A drawn diagram keeps its source in a closed disclosure; open each one around the target.
     for (let node = element.parentElement; node; node = node.parentElement) if (node.localName === 'details') node.open = true;
     notifyNavigate();
-    element.scrollIntoView({ block: 'center' });
+    element.scrollIntoView({ block: target.block ? 'center' : 'start' });
     return element;
   },
   onNavigate(listener) { navigateListeners.push(listener); },
