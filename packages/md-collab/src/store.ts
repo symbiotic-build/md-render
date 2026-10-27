@@ -1,5 +1,5 @@
 // The file store: <store>/<collection>/collection.yaml, <store>/<collection>/threads/<id>.md and the
-// write-once document snapshots that anchors name, <store>/<collection>/versions/<path>~<sha256>.json.
+// write-once document snapshots that anchors name, <store>/<collection>/versions/<sha256>.json.
 // Every write holds the collection's lock file, so one process at a time reads, checks and writes.
 import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -67,7 +67,7 @@ export class FileStore {
     return path.join(this.root, collection);
   }
   private snapshotPath(collection: string, documentPath: string, hash: string): string {
-    return path.join(this.directory(collection), 'versions', snapshotFile(documentPath, hash));
+    return path.join(this.directory(collection), 'versions', snapshotFile(hash));
   }
   private file(collection: string, id: string): string {
     if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) throw new Error(`Invalid thread id: ${id}`);
@@ -261,7 +261,7 @@ export class FileStore {
     try { return parseSnapshot(await readFile(file, 'utf8'), hash); }
     catch (error) {
       const reason = code(error) === 'ENOENT' ? 'it is missing' : (error as Error).message;
-      throw new Error(`The snapshot of ${documentPath} this passage was written on, versions/${snapshotFile(documentPath, hash)}, cannot be read: ${reason}`, { cause: error });
+      throw new Error(`The snapshot of ${documentPath} this passage was written on, versions/${snapshotFile(hash)}, cannot be read: ${reason}`, { cause: error });
     }
   }
 }

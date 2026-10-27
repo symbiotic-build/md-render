@@ -247,7 +247,7 @@ it('leaves no draft or lock behind when a write is refused, and refuses to write
   await expect(store.append('spec', created.thread.id, comment, created.version)).rejects.toBeInstanceOf(ConflictError);
   await expect(store.create('spec', question(), known())).rejects.toThrow('already exists');
   await expect(store.createCollection({ name: 'spec', title: 'Again', settled: [] })).rejects.toThrow('Collection spec already exists');
-  const files = ['collection.yaml', 'threads', 'threads/q01-identifier-length.md', 'versions', `versions/docs%2Fstorage.md~${snapshotOf(view, 'docs/storage.md').hash}.json`];
+  const files = ['collection.yaml', 'threads', 'threads/q01-identifier-length.md', 'versions', `versions/${snapshotOf(view, 'docs/storage.md').hash}.json`];
   expect((await readdir(directory, { recursive: true })).sort()).toEqual(files);
   // A process that ended without removing its lock leaves its number behind; that process no longer exists.
   const { pid } = spawnSync(process.execPath, ['-e', '']);
@@ -349,17 +349,17 @@ it('shows a passage as removed, saying why, when the snapshot its anchor names c
   await store.createCollection(collection);
   await store.create('spec', agentComment('c-lost'), known());
   const { hash } = snapshotOf(view, 'docs/storage.md');
-  await rm(path.join(store.root, 'spec/versions', snapshotFile('docs/storage.md', hash)));
+  await rm(path.join(store.root, 'spec/versions', snapshotFile(hash)));
   const [anchor] = (await pageState({ store, collection, view, settled: [], person: 'person:operator' })).threads[0]!.anchors;
   expect(anchor).toEqual({ role: 'main', path: 'docs/storage.md', label: expect.stringMatching(/^limits~/), state: 'removed', blocks: [], text: '', diff: null,
-    problem: `The snapshot of docs/storage.md this passage was written on, versions/docs%2Fstorage.md~${hash}.json, cannot be read: it is missing` });
+    problem: `The snapshot of docs/storage.md this passage was written on, versions/${hash}.json, cannot be read: it is missing` });
 });
 
 it('writes each snapshot once, and refuses a thread whose anchor names a snapshot the store does not have', async () => {
   const store = new FileStore(path.join(root, 'store-snapshots'));
   await store.createCollection({ name: 'spec', title: 'Snapshots', settled: [] });
   const snapshot = snapshotOf(view, 'docs/storage.md');
-  const file = path.join(store.root, 'spec/versions', `docs%2Fstorage.md~${snapshot.hash}.json`);
+  const file = path.join(store.root, 'spec/versions', `${snapshot.hash}.json`);
   await store.create('spec', agentComment('c-first'), [snapshot]);
   const written = await stat(file);
   // A second anchor on the same text finds the snapshot there and leaves it as it was.
@@ -371,6 +371,21 @@ it('writes each snapshot once, and refuses a thread whose anchor names a snapsho
     content: view.documents.find(document => document.path === 'docs/storage.md')!.blocks.map(({ id, tag, text }) => ({ id, tag, text })),
     same: true, threads: ['c-first.md', 'c-second.md'],
   });
+});
+
+it('stores and resolves a snapshot for a nested document path longer than one filename', async () => {
+  const folder = path.join(root, 'nested-documents');
+  const relative = ['a'.repeat(50), 'b'.repeat(50), 'c'.repeat(50), '政策'.repeat(12) + '.md'].join('/');
+  await mkdir(path.dirname(path.join(folder, relative)), { recursive: true });
+  await writeFile(path.join(folder, relative), '# Nested\n\nThe nested passage.\n');
+  const { view: nested } = await renderView(folder, { mermaid: false });
+  const store = new FileStore(path.join(root, 'store-nested-snapshot'));
+  await store.createCollection({ name: 'spec', title: 'Nested', settled: [] });
+  const anchors = anchorsAt(nested, relative, [3, 3], 'main');
+  const { thread } = await store.create('spec', { ...agentComment('c-nested'), anchors }, snapshotsOf(nested, [relative]));
+  const resolved = await resolveAnchor(thread.anchors[0]!, nested, store, 'spec');
+  expect({ path: thread.anchors[0]!.path, state: resolved.state, text: resolved.before?.text, files: await readdir(path.join(store.root, 'spec/versions')) })
+    .toEqual({ path: relative, state: 'same', text: 'The nested passage.', files: [`${snapshotOf(nested, relative).hash}.json`] });
 });
 
 it('anchors an imported citation to each block its lines cover, the first as the main passage', () => {
@@ -1000,9 +1015,9 @@ it.each([
     }
     const { thread } = await store.read('spec', 'c-next');
     const before = snapshotOf(view, 'docs/long.md').hash, after = snapshotOf(edited, 'docs/long.md').hash;
-    const names = (await readdir(path.join(store.root, 'spec/versions'))).filter(name => name.startsWith('docs%2Flong.md~')).sort();
+    const names = (await readdir(path.join(store.root, 'spec/versions'))).filter(name => [`${before}.json`, `${after}.json`].includes(name)).sort();
     expect({ kind: thread.entries.at(-1)!.kind, status: threadStatus(thread), state: (await resolveAnchor(thread.anchors[0]!, edited, store, 'spec')).state, snapshot: { [before]: 'old', [after]: 'new' }[thread.anchors[0]!.snapshot], names })
-      .toEqual({ kind, status, state, snapshot, names: [...new Set([before, snapshot === 'new' ? after : before])].map(hash => `docs%2Flong.md~${hash}.json`).sort() });
+      .toEqual({ kind, status, state, snapshot, names: [...new Set([before, snapshot === 'new' ? after : before])].map(hash => `${hash}.json`).sort() });
   }, path.join(copy, 'docs'));
 });
 
@@ -1084,7 +1099,7 @@ it('moves the highlight of an open question with the passage an agent moved it t
     // The agent writes the chapter's snapshot and the thread by hand.
     const moved = { ...thread, anchors: [...anchorsAt(view, 'docs/long.md', [7, 7], 'main'), ...thread.anchors.slice(1)] };
     const snapshot = snapshotOf(view, 'docs/long.md');
-    await writeFile(path.join(store.root, 'spec/versions', snapshotFile(snapshot.path, snapshot.hash)), snapshot.content);
+    await writeFile(path.join(store.root, 'spec/versions', snapshotFile(snapshot.hash)), snapshot.content);
     await writeFile(path.join(store.root, 'spec/threads', thread.id + '.md'), serializeThread(moved));
     await until(page, lit('Next paragraph.'));
     expect(await page.evaluate(`({ old: ${lit('Identifiers may be long.')}, now: ${lit('Next paragraph.')} })`)).toEqual({ old: false, now: true });

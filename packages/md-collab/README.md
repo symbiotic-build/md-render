@@ -46,7 +46,7 @@ An actor is `person:<login>` or `agent:<product>/<session>`.
 ```text
 <store>/<collection>/collection.yaml        # title, and the decision chapters to read
 <store>/<collection>/threads/<id>.md        # one thread: YAML front matter, context, options, entries
-<store>/<collection>/versions/<path>~<sha256>.json  # a write-once snapshot of a document's blocks, which anchors name
+<store>/<collection>/versions/<sha256>.json  # a write-once snapshot of a document's blocks, which anchors name
 <store>/<collection>/.lock                  # present while a command writes; names its process
 ```
 

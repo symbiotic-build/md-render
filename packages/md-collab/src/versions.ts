@@ -1,5 +1,5 @@
 // A snapshot is a write-once copy of one document's rendered blocks, as an anchor was written on
-// them: <store>/<collection>/versions/<path>~<sha256>.json. Anchors follow their blocks across
+// them: <store>/<collection>/versions/<sha256>.json. Anchors follow their blocks across
 // versions with a block diff, as git carries review comments across commits.
 import { createHash } from 'node:crypto';
 import type { SiteView } from 'md-render';
@@ -13,12 +13,9 @@ export interface Snapshot { path: string; hash: string; content: string }
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
 export const snapshotHash = /^[0-9a-f]{64}$/;
 
-/**
- * The snapshot's file name: the document's corpus path, percent-encoded as a URL component so that
- * `/` becomes `%2F`, then `~` and the hash. `docs/storage.md` gives `docs%2Fstorage.md~<hash>.json`.
- */
-export function snapshotFile(documentPath: string, hash: string): string {
-  return `${encodeURIComponent(documentPath)}~${hash}.json`;
+/** The content hash gives a bounded filename; anchors retain the document path. */
+export function snapshotFile(hash: string): string {
+  return `${hash}.json`;
 }
 
 const cache = new WeakMap<SiteView, Map<string, Snapshot>>();

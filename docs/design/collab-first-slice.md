@@ -208,10 +208,10 @@ Setting up a review:
 ```text
 <store>/<collection>/collection.yaml                     # title and settled chapters
 <store>/<collection>/threads/<id>.md                     # one thread
-<store>/<collection>/versions/<path>~<sha256>.json       # one document snapshot that anchors name
+<store>/<collection>/versions/<sha256>.json       # one document snapshot that anchors name
 ```
 
-A snapshot is the JSON list of a rendered document's blocks, in document order, each with its `id`, `tag` and `text`, written with two-space indentation and a final line end. Its file name is the document's corpus path, percent-encoded as a URL component so that `/` becomes `%2F`, then `~` and the SHA-256 of the file's content in lower-case hexadecimal: `docs%2Fstorage.md~<sha256>.json`. The store writes a document's snapshot whenever it writes an anchor on that document, at `import`, for a comment on a selection and for "Keep open", unless the same snapshot is already there. Each anchor names its snapshot by that SHA-256.
+A snapshot is the JSON list of a rendered document's blocks, in document order, each with its `id`, `tag` and `text`, written with two-space indentation and a final line end. Its file name is the SHA-256 of the file's content in lower-case hexadecimal, followed by `.json`: `<sha256>.json`. The name stays bounded regardless of document nesting or Unicode paths. Each anchor retains the document's corpus path. Identical snapshots can share the same file. The store writes a document's snapshot whenever it writes an anchor on that document, at `import`, for a comment on a selection and for "Keep open", unless the same snapshot is already there. Each anchor names its snapshot by that SHA-256.
 
 ### Store writes
 
