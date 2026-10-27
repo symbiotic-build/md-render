@@ -403,6 +403,21 @@ it('anchors an imported citation to each block its lines cover, the first as the
   expect(() => anchorsAt(view, 'docs/storage.md', [2, 2], 'main')).toThrow('docs/storage.md:2-2 covers no rendered text');
 });
 
+it('keeps distinct parent text and child anchors while collapsing a pure wrapper', async () => {
+  const folder = path.join(root, 'nested-selection');
+  await mkdir(folder);
+  await writeFile(path.join(folder, 'nested.md'), '# Nested\n\n- Parent policy.\n  - Child policy.\n\n> First quoted paragraph.\n>\n> Second quoted paragraph.\n');
+  const { view: nested } = await renderView(folder, { mermaid: false });
+  const selected = anchorsAt(nested, 'nested.md', [3, 8], 'main');
+  expect(selected.map(anchor => ({ role: anchor.role, text: nested.documents[0]!.blocks.find(block => block.id === anchor.block)!.text })))
+    .toEqual([
+      { role: 'main', text: 'Parent policy. Child policy.' },
+      { role: 'also', text: 'Child policy.' },
+      { role: 'also', text: 'First quoted paragraph.' },
+      { role: 'also', text: 'Second quoted paragraph.' },
+    ]);
+});
+
 it('reads settled decisions with their dates and deciders from the specification', async () => {
   const settled = readSettled(view.documents.find(document => document.path === 'docs/decisions.md')!);
   expect(settled.map(({ id, topic, date, decidedBy }) => ({ id, topic, date, decidedBy }))).toEqual([

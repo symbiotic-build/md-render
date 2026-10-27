@@ -114,14 +114,32 @@ export function blockAnchor(view: SiteView, path: string, block: Block, role: An
 }
 
 /**
- * The blocks a citation or a selection names, from the blocks it touches in document order: those
- * with text, without a block that holds another of them, such as a quote around its paragraphs.
- * When none has text, the first block it touches.
+ * Cited blocks in document order. A pure wrapper gives way to its covered descendants; a parent
+ * with text beyond them keeps its anchor too. Blocks arrive in pre-order, with descendants within
+ * their parent's source lines. Each frame consumes only its direct children's text, in order.
  */
 export function citedBlocks(touched: readonly Block[]): Block[] {
-  const withText = touched.filter(block => block.text);
-  // A block's inner blocks follow it in document order and lie within its lines.
-  const cited = withText.filter((block, index) => !withText.slice(index + 1).some(inner => inner.lines[0] >= block.lines[0] && inner.lines[1] <= block.lines[1]));
+  type Coverage = { block: Block; keep: boolean; end: number };
+  const candidates: Coverage[] = [];
+  const stack: Coverage[] = [];
+  const finish = () => {
+    const child = stack.pop()!;
+    child.keep ||= !!child.block.text.slice(child.end).trim();
+    const parent = stack.at(-1);
+    if (!parent || parent.keep) return;
+    const start = parent.block.text.indexOf(child.block.text, parent.end);
+    if (start < 0 || parent.block.text.slice(parent.end, start).trim()) parent.keep = true;
+    else parent.end = start + child.block.text.length;
+  };
+  for (const block of touched) {
+    if (!block.text) continue;
+    while (stack.length && !(block.lines[0] >= stack.at(-1)!.block.lines[0] && block.lines[1] <= stack.at(-1)!.block.lines[1])) finish();
+    const frame = { block, keep: false, end: 0 };
+    candidates.push(frame);
+    stack.push(frame);
+  }
+  while (stack.length) finish();
+  const cited = candidates.filter(frame => frame.keep).map(frame => frame.block);
   return cited.length ? cited : touched.slice(0, 1);
 }
 
