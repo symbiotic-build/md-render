@@ -50,10 +50,12 @@ async function main(argv: string[]): Promise<number> {
       console.log(`Created collection ${collection} in ${store.root}`);
       return 0;
     case 'serve': {
+      // Ctrl+C is heard from the start: a stop during the first render lets it finish and clean up,
+      // then closes the session without printing its address.
+      let stopped = false;
+      const stop = new Promise<void>(resolve => { const end = () => { stopped = true; resolve(); }; process.once('SIGINT', end); process.once('SIGTERM', end); });
       const session = await serve({ documents: positionals[0] ?? '.', store: store.root, collection, person: need('person'), mermaid: !values['no-mermaid'], ...(values.port ? { port: Number(values.port) } : {}) });
-      // Listen for Ctrl+C before printing the address, so a stop request made as soon as it appears closes the session.
-      const stop = new Promise<void>(resolve => { process.once('SIGINT', resolve); process.once('SIGTERM', resolve); });
-      console.log(`md-collab: open ${session.url}\nPress Ctrl+C to stop.`);
+      if (!stopped) console.log(`md-collab: open ${session.url}\nPress Ctrl+C to stop.`);
       await stop;
       await session.close();
       return 0;

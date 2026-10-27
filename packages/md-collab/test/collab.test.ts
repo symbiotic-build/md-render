@@ -581,6 +581,32 @@ it.each([
   }
 });
 
+it('md-collab serve stopped during its first render removes the render\'s browser profile and ends without printing an address', async () => {
+  const documents = path.join(root, 'stop-docs');
+  await mkdir(documents);
+  await writeFile(path.join(documents, 'a.md'), '# A\n\n```mermaid\ngraph TD; A-->B\n```\n');
+  const storeRoot = path.join(root, 'store-stop');
+  await new FileStore(storeRoot).createCollection({ name: 'spec', title: 'Stop', settled: [] });
+  // The diagram render starts a browser that keeps its profile in the temporary folder until the render ends.
+  const profiles = path.join(root, 'stop-profiles');
+  await mkdir(profiles);
+  const child = spawn(process.execPath, [collabCli, 'serve', documents, '--store', storeRoot, '--collection', 'spec', '--person', 'person:operator'], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TMPDIR: profiles } });
+  let output = '';
+  child.stdout.on('data', chunk => { output += chunk; });
+  child.stderr.on('data', chunk => { output += chunk; });
+  const exit = new Promise<{ code: number | null; signal: string | null }>(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
+  try {
+    for (const deadline = Date.now() + 10_000; !(await readdir(profiles)).length; await delay(10)) {
+      if (Date.now() > deadline) throw new Error(`The first render started no browser; printed ${JSON.stringify(output)}`);
+    }
+    child.kill('SIGTERM');
+    let timer: NodeJS.Timeout | undefined;
+    const ended = await Promise.race([exit, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`md-collab serve did not end within 20 s; printed ${JSON.stringify(output)}`)), 20_000); })]);
+    clearTimeout(timer);
+    expect({ ...ended, output, profiles: await readdir(profiles) }).toEqual({ code: 0, signal: null, output: '', profiles: [] });
+  } finally { child.kill('SIGKILL'); }
+});
+
 const sizeDecision = `# Decisions
 
 <a id="decision-size"></a>
