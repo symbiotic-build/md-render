@@ -3,7 +3,7 @@ import { useBrowser } from '../../../test/browser-fixture.js';
 import type { BrowserSession } from '../../../src/browser.js';
 import { execFile, spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
-import { access, chmod, cp, mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, cp, mkdtemp, mkdir, readdir, readFile, realpath, rename, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -499,6 +499,22 @@ it.each([
     const shown = event === 'reload' ? await (await fetch(session.url)).text() : JSON.stringify(await (await fetch(session.url + 'api/state')).json());
     expect(shown.includes(text)).toBe(true);
   });
+});
+
+it('re-renders each time a document is replaced by rename, also when the replacement keeps the modification time and size', async () => {
+  // Whole seconds, so a replacement can carry exactly the time of the file it replaces.
+  const kept = new Date('2026-10-24T12:00:00Z'), later = new Date('2026-10-24T13:00:00Z');
+  await connected('rename', async (copy, _store, reader, session) => {
+    const file = path.join(copy, 'docs/storage.md');
+    // Every replacement has the original's size; the first and third keep the time of the file they replace.
+    for (const [n, time] of [[1, kept], [2, later], [3, later]] as const) {
+      await writeFile(file + '.new', spec.replace('Identifiers may be long.', `Identifiers are short ${n}.`));
+      await utimes(file + '.new', time, time);
+      await rename(file + '.new', file);
+      await heard(reader, 'event: reload', 5000);
+      expect((await (await fetch(session.url)).text()).includes(`Identifiers are short ${n}.`)).toBe(true);
+    }
+  }, copy => utimes(path.join(copy, 'docs/storage.md'), kept, kept));
 });
 
 it('refuses a comment or a kept-open choice from a page of an older render, and saves a comment from the current page', async () => {

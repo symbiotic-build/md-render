@@ -15,7 +15,7 @@ md-collab import questions.md path/to/repository/docs --store ~/annotations --co
 md-collab serve path/to/repository/docs --store ~/annotations --collection memory-storage --person person:your-login
 ```
 
-The store must be a folder outside the documents' git working tree; `import` and `serve` refuse one inside it. `serve` prints a `127.0.0.1` address. Open it in a browser on the same computer. What agents add appears in the open page within a second, and an edit to the documents refreshes it.
+The store must be a folder outside the documents' git working tree; `import` and `serve` refuse one inside it. `serve` prints a `127.0.0.1` address. Open it in a browser on the same computer. `serve` checks the store and the documents once a second. What agents add then appears in the open page, and an edit to the documents, also one saved by renaming a new file over the old one, refreshes it.
 
 - **Questions for you** lists the operator questions. Choosing an option saves an answer; "Save note" saves the note with it.
 - **History** lists every question, lead and measurement item, comment and settled decision, newest first, with filters for who decides, status, topic and chapter.

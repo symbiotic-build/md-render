@@ -26,22 +26,24 @@ export interface ServeOptions {
 export interface Session { url: string; close(): Promise<void> }
 
 /**
- * The modification time, by path, of each file in the folder that `pick` accepts, and with `deep`
- * also in its subfolders other than `.git` and `node_modules`. A folder that cannot be read, and a
- * file or folder that disappears during the walk, is skipped.
+ * The modification time, change time, inode and size, by path, of each file in the folder that
+ * `pick` accepts, and with `deep` also in its subfolders other than `.git` and `node_modules`. One
+ * `stat` gives all four, so a file replaced by rename is a change even when the replacement keeps
+ * the modification time and the size. A folder that cannot be read, and a file or folder that
+ * disappears during the walk, is skipped.
  */
-async function modificationTimes(folder: string, pick: (name: string) => boolean, deep: boolean, times = new Map<string, number>()): Promise<Map<string, number>> {
+async function fileStates(folder: string, pick: (name: string) => boolean, deep: boolean, states = new Map<string, string>()): Promise<Map<string, string>> {
   for (const entry of await readdir(folder, { withFileTypes: true }).catch(() => [])) {
     const file = path.join(folder, entry.name);
-    if (entry.isDirectory()) { if (deep && entry.name !== '.git' && entry.name !== 'node_modules') await modificationTimes(file, pick, deep, times); }
+    if (entry.isDirectory()) { if (deep && entry.name !== '.git' && entry.name !== 'node_modules') await fileStates(file, pick, deep, states); }
     else if (entry.isFile() && pick(entry.name)) {
-      const time = await stat(file).then(info => info.mtimeMs, () => undefined);
-      if (time !== undefined) times.set(file, time);
+      const state = await stat(file).then(info => `${info.mtimeMs} ${info.ctimeMs} ${info.ino} ${info.size}`, () => undefined);
+      if (state !== undefined) states.set(file, state);
     }
   }
-  return times;
+  return states;
 }
-const sameTimes = (a: Map<string, number>, b: Map<string, number>) => a.size === b.size && [...a].every(([file, time]) => b.get(file) === time);
+const sameStates = (a: Map<string, string>, b: Map<string, string>) => a.size === b.size && [...a].every(([file, state]) => b.get(file) === state);
 
 /** The md-render extension that adds the sidebar. */
 export async function collabExtension(): Promise<RenderExtension> {
@@ -85,11 +87,11 @@ export async function serve(options: ServeOptions): Promise<Session> {
     const { html, view } = await renderSinglePage(options.documents, { mermaid: options.mermaid }, [extension]);
     return { generation, html, view, settled: settledDecisions(collection, view) };
   }
-  // The documents' modification times as last seen: recorded before the first render, and again by
-  // each check that finds a change, before the render it starts reads its files. So an edit made
-  // during a render starts the next one.
-  const markdownTimes = () => modificationTimes(root, name => /\.md$/i.test(name), true);
-  let documentTimes = await markdownTimes();
+  // The documents' file states as last seen: recorded before the first render, and again by each
+  // check that finds a change, before the render it starts reads its files. So an edit made during
+  // a render starts the next one.
+  const markdownStates = () => fileStates(root, name => /\.md$/i.test(name), true);
+  let documentStates = await markdownStates();
   let snapshot = await render();
   // Checks every anchor once at start, so a broken collection fails before the page opens.
   await pageState({ store, collection, view: snapshot.view, settled: snapshot.settled, person: options.person });
@@ -190,21 +192,21 @@ export async function serve(options: ServeOptions): Promise<Session> {
   }
 
   // Agents write threads with the command line and authors edit the documents, so every second the
-  // server reads the modification times of the thread files and of the Markdown files. A thread file
+  // server reads the file states of the thread files and of the Markdown files. A thread file
   // that changed, appeared or went sends "changed"; such a Markdown file starts a re-render. Drafts
   // start with a dot; only finished thread files are changes.
   const threads = path.join(store.root, collection.name, 'threads');
   await mkdir(threads, { recursive: true });
-  const threadTimes = () => modificationTimes(threads, name => !name.startsWith('.'), false);
-  let storeTimes = await threadTimes();
+  const threadStates = () => fileStates(threads, name => !name.startsWith('.'), false);
+  let storeStates = await threadStates();
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(options.port ?? 0, '127.0.0.1', resolve); });
   let timer: NodeJS.Timeout | undefined;
   let polling: Promise<void> | undefined;
   const poll = () => {
     polling = (async () => {
-      const [documentsNow, threadsNow] = await Promise.all([markdownTimes(), threadTimes()]);
-      if (!sameTimes(threadsNow, storeTimes)) { storeTimes = threadsNow; notify('changed'); }
-      if (!sameTimes(documentsNow, documentTimes)) { documentTimes = documentsNow; rerender(); }
+      const [documentsNow, threadsNow] = await Promise.all([markdownStates(), threadStates()]);
+      if (!sameStates(threadsNow, storeStates)) { storeStates = threadsNow; notify('changed'); }
+      if (!sameStates(documentsNow, documentStates)) { documentStates = documentsNow; rerender(); }
       if (!closed) timer = setTimeout(poll, 1000);
     })();
   };
