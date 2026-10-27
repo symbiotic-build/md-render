@@ -187,9 +187,9 @@ export async function serve(options: ServeOptions): Promise<Session> {
       if (body.generation !== current.generation) return stale();
       const note = typeof body.note === 'string' ? body.note.trim() : '';
       // The page sends every block the selection touches; each cited block gets an anchor, the first the main one.
-      const ids = Array.isArray(body.blocks) ? body.blocks : [];
-      const touched = current.view.documents.find(document => document.path === body.path)?.blocks.filter(item => ids.includes(item.id)) ?? [];
-      if (!note || !touched.length || touched.length !== new Set(ids).size) return send(response, 400, { error: 'A comment needs text and a selected passage in a rendered document' });
+      const ids = new Set(Array.isArray(body.blocks) ? body.blocks : []);
+      const touched = current.view.documents.find(document => document.path === body.path)?.blocks.filter(item => ids.has(item.id)) ?? [];
+      if (!note || !touched.length || touched.length !== ids.size) return send(response, 400, { error: 'A comment needs text and a selected passage in a rendered document' });
       const anchors = blockAnchors(current.view, String(body.path), touched, 'main');
       const thread: Thread = {
         id: `c-${at.replace(/[^0-9]/g, '').slice(0, 14)}-${randomBytes(2).toString('hex')}`,
