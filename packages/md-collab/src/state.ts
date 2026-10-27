@@ -1,7 +1,6 @@
 // The page's view of one collection: threads with resolved anchors and rendered text, plus settled decisions.
 import { documentHtml, parseDocument, type SiteView } from 'md-render';
-import { resolveAnchor, type AnchorState } from './anchors.js';
-import { diffWords, type WordChange } from './diff.js';
+import { resolveAnchor, wordChanges, type AnchorState, type WordChange } from './anchors.js';
 import { readSettled, type SettledDecision } from './settled.js';
 import type { Collection, FileStore } from './store.js';
 import { threadStatus, type Decider, type Entry, type Status, type ThreadKind } from './thread.js';
@@ -13,10 +12,12 @@ export interface PageAnchor {
   state: AnchorState;
   /** The rendered blocks to mark and open: a thread's one block, or a decision's section; empty when removed. */
   blocks: string[];
-  /** The text the anchor was written on; a removed block shows it. */
+  /** The text the anchor was written on, from its snapshot; a removed block shows it. */
   text: string;
   /** For an updated block, its words from the written text to the text now. */
   diff: WordChange[] | null;
+  /** Why a removed anchor cannot be shown with its text: its snapshot cannot be read. */
+  problem: string | null;
 }
 export interface PageThread {
   id: string;
@@ -80,13 +81,14 @@ export async function pageState(options: {
     number: thread.number ?? null, priority: thread.priority ?? null, topic: thread.topic ?? null,
     status: threadStatus(thread), contextHtml: await markdownHtml(thread.context),
     options: await Promise.all(thread.options.map(async option => ({ n: option.n, recommended: option.recommended, html: await inlineHtml(option.text.replace(/\s*\(recommended\)/, '')) }))),
-    anchors: thread.anchors.map(anchor => {
-      const { state, block } = resolveAnchor(anchor, view);
+    anchors: await Promise.all(thread.anchors.map(async anchor => {
+      const { state, block, before, problem } = await resolveAnchor(anchor, view, options.store, options.collection.name);
+      const text = before?.text ?? '';
       return {
-        role: anchor.role, path: anchor.path, label: anchor.text.length > 60 ? anchor.text.slice(0, 59) + '…' : anchor.text || anchor.block,
-        state, blocks: block ? [block.id] : [], text: anchor.text, diff: state === 'updated' ? diffWords(anchor.text, block!.text) : null,
+        role: anchor.role, path: anchor.path, label: text.length > 60 ? text.slice(0, 59) + '…' : text || anchor.block,
+        state, blocks: block ? [block.id] : [], text, diff: state === 'updated' ? wordChanges(text, block!.text) : null, problem,
       };
-    }),
+    })),
     entries: thread.entries, settledAs: thread.settledAs ?? null, version,
   })));
   const settled: PageSettled[] = [];
@@ -95,7 +97,7 @@ export async function pageState(options: {
     const blocks = view.documents.find(item => item.path === file)!.blocks.filter(block => block.heading === decision.id).map(block => block.id);
     settled.push({
       id: `${file}#${decision.id}`, title: decision.title, topic: decision.topic, date: decision.date, decidedBy: decision.decidedBy,
-      anchors: [{ role: 'main', path: file, label: `${file.split('/').pop()}#${decision.id}`, state: blocks.length ? 'same' : 'removed', blocks, text: decision.title, diff: null }],
+      anchors: [{ role: 'main', path: file, label: `${file.split('/').pop()}#${decision.id}`, state: blocks.length ? 'same' : 'removed', blocks, text: decision.title, diff: null, problem: null }],
     });
   }
   return { collection: { name: options.collection.name, title: options.collection.title }, person: options.person, threads, settled };

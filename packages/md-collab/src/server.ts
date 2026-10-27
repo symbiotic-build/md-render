@@ -8,7 +8,8 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { renderSinglePage, type RenderExtension, type SiteView } from 'md-render';
-import { blockAnchor, resolveAnchor } from './anchors.js';
+import { blockAnchor, blockAnchors, resolveAnchor } from './anchors.js';
+import { snapshotsOf } from './versions.js';
 import type { SettledDecision } from './settled.js';
 import { pageState, settledDecisions } from './state.js';
 import { checkStoreOutside, ConflictError, FileStore } from './store.js';
@@ -182,26 +183,34 @@ export async function serve(options: ServeOptions): Promise<Session> {
       if (kind === 'answer' && entry.choice === undefined && !entry.note) return send(response, 400, { error: 'An answer needs a choice or a note' });
       const version = typeof body.version === 'string' ? body.version : undefined;
       if (kind === 'kept-open' && body.generation !== current.generation) return stale();
-      // Keeping a thread open on its updated passages moves each updated anchor to its block as it reads now.
-      const anchors = kind === 'kept-open' ? (await store.read(collection.name, entryMatch[1]!)).thread.anchors.map(anchor => {
-        const { state, block } = resolveAnchor(anchor, current.view);
-        return state === 'updated' ? blockAnchor(current.view, anchor.path, block!, anchor.role) : anchor;
-      }) : undefined;
-      const saved = await store.append(collection.name, entryMatch[1]!, entry, version, anchors);
+      // Keeping a thread open on its updated passages moves each updated anchor to its block as it
+      // reads now, in a new snapshot of its document.
+      const moved: string[] = [];
+      const anchors = kind === 'kept-open' ? await Promise.all((await store.read(collection.name, entryMatch[1]!)).thread.anchors.map(async anchor => {
+        const { state, block } = await resolveAnchor(anchor, current.view, store, collection.name);
+        if (state !== 'updated') return anchor;
+        moved.push(anchor.path);
+        return blockAnchor(current.view, anchor.path, block!, anchor.role);
+      })) : undefined;
+      const snapshots = snapshotsOf(current.view, moved);
+      const saved = await store.append(collection.name, entryMatch[1]!, entry, version, anchors, snapshots);
       return send(response, 200, { id: saved.thread.id, version: saved.version });
     }
     if (url.pathname === '/api/comments') {
       if (body.generation !== current.generation) return stale();
       const note = typeof body.note === 'string' ? body.note.trim() : '';
-      const block = current.view.documents.find(document => document.path === body.path)?.blocks.find(item => item.id === body.block);
-      if (!note || !block) return send(response, 400, { error: 'A comment needs text and a selected passage in a rendered document' });
+      // The page sends every block the selection touches; each cited block gets an anchor, the first the main one.
+      const ids = Array.isArray(body.blocks) ? body.blocks : [];
+      const touched = current.view.documents.find(document => document.path === body.path)?.blocks.filter(item => ids.includes(item.id)) ?? [];
+      if (!note || !touched.length || touched.length !== new Set(ids).size) return send(response, 400, { error: 'A comment needs text and a selected passage in a rendered document' });
+      const anchors = blockAnchors(current.view, String(body.path), touched, 'main');
       const thread: Thread = {
         id: `c-${at.replace(/[^0-9]/g, '').slice(0, 14)}-${randomBytes(2).toString('hex')}`,
         kind: 'comment', title: note.split('\n')[0]!.slice(0, 80),
-        anchors: [blockAnchor(current.view, String(body.path), block, 'main')],
+        anchors,
         context: '', options: [], entries: [{ at, actor: options.person, kind: 'comment', note }],
       };
-      const saved = await store.create(collection.name, thread);
+      const saved = await store.create(collection.name, thread, snapshotsOf(current.view, [String(body.path)]));
       return send(response, 200, { id: saved.thread.id, version: saved.version });
     }
     return send(response, 404, { error: 'Not found' });

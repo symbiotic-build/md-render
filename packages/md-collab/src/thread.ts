@@ -1,5 +1,6 @@
 // A thread is one annotation file: YAML front matter, Markdown context, options, dated entries.
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { snapshotHash } from './versions.js';
 
 export type ThreadKind = 'comment' | 'question';
 export type Decider = 'operator' | 'lead' | 'measurement';
@@ -7,16 +8,14 @@ export type EntryKind = 'raised' | 'comment' | 'answer' | 'settled' | 'reopened'
 export type Status = 'open' | 'answered' | 'settled' | 'withdrawn';
 
 /**
- * One rendered block, as it was when the anchor was written: its ID, its tag, its position from 1
- * among the blocks of its section, and its whitespace-normalised text.
+ * One rendered block, as it was when the anchor was written: its document, its block ID, and the
+ * SHA-256 of the snapshot of that document's blocks, which holds the block's tag and text.
  */
 export interface Anchor {
   role: 'main' | 'also';
   path: string;
   block: string;
-  tag: string;
-  position: number;
-  text: string;
+  snapshot: string;
 }
 
 export interface Option { n: number; text: string; recommended: boolean }
@@ -96,8 +95,8 @@ export function validateThread(thread: Thread): void {
   }
   for (const anchor of thread.anchors) {
     if (anchor.role !== 'main' && anchor.role !== 'also') fail('anchor role is main or also');
-    if (!anchor.path || !anchor.block.includes('~') || !anchor.tag) fail('an anchor needs path, block and tag');
-    if (!Number.isSafeInteger(anchor.position) || anchor.position < 1) fail(`anchor position is invalid for ${anchor.path}`);
+    if (!anchor.path || !anchor.block.includes('~')) fail('an anchor needs path and block');
+    if (!snapshotHash.test(anchor.snapshot)) fail(`the anchor on ${anchor.path} needs the SHA-256 of its snapshot`);
   }
   if (thread.anchors.filter(anchor => anchor.role === 'main').length > 1) fail('more than one main anchor');
   for (const entry of thread.entries) {
@@ -170,7 +169,7 @@ export function parseThread(source: string): Thread {
     ...(front.priority ? { priority: String(front.priority) } : {}),
     ...(front.topic ? { topic: String(front.topic) } : {}),
     anchors: ((front.anchors ?? []) as Partial<Anchor>[]).map(anchor => ({
-      role: anchor.role!, path: String(anchor.path ?? ''), block: String(anchor.block ?? ''), tag: String(anchor.tag ?? ''), position: Number(anchor.position), text: String(anchor.text ?? ''),
+      role: anchor.role!, path: String(anchor.path ?? ''), block: String(anchor.block ?? ''), snapshot: String(anchor.snapshot ?? ''),
     })),
     ...(front.settled_as ? { settledAs: String(front.settled_as) } : {}),
     context, options, entries,
@@ -187,7 +186,7 @@ export function serializeThread(thread: Thread): string {
   if (thread.number !== undefined) front.number = thread.number;
   if (thread.priority) front.priority = thread.priority;
   if (thread.topic) front.topic = thread.topic;
-  front.anchors = thread.anchors.map(anchor => ({ role: anchor.role, path: anchor.path, block: anchor.block, tag: anchor.tag, position: anchor.position, text: anchor.text }));
+  front.anchors = thread.anchors.map(anchor => ({ role: anchor.role, path: anchor.path, block: anchor.block, snapshot: anchor.snapshot }));
   if (thread.settledAs) front.settled_as = thread.settledAs;
   const parts = [`---\n${stringifyYaml(front, { lineWidth: 0, flowCollectionPadding: false }).trimEnd()}\n---`, ''];
   if (thread.context) parts.push(escapeText(thread.context), '');

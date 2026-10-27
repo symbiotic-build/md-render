@@ -7,7 +7,8 @@
 /* highlighted passages */
 .ov-hl { background: var(--ov-mark-soft); box-shadow: -6px 0 0 var(--ov-mark-soft), 6px 0 0 var(--ov-mark-soft); border-radius: 2px; transition: background .3s; }
 .ov-hl.ov-done { background: color-mix(in srgb, var(--ov-ok-soft) 70%, transparent); box-shadow: -6px 0 0 color-mix(in srgb, var(--ov-ok-soft) 70%, transparent), 6px 0 0 color-mix(in srgb, var(--ov-ok-soft) 70%, transparent); }
-.ov-hl2 { text-decoration: underline dotted var(--ov-pen); text-decoration-thickness: 1.5px; text-underline-offset: 4px; }
+/* Other cited passages: a light dotted underline in the theme's pen colour, without a fill. */
+.ov-hl2 { text-decoration: underline dotted color-mix(in srgb, var(--ov-pen) 65%, transparent); text-decoration-thickness: 1px; text-underline-offset: 4px; }
 .ov-active { background: var(--ov-mark) !important; box-shadow: -6px 0 0 var(--ov-mark), 6px 0 0 var(--ov-mark) !important; }
 tr.ov-hl > td, tr.ov-hl > th { background: inherit; }
 .ov-anchor { position: relative; }
@@ -123,6 +124,12 @@ td > .ov-tags, th > .ov-tags { left: -4px; top: -10px; flex-direction: row; }
 .ov-goto { margin-top: 8px; }
 .ov-hl-t { background: var(--ov-mark) !important; box-shadow: -6px 0 0 var(--ov-mark), 6px 0 0 var(--ov-mark) !important; border-radius: 2px; }
 .ov-hl2-t { text-decoration: underline dotted var(--ov-pen); text-decoration-thickness: 1.5px; text-underline-offset: 4px; }
+/* Previous and next cited passage of a thread, with its position. */
+.ov-pnav { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.ov-pbtn { font: 600 12.5px var(--font, system-ui); border: 1px solid var(--line); background: var(--paper); color: var(--text); border-radius: 6px; min-width: 26px; padding: 2px 6px; cursor: pointer; }
+.ov-pbtn:disabled { opacity: .45; cursor: default; }
+.ov-pbtn:focus-visible { outline: 2px solid var(--accent); }
+.ov-pos { font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { .ov-hl, .ov-fill, .ov-panel { transition: none; } }
 
 /* comments on selected text */

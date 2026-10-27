@@ -3,20 +3,21 @@ import { useBrowser } from '../../../test/browser-fixture.js';
 import type { BrowserSession } from '../../../src/browser.js';
 import { execFile, spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
-import { access, chmod, cp, mkdtemp, mkdir, readdir, readFile, realpath, rename, rm, utimes, writeFile } from 'node:fs/promises';
+import { access, chmod, cp, mkdtemp, mkdir, readdir, readFile, realpath, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { renderView, type SiteView } from 'md-render';
-import { anchorAt, resolveAnchor } from '../src/anchors.js';
+import { anchorsAt, resolveAnchor } from '../src/anchors.js';
 import { parseQuestionList, questionThreads } from '../src/import.js';
 import { serve, type Session } from '../src/server.js';
 import { decidersOf, readSettled } from '../src/settled.js';
 import { pageState, settledDecisions, type PageState } from '../src/state.js';
 import { ConflictError, FileStore } from '../src/store.js';
 import { parseThread, serializeThread, threadStatus, type Thread } from '../src/thread.js';
+import { snapshotFile, snapshotOf, snapshotsOf } from '../src/versions.js';
 
 // Registered before the browser fixture so it runs first. These tests start only a test-only
 // Chrome, never a desktop browser; the repository-wide fix is #31.
@@ -113,11 +114,16 @@ afterAll(async () => { if (root) await rm(root, { recursive: true, force: true }
 
 const question = (): Thread => ({
   id: 'q01-identifier-length', kind: 'question', title: 'How long may an identifier be?', decides: 'operator', number: 1, topic: 'Limits',
-  anchors: [{ role: 'main', path: 'docs/storage.md', block: 'limits~000000', tag: 'p', position: 3, text: 'Identifiers may be long.' }],
+  anchors: anchorsAt(view, 'docs/storage.md', [9, 9], 'main'),
   context: '`FACT` The spec says identifiers may be long.',
   options: [{ n: 1, text: '**Cap at 256 bytes (recommended).**', recommended: true }, { n: 2, text: 'No cap.', recommended: false }],
   entries: [{ at: '2026-10-22T13:09:00Z', actor: 'agent:claude-code/memory', kind: 'raised', note: '' }],
 });
+
+/** The snapshots of every document of the test corpus, for writes whose anchors name them. */
+const known = () => snapshotsOf(view, view.documents.map(document => document.path));
+/** The text of a block of the test corpus. */
+const textOf = (file: string, id: string) => view.documents.find(document => document.path === file)!.blocks.find(block => block.id === id)?.text;
 
 // The question list with a citation inside an option, as the import and the page see it.
 const citingList = questionList.replace('2. No cap.', '2. No cap, as [storage.md:7](docs/storage.md) allows.');
@@ -179,7 +185,7 @@ it.each([
 ])('refuses a line break in %s and keeps the saved entries', async (name, change, message) => {
   const store = new FileStore(path.join(root, 'store-break-' + name.replace(/\W+/g, '-')));
   await store.createCollection({ name: 'spec', title: 'Breaks', settled: [] });
-  const { thread } = await store.create('spec', question());
+  const { thread } = await store.create('spec', question(), known());
   const answered = await store.append('spec', thread.id, { at: '2026-10-24T10:00:00Z', actor: 'person:operator', kind: 'answer', choice: 1, note: 'First.' });
   await expect(store.append('spec', thread.id, { at: '2026-10-24T10:30:00Z', actor: 'person:operator', kind: 'comment', note: 'Later.', ...change }))
     .rejects.toThrow(`Thread q01-identifier-length: ${message}`);
@@ -190,18 +196,18 @@ it('appends entries and refuses a write against an old version', async () => {
   const store = new FileStore(path.join(root, 'store-a'));
   await store.createCollection({ name: 'spec', title: 'Spec review', settled: ['docs/decisions.md'] });
   expect(await store.collection('spec')).toEqual({ name: 'spec', title: 'Spec review', settled: ['docs/decisions.md'] });
-  const created = await store.create('spec', question());
+  const created = await store.create('spec', question(), known());
   await store.append('spec', created.thread.id, { at: '2026-10-24T10:00:00Z', actor: 'person:operator', kind: 'comment', note: 'First.' }, created.version);
   await expect(store.append('spec', created.thread.id, { at: '2026-10-24T10:01:00Z', actor: 'person:operator', kind: 'comment', note: 'Late.' }, created.version))
     .rejects.toBeInstanceOf(ConflictError);
   expect((await store.read('spec', created.thread.id)).thread.entries.map(entry => entry.note)).toEqual(['', 'First.']);
-  await expect(store.create('spec', question())).rejects.toThrow('Thread q01-identifier-length already exists in spec; nothing was written');
+  await expect(store.create('spec', question(), known())).rejects.toThrow('Thread q01-identifier-length already exists in spec; nothing was written');
 });
 
 it('keeps every entry when many writers append to one thread at once', async () => {
   const store = new FileStore(path.join(root, 'store-race'));
   await store.createCollection({ name: 'spec', title: 'Race', settled: [] });
-  const { thread } = await store.create('spec', question());
+  const { thread } = await store.create('spec', question(), known());
   const notes = Array.from({ length: 12 }, (_, index) => `Writer ${index}.`);
   await Promise.all(notes.map((note, index) => store.append('spec', thread.id, { at: `2026-10-24T10:00:${String(index).padStart(2, '0')}Z`, actor: 'agent:test/race', kind: 'comment', note })));
   expect((await store.read('spec', thread.id)).thread.entries.slice(1).map(entry => entry.note).sort()).toEqual([...notes].sort());
@@ -210,12 +216,12 @@ it('keeps every entry when many writers append to one thread at once', async () 
 it('refuses a repeated question number in a batch or in the collection and writes nothing', async () => {
   const store = new FileStore(path.join(root, 'store-numbers'));
   await store.createCollection({ name: 'spec', title: 'Numbers', settled: [] });
-  await store.create('spec', question());
+  await store.create('spec', question(), known());
   const second: Thread = { ...question(), id: 'q02-other', number: 2 };
   await expect(store.createAll('spec', [second, { ...second, id: 'q02-twin' }])).rejects.toThrow('Question number 2 is used by both q02-other and q02-twin; nothing was written');
   await expect(store.createAll('spec', [second, { ...question(), id: 'q01-again' }])).rejects.toThrow('Question number 1 is used by both q01-identifier-length and q01-again; nothing was written');
   // Two creators of the same number at once: one wins, the other is refused.
-  const results = await Promise.allSettled([store.create('spec', { ...second, id: 'q02-a' }), store.create('spec', { ...second, id: 'q02-b' })]);
+  const results = await Promise.allSettled([store.create('spec', { ...second, id: 'q02-a' }, known()), store.create('spec', { ...second, id: 'q02-b' }, known())]);
   expect(results.map(result => result.status).sort()).toEqual(['fulfilled', 'rejected']);
   expect((await store.list('spec')).map(({ thread }) => thread.number)).toEqual([1, 2]);
 });
@@ -228,20 +234,20 @@ it('creates a comment without reading the other threads, and checks a numbered q
   const comment: Thread = { id: 'c-new', kind: 'comment', title: 'New', anchors: [], context: '', options: [], entries: [{ at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'New.' }] };
   await store.create('spec', comment);
   expect(await readFile(path.join(store.root, 'spec/threads/c-new.md'), 'utf8')).toBe(serializeThread(comment));
-  await expect(store.create('spec', question())).rejects.toThrow(`${broken}: Thread file must start with YAML front matter`);
+  await expect(store.create('spec', question(), known())).rejects.toThrow(`${broken}: Thread file must start with YAML front matter`);
 });
 
 it('leaves no draft or lock behind when a write is refused, and refuses to write past a lock left by a crashed process', async () => {
   const store = new FileStore(path.join(root, 'store-clean'));
   const directory = path.join(store.root, 'spec');
   await store.createCollection({ name: 'spec', title: 'Clean', settled: [] });
-  const created = await store.create('spec', question());
+  const created = await store.create('spec', question(), known());
   const comment = { at: '2026-10-24T10:00:00Z', actor: 'person:operator', kind: 'comment' as const, note: 'First.' };
   await store.append('spec', created.thread.id, comment, created.version);
   await expect(store.append('spec', created.thread.id, comment, created.version)).rejects.toBeInstanceOf(ConflictError);
-  await expect(store.create('spec', question())).rejects.toThrow('already exists');
+  await expect(store.create('spec', question(), known())).rejects.toThrow('already exists');
   await expect(store.createCollection({ name: 'spec', title: 'Again', settled: [] })).rejects.toThrow('Collection spec already exists');
-  const files = ['collection.yaml', 'threads', 'threads/q01-identifier-length.md'];
+  const files = ['collection.yaml', 'threads', 'threads/q01-identifier-length.md', 'versions', `versions/docs%2Fstorage.md~${snapshotOf(view, 'docs/storage.md').hash}.json`];
   expect((await readdir(directory, { recursive: true })).sort()).toEqual(files);
   // A process that ended without removing its lock leaves its number behind; that process no longer exists.
   const { pid } = spawnSync(process.execPath, ['-e', '']);
@@ -285,7 +291,7 @@ it('reports a lock it could not remove after a write, and leaves it for the docu
 it('refuses after ten seconds a lock that names no process, naming the lock and its repair', async () => {
   const store = new FileStore(path.join(root, 'store-empty-lock'));
   await store.createCollection({ name: 'spec', title: 'Empty lock', settled: [] });
-  const { thread } = await store.create('spec', question());
+  const { thread } = await store.create('spec', question(), known());
   // A writer that crashed after creating the lock and before writing its process number.
   const lock = path.join(store.root, 'spec/.lock');
   await writeFile(lock, '');
@@ -297,7 +303,7 @@ it('refuses after ten seconds a lock that names no process, naming the lock and 
 it('gives up on a held lock after ten seconds even when the clock moves back', async () => {
   const store = new FileStore(path.join(root, 'store-clock'));
   await store.createCollection({ name: 'spec', title: 'Clock', settled: [] });
-  const { thread } = await store.create('spec', question());
+  const { thread } = await store.create('spec', question(), known());
   // This process holds the lock, so it stays held; meanwhile the calendar clock goes back a minute at every reading.
   const lock = path.join(store.root, 'spec/.lock');
   await writeFile(lock, `${process.pid} held`);
@@ -315,18 +321,14 @@ it('gives up on a held lock after ten seconds even when the clock moves back', a
   }
 });
 
-// Edits to the storage chapter after a comment was written on its "Identifiers may be long." paragraph.
+// Edits to the storage chapter after a comment was written on its "Identifiers may be long."
+// paragraph. The anchor follows its block through a diff of the comment's snapshot against the chapter now.
 it.each([
-  ['the text is unchanged', (text: string) => text, { state: 'same', blocks: 1, diff: null }],
-  ['a paragraph is added before it', (text: string) => text.replace('The write group', 'A new rule.\n\nThe write group'), { state: 'same', blocks: 1, diff: null }],
-  ['its section heading is renamed under the same explicit anchor', (text: string) => text.replace('## Limits', '## Caps'), { state: 'same', blocks: 1, diff: null }],
-  ['its words change', (text: string) => text.replace('may be long', 'may be very long'), { state: 'updated', blocks: 1, diff: [{ change: '=', text: 'Identifiers may be' }, { change: '+', text: 'very' }, { change: '=', text: 'long.' }] }],
-  ['it is deleted', (text: string) => text.replace('\nIdentifiers may be long.\n', ''), { state: 'removed', blocks: 0, diff: null }],
-  // A list item with the same words has the same ID, so only changed words show the tag rule.
-  ['it becomes a list item with other words', (text: string) => text.replace('Identifiers may be long.', '- Identifiers may be very long.'), { state: 'removed', blocks: 0, diff: null }],
-  // The anchor now names an empty section before a new heading; the paragraph sits in the new one.
-  ['its section gets another name', (text: string) => text.replace('## Limits', '## Earlier\n\n## Caps'), { state: 'removed', blocks: 0, diff: null }],
-])('shows a passage whose chapter changed as the same block, updated or removed when %s', async (name, edit, expected) => {
+  ['a paragraph is inserted above it', (text: string) => text.replace('The write group', 'A new rule.\n\nThe write group'), { state: 'same', now: 'Identifiers may be long.', diff: null }],
+  ['its words change', (text: string) => text.replace('may be long', 'may be very long'), { state: 'updated', now: 'Identifiers may be very long.', diff: [{ change: '=', text: 'Identifiers may be ' }, { change: '+', text: 'very' }, { change: '=', text: ' long.' }] }],
+  // The added paragraph is in another hunk of the diff, so it is not the removed paragraph's partner.
+  ['it is removed and a paragraph is added in another place', (text: string) => text.replace('The write group', 'A new rule.\n\nThe write group').replace('\nIdentifiers may be long.\n', ''), { state: 'removed', now: null, diff: null }],
+])('carries a commented passage across an edit of its chapter when %s', async (name, edit, expected) => {
   const copy = path.join(root, 'edit-' + name.replace(/\W+/g, '-'));
   await cp(docs, copy, { recursive: true });
   await writeFile(path.join(copy, 'docs/storage.md'), edit(spec));
@@ -334,15 +336,53 @@ it.each([
   const store = new FileStore(path.join(root, 'store-edit-' + name.replace(/\W+/g, '-')));
   const collection = { name: 'spec', title: 'Edits', settled: [] };
   await store.createCollection(collection);
-  await store.create('spec', { ...agentComment('c-on-identifiers'), anchors: [anchorAt(view, 'docs/storage.md', [9, 9], 'main')] });
+  await store.create('spec', { ...agentComment('c-on-identifiers'), anchors: anchorsAt(view, 'docs/storage.md', [9, 9], 'main') }, known());
   const [anchor] = (await pageState({ store, collection, view: edited, settled: [], person: 'person:operator' })).threads[0]!.anchors;
-  expect({ state: anchor!.state, blocks: anchor!.blocks.length, text: anchor!.text, diff: anchor!.diff }).toEqual({ ...expected, text: 'Identifiers may be long.' });
+  const now = (id: string) => edited.documents.find(document => document.path === 'docs/storage.md')!.blocks.find(block => block.id === id)!.text;
+  expect({ state: anchor!.state, now: anchor!.blocks.length ? anchor!.blocks.map(now).join() : null, text: anchor!.text, diff: anchor!.diff, problem: anchor!.problem })
+    .toEqual({ ...expected, text: 'Identifiers may be long.', problem: null });
 });
 
-it('anchors a citation to the first block with text that its lines cover', () => {
-  // Lines 4-7 start inside the paragraph of lines 3-5, the second block of the Long section.
-  expect(anchorAt(view, 'docs/long.md', [4, 7], 'main')).toEqual({ role: 'main', path: 'docs/long.md', block: expect.stringMatching(/^long~[0-9a-f]{6}$/), tag: 'p', position: 2, text: 'First line second line third line.' });
-  expect(() => anchorAt(view, 'docs/storage.md', [2, 2], 'main')).toThrow('docs/storage.md:2-2 covers no rendered text');
+it('shows a passage as removed, saying why, when the snapshot its anchor names cannot be read', async () => {
+  const store = new FileStore(path.join(root, 'store-lost-snapshot'));
+  const collection = { name: 'spec', title: 'Lost', settled: [] };
+  await store.createCollection(collection);
+  await store.create('spec', agentComment('c-lost'), known());
+  const { hash } = snapshotOf(view, 'docs/storage.md');
+  await rm(path.join(store.root, 'spec/versions', snapshotFile('docs/storage.md', hash)));
+  const [anchor] = (await pageState({ store, collection, view, settled: [], person: 'person:operator' })).threads[0]!.anchors;
+  expect(anchor).toEqual({ role: 'main', path: 'docs/storage.md', label: expect.stringMatching(/^limits~/), state: 'removed', blocks: [], text: '', diff: null,
+    problem: `The snapshot of docs/storage.md this passage was written on, versions/docs%2Fstorage.md~${hash}.json, cannot be read: it is missing` });
+});
+
+it('writes each snapshot once, and refuses a thread whose anchor names a snapshot the store does not have', async () => {
+  const store = new FileStore(path.join(root, 'store-snapshots'));
+  await store.createCollection({ name: 'spec', title: 'Snapshots', settled: [] });
+  const snapshot = snapshotOf(view, 'docs/storage.md');
+  const file = path.join(store.root, 'spec/versions', `docs%2Fstorage.md~${snapshot.hash}.json`);
+  await store.create('spec', agentComment('c-first'), [snapshot]);
+  const written = await stat(file);
+  // A second anchor on the same text finds the snapshot there and leaves it as it was.
+  await store.create('spec', agentComment('c-second'), [snapshot]);
+  const again = await stat(file);
+  const long = { ...agentComment('c-long'), anchors: anchorsAt(view, 'docs/long.md', [7, 7], 'main') };
+  await expect(store.create('spec', long)).rejects.toThrow(`The anchor on docs/long.md names snapshot ${snapshotOf(view, 'docs/long.md').hash}, which is not in spec; nothing was written`);
+  expect({ content: JSON.parse(await readFile(file, 'utf8')), same: [again.ino, again.mtimeMs].join() === [written.ino, written.mtimeMs].join(), threads: (await readdir(path.join(store.root, 'spec/threads'))).sort() }).toEqual({
+    content: view.documents.find(document => document.path === 'docs/storage.md')!.blocks.map(({ id, tag, text }) => ({ id, tag, text })),
+    same: true, threads: ['c-first.md', 'c-second.md'],
+  });
+});
+
+it('anchors an imported citation to each block its lines cover, the first as the main passage', () => {
+  const list = '# Questions\n\n### 1\\. Is the long chapter clear?\n`FACT` It reads so ([long.md:1-7](docs/long.md)).\n\n1. Yes (recommended).\n2. No.\n';
+  const [thread] = questionThreads(parseQuestionList(list, path.join(docs, 'questions.md')), { view, corpusRoot: docs, actor: 'agent:test/1', at: '2026-10-24T00:00:00Z', settled: [], base: docs });
+  const { hash } = snapshotOf(view, 'docs/long.md');
+  expect(thread!.anchors.map(anchor => ({ role: anchor.role, path: anchor.path, text: textOf(anchor.path, anchor.block), snapshot: anchor.snapshot }))).toEqual([
+    { role: 'main', path: 'docs/long.md', text: 'Long', snapshot: hash },
+    { role: 'also', path: 'docs/long.md', text: 'First line second line third line.', snapshot: hash },
+    { role: 'also', path: 'docs/long.md', text: 'Next paragraph.', snapshot: hash },
+  ]);
+  expect(() => anchorsAt(view, 'docs/storage.md', [2, 2], 'main')).toThrow('docs/storage.md:2-2 covers no rendered text');
 });
 
 it('reads settled decisions with their dates and deciders from the specification', async () => {
@@ -420,12 +460,15 @@ it('imports a House Rules question list with its cited passages as anchors', () 
   expect(listed).toMatchObject([{ number: 1, topic: 'Limits', title: 'How long may an identifier be?', options: [{ n: 1, recommended: true }, { n: 2, recommended: false }] }]);
   const [thread] = imported();
   expect(thread!.id).toBe('q01-how-long-may-an-identifier-be');
-  // Each citation names the first block with text that its lines cover.
-  expect(thread!.anchors.map(anchor => [anchor.role, anchor.path, anchor.text])).toEqual([['main', 'docs/storage.md', 'Identifiers may be long.'], ['also', 'docs/decisions.md', 'Choice: Keep the write group at 4 MiB (limits).'], ['also', 'docs/storage.md', 'The write group is 4 MiB.']]);
+  // Each citation names every block its lines cover; its link jumps to the first.
+  expect(thread!.anchors.map(anchor => [anchor.role, anchor.path, textOf(anchor.path, anchor.block)])).toEqual([
+    ['main', 'docs/storage.md', 'Identifiers may be long.'], ['also', 'docs/decisions.md', 'Choice: Keep the write group at 4 MiB (limits).'],
+    ['also', 'docs/decisions.md', 'Authority: Q12 = 1 in the operator decision log, 2026-10-12.'], ['also', 'docs/storage.md', 'The write group is 4 MiB.'],
+  ]);
   expect(thread!.context).toContain('([storage.md:9](#md-collab-anchor-0))');
   expect(thread!.context).toContain('([decisions.md:9-11](#md-collab-anchor-1))');
   expect(thread!.context).not.toContain('Answer like so');
-  expect(thread!.options[1]!.text).toBe('No cap, as [storage.md:7](#md-collab-anchor-2) allows.');
+  expect(thread!.options[1]!.text).toBe('No cap, as [storage.md:7](#md-collab-anchor-3) allows.');
 });
 
 it('refuses a question list whose question holds a fenced code block', () => {
@@ -439,7 +482,7 @@ it('serves the page only under its own host and accepts writes only from its own
   const store = new FileStore(storeRoot);
   await store.createCollection({ name: 'spec', title: 'Spec review', settled: ['docs/decisions.md'] });
   const [thread] = questionThreads(parseQuestionList(questionList, path.join(docs, 'questions.md')), { view, corpusRoot: docs, actor: 'agent:test/1', at: '2026-10-24T00:00:00Z', settled: ['docs/decisions.md'], base: docs });
-  const created = await store.create('spec', thread!);
+  const created = await store.create('spec', thread!, known());
   const session = await serve({ documents: path.join(docs, 'docs'), store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
   try {
     const origin = new URL(session.url).origin;
@@ -454,7 +497,7 @@ it('serves the page only under its own host and accepts writes only from its own
     expect(html).toContain("connect-src 'self'");
     const headers = { 'content-type': 'application/json' };
     const state = await (await fetch(origin + '/api/state', { headers })).json();
-    expect(state.threads[0]).toMatchObject({ id: created.thread.id, status: 'open', number: 1, anchors: [{ role: 'main', state: 'same' }, { role: 'also', state: 'same' }] });
+    expect(state.threads[0]).toMatchObject({ id: created.thread.id, status: 'open', number: 1, anchors: [{ role: 'main', state: 'same' }, { role: 'also', state: 'same' }, { role: 'also', state: 'same' }] });
     expect(state.settled.map((decision: { id: string; decidedBy: string[] }) => [decision.id, decision.decidedBy])).toEqual([['docs/decisions.md#decision-fixed-group', ['operator']], ['docs/decisions.md#decision-redo', ['lead']]]);
     const answer = JSON.stringify({ kind: 'answer', choice: 1, note: 'Yes.', version: created.version });
     expect((await fetch(origin + `/api/threads/${created.thread.id}/entries`, { method: 'POST', headers: { ...headers, origin: 'https://evil.example' }, body: answer })).status).toBe(403);
@@ -470,7 +513,7 @@ it('serves the page only under its own host and accepts writes only from its own
     await store.append('spec', created.thread.id, { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'Seen?' });
     await heard(reader, 'event: changed');
     await reader.cancel();
-    const comment = await fetch(origin + '/api/comments', { method: 'POST', headers: { ...headers, origin }, body: JSON.stringify({ generation: state.generation, note: 'Is 4 MiB measured?', path: 'docs/storage.md', block: groupBlock() }) });
+    const comment = await fetch(origin + '/api/comments', { method: 'POST', headers: { ...headers, origin }, body: JSON.stringify({ generation: state.generation, note: 'Is 4 MiB measured?', path: 'docs/storage.md', blocks: [groupBlock()] }) });
     expect(comment.status).toBe(200);
     const after = await (await fetch(origin + '/api/state', { headers })).json();
     expect(after.threads.map((item: { kind: string; status: string }) => [item.kind, item.status])).toEqual([['comment', 'open'], ['question', 'answered']]);
@@ -491,7 +534,7 @@ async function connected(name: string, work: (copy: string, store: FileStore, re
   await prepare?.(copy);
   const store = new FileStore(path.join(root, 'store-' + name));
   await store.createCollection({ name: 'spec', title: 'Changes', settled: [] });
-  await store.create('spec', question());
+  await store.create('spec', question(), known());
   const session = await serve({ documents: path.join(copy, 'docs'), store: store.root, collection: 'spec', person: 'person:operator', mermaid: false });
   try {
     const reader = (await fetch(session.url + 'api/events')).body!.getReader();
@@ -507,7 +550,7 @@ it.each([
   ['an edit to a document', 'reload', 'Identifiers are short.', (copy: string) => writeFile(path.join(copy, 'docs/storage.md'), spec.replace('Identifiers may be long.', 'Identifiers are short.'))],
   ['a new document', 'reload', 'A new chapter.', (copy: string) => writeFile(path.join(copy, 'docs/new.md'), '# New\n\nA new chapter.\n')],
   ["an agent's append to a thread", 'changed', 'Seen by the agent.', (_copy: string, store: FileStore) => store.append('spec', 'q01-identifier-length', { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'Seen by the agent.' })],
-  ['a new thread file', 'changed', 'Agent note', (_copy: string, store: FileStore) => store.create('spec', agentComment('c-agent-note'))],
+  ['a new thread file', 'changed', 'Agent note', (_copy: string, store: FileStore) => store.create('spec', agentComment('c-agent-note'), known())],
 ])('tells an open page about %s within a few seconds', async (name, event, text, change) => {
   await connected('change-' + name.replace(/\W+/g, '-'), async (copy, store, reader, session) => {
     await change(copy, store);
@@ -538,7 +581,7 @@ it('refuses a comment or a kept-open choice from a page of an older render, and 
     const state = async () => (await fetch(session.url + 'api/state')).json() as Promise<{ generation: string }>;
     const comment = (generation: string) => fetch(session.url + 'api/comments', {
       method: 'POST', headers: { 'content-type': 'application/json', origin: new URL(session.url).origin },
-      body: JSON.stringify({ generation, note: 'Is 4 MiB measured?', path: 'docs/storage.md', block: groupBlock() }),
+      body: JSON.stringify({ generation, note: 'Is 4 MiB measured?', path: 'docs/storage.md', blocks: [groupBlock()] }),
     });
     const old = (await state()).generation;
     await writeFile(path.join(copy, 'docs/storage.md'), spec.replace('Identifiers may be long.', 'Identifiers are short.'));
@@ -697,7 +740,7 @@ window.fetch = async (url, init) => { if (init?.method === 'POST') { posts.push(
 const PageEvents = window.EventSource;
 window.EventSource = class extends PageEvents { constructor(...args) { super(...args); window.sidebarEvents = this; } };`;
 const until = (page: BrowserSession, expression: string) => page.evaluate(`new Promise((resolve, reject) => { const start = performance.now(); (function check() { const value = ${expression}; if (value) resolve(value); else if (performance.now() - start > 5000) reject(new Error('Timed out: ' + ${JSON.stringify(expression)})); else setTimeout(check, 50); })(); })`);
-const agentComment = (id: string): Thread => ({ id, kind: 'comment', title: 'Agent note', anchors: [anchorAt(view, 'docs/storage.md', [7, 7], 'main')], context: '', options: [],
+const agentComment = (id: string): Thread => ({ id, kind: 'comment', title: 'Agent note', anchors: anchorsAt(view, 'docs/storage.md', [7, 7], 'main'), context: '', options: [],
   entries: [{ at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'Agent note' }] });
 /** The block ID of the storage chapter's 4 MiB paragraph, as the page sends it with a comment. */
 const groupBlock = () => view.documents.find(document => document.path === 'docs/storage.md')!.blocks.find(block => block.text === 'The write group is 4 MiB.')!.id;
@@ -707,7 +750,7 @@ async function sidebar(name: string, work: (page: BrowserSession, store: FileSto
   const storeRoot = path.join(root, name);
   const store = new FileStore(storeRoot);
   await store.createCollection({ name: 'spec', title: 'Spec review', settled: ['docs/decisions.md'] });
-  await store.createAll('spec', imported());
+  await store.createAll('spec', imported(), known());
   const session = await serve({ documents, store: storeRoot, collection: 'spec', person: 'person:operator', mermaid: false });
   try {
     await withBrowser(async page => {
@@ -735,7 +778,7 @@ it("shows the sidebar in a real browser and adds an agent's new thread without a
     })`)).toEqual({ panel: true, title: 'How long may an identifier be?', count: '0 / 1 answered', tags: ['Q1'] });
     // The page stays the same document while the agent's thread arrives.
     await page.evaluate(`window.sameDocument = true`);
-    await store.create('spec', agentComment('c-agent-note'));
+    await store.create('spec', agentComment('c-agent-note'), known());
     expect(await until(page, `document.getElementById('ov-v-hn').textContent === '4'`)).toBe(true);
     expect(await page.evaluate(`window.sameDocument`)).toBe(true);
   });
@@ -759,7 +802,7 @@ it('shows a citation inside an option without answering the question', async () 
   await sidebar('store-option', async page => {
     await page.evaluate(`document.querySelector('#ov-card-1 .ov-qh').click()`);
     expect(await page.evaluate(`(() => {
-      document.querySelector('#ov-card-1 .ov-opt a[href="#md-collab-anchor-2"]').click();
+      document.querySelector('#ov-card-1 .ov-opt a[href="#md-collab-anchor-3"]').click();
       return { posts: window.posts, path: location.pathname, shown: mdRender.currentDocument() };
     })()`)).toEqual({ posts: [], path: '/', shown: 'docs/storage.md' });
   });
@@ -769,7 +812,7 @@ it('loads the threads again when the event stream opens again', async () => {
   await sidebar('store-reconnect', async (page, store) => {
     // Writes made while the page is disconnected send it no event.
     await page.evaluate(`window.sidebarEvents.close()`);
-    await store.create('spec', agentComment('c-while-away'));
+    await store.create('spec', agentComment('c-while-away'), known());
     await page.evaluate(`window.sidebarEvents.dispatchEvent(new Event('open'))`);
     expect(await until(page, `document.getElementById('ov-v-hn').textContent === '4'`)).toBe(true);
   });
@@ -786,7 +829,7 @@ it.each([
       const note = document.getElementById('ov-note-1');
       note.focus(); note.value = 'Draft answer'; note.dispatchEvent(new Event('input', { bubbles: true }));
     })()`);
-    await store.create('spec', { ...imported()[0]!, id: 'q02-second-question', title: 'Second question', number: 2 });
+    await store.create('spec', { ...imported()[0]!, id: 'q02-second-question', title: 'Second question', number: 2 }, known());
     await until(page, `document.getElementById('ov-count').textContent === '0 / 2 answered'`);
     expect(await page.evaluate(`!!document.getElementById('ov-card-2')`)).toBe(false);
     expect(await page.evaluate(`(() => { ${leave}; return { card: !!document.getElementById('ov-card-2'), draft: document.getElementById('ov-note-1').value }; })()`))
@@ -812,7 +855,7 @@ it('keeps what the reader typed while a save was running', async () => {
 
 it("opens the comment box even when an annotation carries the box's ID", async () => {
   await sidebar('store-control-id', async (page, store) => {
-    await store.create('spec', { ...imported()[0]!, id: 'q02-control-id', title: 'Control ID', number: 2, context: 'An anchor <a id="ov-composer"></a>in the context.' });
+    await store.create('spec', { ...imported()[0]!, id: 'q02-control-id', title: 'Control ID', number: 2, context: 'An anchor <a id="ov-composer"></a>in the context.' }, known());
     await until(page, `document.getElementById('ov-count').textContent === '0 / 2 answered'`);
     await page.evaluate(`(() => {
       document.querySelector('#ov-card-2 .ov-qh').click();
@@ -855,7 +898,7 @@ it('shows a question that arrives while the reader writes a comment on selected 
   await sidebar('store-typing-comment', async (page, store) => {
     await openComposer(page);
     await page.evaluate(`(() => { const box = document.getElementById('ov-comment'); box.value = 'Draft comment'; box.dispatchEvent(new Event('input', { bubbles: true })); })()`);
-    await store.create('spec', { ...imported()[0]!, id: 'q02-second-question', title: 'Second question', number: 2 });
+    await store.create('spec', { ...imported()[0]!, id: 'q02-second-question', title: 'Second question', number: 2 }, known());
     await until(page, `document.getElementById('ov-count').textContent === '0 / 2 answered'`);
     expect(await page.evaluate(`({ card: !!document.getElementById('ov-card-2'), typing: document.activeElement === document.getElementById('ov-comment'), comment: document.getElementById('ov-comment').value })`))
       .toEqual({ card: true, typing: true, comment: 'Draft comment' });
@@ -881,7 +924,7 @@ it('keeps what the reader typed in the comment box while its save was running', 
 
 it("names a question's note box by its label even when an annotation carries the box's ID", async () => {
   await sidebar('store-label-id', async (page, store) => {
-    await store.create('spec', { ...imported()[0]!, id: 'q02-label-id', title: 'Label ID', number: 2, context: 'An anchor <a id="ov-note-2"></a>in the context.' });
+    await store.create('spec', { ...imported()[0]!, id: 'q02-label-id', title: 'Label ID', number: 2, context: 'An anchor <a id="ov-note-2"></a>in the context.' }, known());
     await until(page, `document.getElementById('ov-count').textContent === '0 / 2 answered'`);
     expect(await page.evaluate(`[...document.querySelector('#ov-card-2 textarea').labels].map(label => label.textContent)`)).toEqual(['Your note']);
   });
@@ -895,7 +938,7 @@ async function changeBox(page: BrowserSession, id: string): Promise<{ text: stri
     return box ? { text: box.querySelector('.ov-was').textContent, deleted: [...box.querySelectorAll('del')].map(e => e.textContent), inserted: [...box.querySelectorAll('ins')].map(e => e.textContent), actions: [...box.querySelectorAll('button')].map(b => b.textContent) } : null; })()`);
 }
 
-it('anchors a comment on a selection to the block where it starts, and shows the words that changed in that block', async () => {
+it('anchors a comment on a selection over two paragraphs to both, the first as the main passage, and shows the words that changed in it', async () => {
   const copy = path.join(root, 'repo-selection');
   await cp(docs, copy, { recursive: true });
   await sidebar('store-selection', async (page, store) => {
@@ -909,7 +952,9 @@ it('anchors a comment on a selection to the block where it starts, and shows the
     await page.evaluate(`(() => { document.getElementById('ov-selbtn').click(); document.getElementById('ov-comment').value = 'Two lines are enough.'; document.getElementById('ov-comment-save').click(); })()`);
     await until(page, `document.getElementById('ov-toast').textContent === 'Comment saved.'`);
     const [comment] = (await store.list('spec')).filter(({ thread }) => thread.kind === 'comment');
-    expect(comment!.thread.anchors.map(({ path: file, tag, position, text }) => ({ file, tag, position, text }))).toEqual([{ file: 'docs/long.md', tag: 'p', position: 2, text: 'First line second line third line.' }]);
+    expect(comment!.thread.anchors.map(anchor => ({ role: anchor.role, file: anchor.path, text: textOf(anchor.path, anchor.block) }))).toEqual([
+      { role: 'main', file: 'docs/long.md', text: 'First line second line third line.' }, { role: 'also', file: 'docs/long.md', text: 'Next paragraph.' },
+    ]);
     await page.waitForNavigation(() => writeFile(path.join(copy, 'docs/long.md'), long.replace('second line', 'second row')));
     await until(page, `document.getElementById('ov-v-hn').textContent === '4'`);
     expect(await changeBox(page, comment!.thread.id)).toEqual({ text: 'Updated since this was written: First line second line row third line.', deleted: ['line'], inserted: ['row'], actions: ['Mark done', 'Keep open', 'Send to a fix run'] });
@@ -917,17 +962,19 @@ it('anchors a comment on a selection to the block where it starts, and shows the
 });
 
 // The reader's three choices on a passage whose words changed, and what each records for agents.
+// Keep open moves the anchor into a new snapshot of the chapter as it reads now, so its flag clears;
+// the old snapshot stays.
 it.each([
-  ['Mark done', 'settled', 'settled', 'updated'],
-  ['Keep open', 'kept-open', 'open', 'same'],
-  ['Send to a fix run', 'fix-requested', 'open', 'updated'],
-])('records "%s" on a commented passage whose words changed', async (label, kind, status, state) => {
+  ['Mark done', 'settled', 'settled', 'updated', 'old'],
+  ['Keep open', 'kept-open', 'open', 'same', 'new'],
+  ['Send to a fix run', 'fix-requested', 'open', 'updated', 'old'],
+])('records "%s" on a commented passage whose words changed', async (label, kind, status, state, snapshot) => {
   const copy = path.join(root, 'repo-choice-' + kind);
   await cp(docs, copy, { recursive: true });
   await writeFile(path.join(copy, 'docs/long.md'), long.replace('Next paragraph.', 'Next short paragraph.'));
   const edited = (await renderView(path.join(copy, 'docs'), { mermaid: false })).view;
   await sidebar('store-choice-' + kind, async (page, store) => {
-    await store.create('spec', { ...agentComment('c-next'), anchors: [anchorAt(view, 'docs/long.md', [7, 7], 'main')] });
+    await store.create('spec', { ...agentComment('c-next'), anchors: anchorsAt(view, 'docs/long.md', [7, 7], 'main') }, known());
     await until(page, `document.getElementById('ov-v-hn').textContent === '4'`);
     expect((await changeBox(page, 'c-next'))?.inserted).toEqual(['short']);
     await page.evaluate(`[...document.querySelectorAll('#ov-h-c-next .ov-change button')].find(button => button.textContent === ${JSON.stringify(label)}).click()`);
@@ -935,7 +982,10 @@ it.each([
       if (Date.now() > deadline) throw new Error(`${label} wrote no entry`);
     }
     const { thread } = await store.read('spec', 'c-next');
-    expect({ kind: thread.entries.at(-1)!.kind, status: threadStatus(thread), state: resolveAnchor(thread.anchors[0]!, edited).state }).toEqual({ kind, status, state });
+    const before = snapshotOf(view, 'docs/long.md').hash, after = snapshotOf(edited, 'docs/long.md').hash;
+    const names = (await readdir(path.join(store.root, 'spec/versions'))).filter(name => name.startsWith('docs%2Flong.md~')).sort();
+    expect({ kind: thread.entries.at(-1)!.kind, status: threadStatus(thread), state: (await resolveAnchor(thread.anchors[0]!, edited, store, 'spec')).state, snapshot: { [before]: 'old', [after]: 'new' }[thread.anchors[0]!.snapshot], names })
+      .toEqual({ kind, status, state, snapshot, names: [...new Set([before, snapshot === 'new' ? after : before])].map(hash => `docs%2Flong.md~${hash}.json`).sort() });
   }, path.join(copy, 'docs'));
 });
 
@@ -944,7 +994,7 @@ it('shows a commented passage that was removed with its old text, and records a 
   await cp(docs, copy, { recursive: true });
   await writeFile(path.join(copy, 'docs/long.md'), long.replace('\nNext paragraph.\n', ''));
   await sidebar('store-removed-passage', async (page, store) => {
-    await store.create('spec', { ...agentComment('c-next'), anchors: [anchorAt(view, 'docs/long.md', [7, 7], 'main')] });
+    await store.create('spec', { ...agentComment('c-next'), anchors: anchorsAt(view, 'docs/long.md', [7, 7], 'main') }, known());
     await until(page, `document.getElementById('ov-v-hn').textContent === '4'`);
     expect(await changeBox(page, 'c-next')).toEqual({ text: 'Removed. It read: Next paragraph.', deleted: [], inserted: [], actions: ['Close', 'Save note'] });
     await page.evaluate(`(() => { const row = document.getElementById('ov-h-c-next'); row.querySelector('.ov-change textarea').value = 'Say where this went.'; [...row.querySelectorAll('.ov-change button')].find(b => b.textContent === 'Save note').click(); })()`);
@@ -965,7 +1015,7 @@ it('shows a commented passage that was removed with its old text, and records a 
 
 it('redraws the list without a question removed while the reader typed when the reader opens its card', async () => {
   await sidebar('store-removed-question', async (page, store) => {
-    await store.create('spec', { ...imported()[0]!, id: 'q02-second-question', title: 'Second question', number: 2 });
+    await store.create('spec', { ...imported()[0]!, id: 'q02-second-question', title: 'Second question', number: 2 }, known());
     await until(page, `document.getElementById('ov-count').textContent === '0 / 2 answered'`);
     // The reader types a note, so the list is not redrawn when the question goes.
     await page.evaluate(`(() => {
@@ -988,10 +1038,63 @@ it('moves the highlight of an open question with the passage an agent moved it t
     const lit = (text: string) => `getComputedStyle([...document.querySelectorAll('[data-block]')].find(element => element.localName === 'p' && element.textContent.includes(${JSON.stringify(text)}))).backgroundColor !== 'rgba(0, 0, 0, 0)'`;
     expect(await page.evaluate(lit('Identifiers may be long.'))).toBe(true);
     const { thread } = await store.read('spec', 'q01-how-long-may-an-identifier-be');
-    const moved = { ...thread, anchors: [anchorAt(view, 'docs/long.md', [7, 7], 'main'), ...thread.anchors.slice(1)] };
+    // The agent writes the chapter's snapshot and the thread by hand.
+    const moved = { ...thread, anchors: [...anchorsAt(view, 'docs/long.md', [7, 7], 'main'), ...thread.anchors.slice(1)] };
+    const snapshot = snapshotOf(view, 'docs/long.md');
+    await writeFile(path.join(store.root, 'spec/versions', snapshotFile(snapshot.path, snapshot.hash)), snapshot.content);
     await writeFile(path.join(store.root, 'spec/threads', thread.id + '.md'), serializeThread(moved));
     await until(page, lit('Next paragraph.'));
     expect(await page.evaluate(`({ old: ${lit('Identifiers may be long.')}, now: ${lit('Next paragraph.')} })`)).toEqual({ old: false, now: true });
+  });
+});
+
+it("moves between a thread's cited passages with its previous and next buttons, and shows none for a single passage", async () => {
+  await sidebar('store-passage-nav', async (page, store) => {
+    // Main passage in the storage chapter, then one in the decisions chapter, then another in the storage chapter.
+    const anchors = [...anchorsAt(view, 'docs/storage.md', [9, 9], 'main'), ...anchorsAt(view, 'docs/decisions.md', [9, 9], 'also'), ...anchorsAt(view, 'docs/storage.md', [7, 7], 'also')];
+    await store.create('spec', { ...agentComment('c-three'), anchors }, known());
+    await store.create('spec', agentComment('c-one'), known());
+    await until(page, `document.getElementById('ov-v-hn').textContent === '5'`);
+    await page.evaluate(`document.getElementById('ov-v-h').click()`);
+    const open = (id: string) => page.evaluate(`[...document.getElementById('ov-list').children].find(row => row.id === 'ov-h-${id}').querySelector('.ov-hh').click()`);
+    // What the reader of a row finds: the count, the named buttons, and the chapter shown.
+    const seen = (id: string) => page.evaluate(`(() => { const row = [...document.getElementById('ov-list').children].find(row => row.id === 'ov-h-${id}');
+      const named = name => row.querySelector('button[aria-label="' + name + '"]');
+      return { count: row.querySelector('[aria-live]')?.textContent ?? null, previous: !!named('Previous passage'), next: !!named('Next passage'), shown: mdRender.currentDocument() }; })()`);
+    const press = (id: string, name: string) => page.evaluate(`[...document.getElementById('ov-list').children].find(row => row.id === 'ov-h-${id}').querySelector('button[aria-label="${name}"]').click()`);
+    await open('c-three');
+    const steps = [await seen('c-three')];
+    await press('c-three', 'Next passage');
+    await until(page, `mdRender.currentDocument() === 'docs/decisions.md'`);
+    steps.push(await seen('c-three'));
+    await press('c-three', 'Previous passage');
+    await until(page, `mdRender.currentDocument() === 'docs/storage.md'`);
+    steps.push(await seen('c-three'));
+    await open('c-one');
+    steps.push(await seen('c-one'));
+    expect(steps).toEqual([
+      { count: '1 of 3', previous: true, next: true, shown: 'docs/storage.md' },
+      { count: '2 of 3', previous: true, next: true, shown: 'docs/decisions.md' },
+      { count: '1 of 3', previous: true, next: true, shown: 'docs/storage.md' },
+      { count: null, previous: false, next: false, shown: 'docs/storage.md' },
+    ]);
+  });
+});
+
+it("underlines a question's other cited passages without a fill, and fills only its main passage, also while the question is open", async () => {
+  await sidebar('store-also-underline', async page => {
+    await page.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    // How each cited paragraph of the storage chapter looks: filled, and underlined with dots.
+    const looks = () => page.evaluate(`Object.fromEntries(['Identifiers may be long.', 'The write group is 4 MiB.'].map(text => {
+      const style = getComputedStyle([...document.querySelectorAll('[data-block]')].find(element => element.localName === 'p' && element.textContent.includes(text)));
+      return [text, { filled: style.backgroundColor !== 'rgba(0, 0, 0, 0)', dotted: style.textDecorationLine.includes('underline') && style.textDecorationStyle === 'dotted' }];
+    }))`);
+    const closed = await looks();
+    await page.evaluate(`document.querySelector('#ov-card-1 .ov-qh').click()`);
+    expect({ closed, open: await looks() }).toEqual({
+      closed: { 'Identifiers may be long.': { filled: true, dotted: false }, 'The write group is 4 MiB.': { filled: false, dotted: true } },
+      open: { 'Identifiers may be long.': { filled: true, dotted: false }, 'The write group is 4 MiB.': { filled: false, dotted: true } },
+    });
   });
 });
 
@@ -1003,7 +1106,7 @@ it('keeps warning about a failed re-render after the threads change, until a ren
     await writeFile(path.join(copy, 'docs/long.md'), '---\ntitle: [1]\n---\n' + long);
     await until(page, warned);
     // An agent's thread arrives after the failure; the page loads the threads again.
-    await store.create('spec', agentComment('c-after-failure'));
+    await store.create('spec', agentComment('c-after-failure'), known());
     await until(page, `document.getElementById('ov-v-hn').textContent === '4'`);
     expect(await page.evaluate(warned)).toBe(true);
     await page.waitForNavigation(() => writeFile(path.join(copy, 'docs/long.md'), long));
@@ -1023,7 +1126,7 @@ it('says live updates are disconnected when the event stream fails, and saves an
 
 it('counts each item once in the History filters for its topic and for each chapter it cites', async () => {
   await sidebar('store-filters', async page => {
-    // The question cites the storage chapter twice and the decisions chapter once; the two settled decisions sit in the decisions chapter.
+    // The question cites the storage chapter twice and the decisions chapter twice; the two settled decisions sit in the decisions chapter.
     expect(await page.evaluate(`({ topics: [...document.getElementById('ov-f-topic').options].map(o => o.text), chapters: [...document.getElementById('ov-f-chapter').options].map(o => o.text) })`))
       .toEqual({ topics: ['All topics', 'Limits (1)', 'Storage choices (2)'], chapters: ['All chapters', 'Decisions (3)', 'Storage (1)'] });
   });

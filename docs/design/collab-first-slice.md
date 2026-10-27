@@ -121,15 +121,11 @@ anchors:
   - role: main
     path: docs/specs/memory-storage/schemas-and-values.md
     block: decimal~3f9a1c
-    tag: p
-    position: 2
-    text: Write decimals in the logical notation, not submittable source.
+    snapshot: 9c1e4b7f0a2d5e8c3b6f1a4d7e0c3b6a9f2e5d8c1b4a7f0e3d6c9b2a5f8e1d4c
   - role: also
     path: docs/specs/memory-storage/decisions.md
     block: decision-bounded-decimal~8c01d2
-    tag: p
-    position: 3
-    text: A bounded decimal type with a declared scale.
+    snapshot: 4f7a0d3c6b9e2f5a8d1c4b7e0a3f6d9c2b5e8a1f4d7c0b3e6a9d2f5c8b1e4a7d
 settled_as: null
 ---
 
@@ -156,7 +152,7 @@ Keep the annotation names short.
 - A line of context or note text that starts with `#`, `Choice: `, `Source: ` or `Settled as: `, after any number of backslashes, is written with one more backslash, inside fenced code too; reading removes exactly one. So no text can end a section or an entry or be read as a field, the parser never tracks fences, and an unclosed fence cannot swallow the entries. An option, a `Source:` value and a `Settled as:` value are one line, and no text holds a carriage return, which reading would turn into a line end; a write that breaks this is refused. An option is recommended exactly when its text says "(recommended)", since reading takes the recommendation from the text.
 - `kind` is `comment` or `question` in this slice. A comment has no options, `decides` or `number`.
 - `decides` is `operator`, `lead` or `measurement`. Every operator question has a `number`, unique in its collection; the page offers answers only for numbered questions. Lead and measurement questions have none.
-- An anchor names one rendered block as it was when the anchor was written: its `path`, its block ID in `block`, its element in `tag`, its `position` from 1 among the blocks of its section, and its whitespace-normalised `text`. The section is the part of the block ID before `~`. An imported citation names the first block with text that its lines cover; a comment on a selection names the block where the selection starts. Line numbers and commits are not stored (operator decision of 2026-10-27, [Anchors name a block and its text](#decision-anchors-name-a-block-and-its-text)).
+- An anchor names one rendered block as it was when the anchor was written: its document in `path`, its block ID in `block`, and in `snapshot` the SHA-256 of the [snapshot](#store-layout) of that document's blocks, which holds the block's tag and text. A citation or a selection that covers several blocks gets one anchor per block, in document order; the first is the main passage when the citation or selection names the main passage, and the others are `also` (operator decision of 2026-10-27). A block counts when the citation's lines or the selection cover some of its text; a block that holds other covered blocks, such as a quote around its paragraphs, gives way to them. Line numbers and commits are not stored (operator decision of 2026-10-27, [Anchors name a block and its text](#decision-anchors-name-a-block-and-its-text)).
 - The status comes from the entries: the last of `raised`, `reopened`, `answered`, `settled` and `withdrawn` decides it, and `comment`, `kept-open` and `fix-requested` entries never change it. `answer` makes it `answered`.
 - `kept-open` records that the reader kept the thread open on its updated passages; the same write moves each updated anchor to its block as it reads now. `fix-requested` records that the reader sent the thread's changed passage to a fix run, which starts outside md-collab; agents read both with `md-collab list --json`.
 - Only a `person:` actor writes an `answer`. An agent that records an answer the operator gave in chat writes it as the person with the line `Source: chat` in the entry.
@@ -175,15 +171,13 @@ md-collab reads `### Decision:` sections from the decision chapters a collection
 
 ### Anchor resolution
 
-At every load, each anchor is matched against the current `SiteView`, in this order (operator decision of 2026-10-27):
+Anchoring follows the version diff, as git does when it carries review comments from one version of a file to the next (lead decision of 2026-10-27, after the operator asked for git-like behavior). Each render compares, once per snapshot that the threads' anchors name, the snapshot's block texts with the current document's block texts. The comparison is the array diff of the npm package `diff` (jsdiff), and each anchor takes the result for its block:
 
-1. **Same.** The block with the anchor's `block` ID is in the same path. Its text is unchanged, since the ID ends in a hash of the text. The page shows it as normal.
-2. **Updated.** Otherwise, the block at the same `position` in the same section with the same `tag` is the anchor's block with changed text. It stays attached, and the page flags it "updated" with a word-level diff of the anchor's `text` against the text now. The reader marks it done (a `settled` entry), keeps it open (a `kept-open` entry, which moves the anchor to the block as it reads now) or sends it to a fix run (a `fix-requested` entry).
-3. **Removed.** Otherwise the block is gone. The page shows it as "removed" with the anchor's `text`. The reader closes the thread (a `withdrawn` entry) or leaves a note for an agent (a `comment` entry).
+1. **Same.** The block's text is in both, matched by the diff. The anchor follows its block to its new place, also when blocks were inserted or removed around it or its section heading was renamed, and the page shows it as normal.
+2. **Updated.** The block was removed in a hunk of the diff that also adds blocks. The hunk's removed blocks pair with its added blocks in order, and the anchor moves to its block's partner. The page flags it "updated" with jsdiff's word diff of the snapshot's text against the text now. The reader marks it done (a `settled` entry), keeps it open (a `kept-open` entry) or sends it to a fix run (a `fix-requested` entry). Keeping it open writes a new snapshot of the document as it reads now and moves each updated anchor to its block there, so the flag clears.
+3. **Removed.** The block was removed and has no partner in its hunk. The page shows it as "removed" with the snapshot's text. The reader closes the thread (a `withdrawn` entry) or leaves a note for an agent (a `comment` entry). An added block without a partner pairs with no anchor.
 
-A settled or withdrawn thread no longer needs its passage, so the page shows no flag for it. `md-collab check` prints each updated and removed anchor of the other threads and exits 1 when there is one. The word diff is the sequence diff of the operator's prompt-scope `src/diff.ts`, applied to words.
-
-A block keeps its section across edits only while the section keeps its ID: renaming a heading that has no explicit anchor before it gives the section a new ID, and the section's annotated blocks then show as removed.
+A snapshot that is missing or cannot be read, or that has no block with the anchor's ID, makes the anchor removed, and the page says which file it could not read instead of the old text; neither the page nor `check` stops. A settled or withdrawn thread no longer needs its passage, so the page shows no flag for it. `md-collab check` prints each updated and removed anchor of the other threads, with the reason when its snapshot cannot be read, and exits 1 when there is one.
 
 ### Commands
 
@@ -204,10 +198,20 @@ Setting up a review:
 
 1. **Prerequisites.** The documents are in a git checkout. The store is a folder outside that checkout's working tree; `import` and `serve` refuse a store inside it. The store is a git repository of its own (`git init <store>`), so a damaged thread file can be restored. md-collab never commits: the agent that imports commits the store after step 3, and again after each review session.
 2. **Create the collection.** `init` writes `<store>/<collection>/collection.yaml` and prints `Created collection <name> in <store>`. It refuses a collection that exists. `--settled` names each decision chapter by its corpus path, for example `docs/specs/memory-storage/decisions.md`.
-3. **Import the questions.** `import` reads a House Rules question list, anchors each citation to the first rendered block with text that its lines cover and prints `Imported <n> questions into <collection>`, plus one line per citation kept as text because it names no rendered document. It refuses the whole list, before writing anything, when a question number repeats in the list or is already in the collection, or when a question holds a fenced code block, whose lines it would read as headings and options.
+3. **Import the questions.** `import` reads a House Rules question list, anchors each citation to every rendered block with text that its lines cover, writes the snapshots those anchors name, and prints `Imported <n> questions into <collection>`, plus one line per citation kept as text because it names no rendered document. It refuses the whole list, before writing anything, when a question number repeats in the list or is already in the collection, or when a question holds a fenced code block, whose lines it would read as headings and options.
 4. **Serve the page.** `serve` prints `md-collab: open http://127.0.0.1:<port>/` and runs until Ctrl+C. Ctrl+C during startup lets the first render finish and remove what it started, such as a diagram browser and its profile, and ends `serve` without printing the address. The operator answers there.
 5. **Read the answers.** `list` prints one line per thread with its status and latest answer; `--json` prints the threads. `answer`, `comment` and `resolve` print `<id>: <kind> recorded; status <status>`.
 6. **Check anchors.** `check` prints each updated or removed anchor of a thread that is not settled or withdrawn, and each missing settled chapter, and exits 1 when there is one; otherwise it prints `All anchors resolve`.
+
+### Store layout
+
+```text
+<store>/<collection>/collection.yaml                     # title and settled chapters
+<store>/<collection>/threads/<id>.md                     # one thread
+<store>/<collection>/versions/<path>~<sha256>.json       # one document snapshot that anchors name
+```
+
+A snapshot is the JSON list of a rendered document's blocks, in document order, each with its `id`, `tag` and `text`, written with two-space indentation and a final line end. Its file name is the document's corpus path, percent-encoded as a URL component so that `/` becomes `%2F`, then `~` and the SHA-256 of the file's content in lower-case hexadecimal: `docs%2Fstorage.md~<sha256>.json`. The store writes a document's snapshot whenever it writes an anchor on that document, at `import`, for a comment on a selection and for "Keep open", unless the same snapshot is already there. Each anchor names its snapshot by that SHA-256.
 
 ### Store writes
 
@@ -215,7 +219,8 @@ One function in `store.ts` owns every write to a collection. It holds the collec
 
 - **Lock.** The lock is the file `<store>/<collection>/.lock`, holding the owner's process number and a random token. A writer creates it only if it is absent, and owns it from that moment: every way out from then on removes it, also when writing or closing the lock file fails. A writer that finds a lock waits, polling every 10 ms, and gives up after 10 seconds, measured on the monotonic clock, with `Collection <name> is locked by process <n>`. A lock that still names no process after the wait, left by a writer that crashed between creating it and writing its owner, is refused with `Collection <name> is locked by <lock file>, which names no process; if no md-collab command is writing, delete it`. A writer removes the lock when it finishes, and only when the lock still holds its own token. A lock that is already gone counts as removed; any other failure to remove it is reported to the caller as `Could not remove the lock <file>: <reason>`, after the failure of the write itself when there was one.
 - **A lock left by a crashed process.** A lock whose process no longer exists is never taken over. A writer that finds one refuses at once with `Collection <name> is locked by process <n>, which no longer runs; if no md-collab command is writing, delete <lock file>`. A person or agent deletes the file by hand, see [Recovery](#recovery). A lock whose process number was reused by a live process looks held; remove it the same way.
-- **New files** (threads and `collection.yaml`) are written to a private draft beside the destination, `.<name>.<random>.tmp`, then published with a hard link that fails when the destination exists, and the draft is removed. A reader sees a complete file or none.
+- **New files** (threads, snapshots and `collection.yaml`) are written to a private draft beside the destination, `.<name>.<random>.tmp`, then published with a hard link that fails when the destination exists, and the draft is removed. A reader sees a complete file or none.
+- **Snapshots** are written under the lock, after the write's other checks and before its thread. A write is refused, before anything is written, when an anchor names a snapshot that the write does not bring and the store does not have. A snapshot that is already there with the same content counts as written; one whose content differs from its name is refused with its path.
 - **Appends** reread the thread under the lock, refuse when the caller named an older version, write a draft and rename it over the thread.
 - **Creation** under the lock refuses an id that exists or repeats in the batch, then publishes each thread. Only a batch with question numbers reads the collection's threads, to refuse a number that exists or repeats; a comment checks only its own file name.
 - Drafts and the lock start with a dot. Readers and the page's change notices ignore them, and every handled failure tries to remove the draft it wrote.
@@ -231,6 +236,9 @@ Each invariant names the failure it prevents and the test that checks it at the 
 | A write refused by a check (an old version, an existing id or question number) changes nothing. A write that fails on a filesystem error tries to remove its own draft and lock; an import that fails part-way keeps the complete threads it published before the failure, see [Recovery](#recovery). That cleanup can fail as well: a draft left behind is ignored by readers, and a lock left behind is reported with its path and refuses later writes until it is deleted. The write may have been published before the cleanup failed. A crashed writer can leave a draft and its lock in the same way. | A conflict or a repeated id blocks or corrupts later writes; two writers enter after a crash. | [appends entries and refuses a write against an old version](../../packages/md-collab/test/collab.test.ts), [leaves no draft or lock behind when a write is refused, and refuses to write past a lock left by a crashed process](../../packages/md-collab/test/collab.test.ts), [reports a lock it could not remove after a write, and leaves it for the documented repair](../../packages/md-collab/test/collab.test.ts) |
 | A thread file reads back as the thread written, whatever its text. | A note that starts like a field or a heading changes an answer or makes the thread unreadable. | [writes and reads a thread file without loss, and derives status from its entries](../../packages/md-collab/test/collab.test.ts) |
 | The store is outside the documents' working tree. | Annotations ride on the documents' branches. | [refuses a store inside the documents' working tree](../../packages/md-collab/test/collab.test.ts) |
+| A snapshot is written once and never changed: a second write of the same content leaves the file as it is. | An anchor's old text, and so its diff, changes after the anchor was written. | [writes each snapshot once, and refuses a thread whose anchor names a snapshot the store does not have](../../packages/md-collab/test/collab.test.ts) |
+| An anchor names a snapshot that is in the store. | A thread whose passage can never be found again. | [writes each snapshot once, and refuses a thread whose anchor names a snapshot the store does not have](../../packages/md-collab/test/collab.test.ts) |
+| md-collab never deletes a snapshot, also when "Keep open" moves every anchor off it. | A thread restored from the store's git history names a snapshot that is gone. | [records "%s" on a commented passage whose words changed](../../packages/md-collab/test/collab.test.ts) |
 
 ### Local page and server
 
@@ -244,7 +252,9 @@ Each invariant names the failure it prevents and the test that checks it at the 
 - One render runs at a time; a change during a render starts one more after it. A render publishes its page, view and settled decisions together, and only when it succeeds; it takes the settled decisions from the text it rendered, which the view carries, so History always describes the page's text. A failed render keeps the last good page and sends `failed` with the error. Every state carries the last failure until a render succeeds, and the page shows it, so the warning stays when threads change and after a reload or a reconnection. Stopping the server stops the checks, starts no further render and waits for the check and the render running. The checks start only after the server listens, so a start that fails leaves none running.
 - The page loads the threads at start and each time the event stream opens, so a reconnection catches up on writes it missed. Every page and every state carry the identity of the render they come from, random for each render, so renders of a restarted server never match an older page; a page whose render differs from the state's reloads before it shows the state, so a reconnection also catches up on a render it missed, also from a server restarted on the same port. One state request runs at a time, so an older response never replaces a newer one. Every write names the render its page shows. The server checks a comment and a `kept-open` choice, which name passages, against one current render and refuses one from an older render with 409, so a page that missed a re-render cannot attach a comment to text it never showed. A page that stops reading the stream is disconnected and catches up when it reconnects.
 - A change that arrives while the reader types a note in the list updates the counts at once and redraws the list when the focus leaves the sidebar, also when it moves from the note to a button in the sidebar first; notes being written survive the redraw. The comment box for selected text is not in the list, so typing there never holds a redraw back. A save clears a note's draft only when the draft still holds the text that was saved; a comment save closes and empties the comment box only when it still holds the saved text and passage.
-- The sidebar has the approved Questions view and the History view of the 2026-10-24 prototype. A comment on a text selection anchors to the block where the selection starts.
+- The sidebar has the approved Questions view and the History view of the 2026-10-24 prototype. A comment on a text selection anchors to each block the selection covers in the chapter where it starts, the first as the main passage.
+- A thread's main passage keeps the yellow highlight. Its other cited passages get a light dotted underline in the theme's pen colour and no fill, also while the thread is open (operator decision of 2026-10-27).
+- A question or comment card with more than one cited passage has a previous and a next button, shown as `<` and `>` and named "Previous passage" and "Next passage", and the position beside them, such as "2 of 4". They move through the thread's passages in order, main first, with `mdRender.show({ path, block })`, and stop at the first and the last. A card with one passage shows neither the buttons nor the count (operator decision of 2026-10-27).
 
 ## Recovery
 
@@ -259,6 +269,7 @@ What each refusal leaves behind, who acts and how.
 | `Collection <name> is locked by <lock file>, which names no process; …` | The lock file of a writer that crashed before it wrote its process number. Every write to the collection is refused. | The person or agent that sees the message | Check that no md-collab command is writing to the collection, then delete the named lock file and repeat the write. |
 | `Collection <name> is locked by process <n>, which no longer runs; …` | The lock file `<store>/<collection>/.lock` of a crashed writer. Every write to the collection is refused. | The person or agent that sees the message | Check that no md-collab command is writing to the collection, then delete the named lock file and repeat the write. |
 | A thread file that does not parse, or a repeated question number from a hand edit | The file; every read of the collection fails and names it. | Whoever edited the store | Fix or remove the named file in the store's git checkout, for example with `git checkout -- <file>`. A restore brings back the last committed version, so entries written since that commit are lost; repeat them from `list` output or the page if they matter. |
+| A passage shows as removed because its snapshot `versions/<file>` cannot be read | The thread, unchanged. | Whoever edited the store | Restore the named file from the store's git checkout, for example with `git checkout -- <file>`. The passage shows again at the next state load. |
 | `check` reports an updated or removed anchor | The thread, unchanged; the page flags the passage. | The reader on the page; for a `fix-requested` entry or a note, an agent | The reader marks it done, keeps it open, sends it to a fix run, closes it or leaves a note. An agent that reads a `fix-requested` entry or a note fixes the document or answers with a `comment`. |
 | `Thread <id>: only a person writes an answer` | Nothing written. | The agent that tried to answer | Leave the answer to the person. When the person answered in chat, record it as that person: `answer <id> --by person:<login> --source chat`. |
 | `Extension <name> failed: <message>` | Nothing written. `serve` does not start; during a re-render the last good page stays. | The extension's maintainer; for `md-collab`, whoever installed it | Fix the extension the message names. For `md-collab`, rebuild or reinstall the package so its sidebar files are the shipped ones. |
@@ -301,13 +312,13 @@ What each refusal leaves behind, who acts and how.
 
 ### Decision: anchors name a block and its text
 
-**Choice:** A comment or question stores its block's ID and the block's exact text when it was written. A block with the same ID shows as normal. The same block with changed text stays attached and is flagged "updated" with a word-level diff of the old text against the new; the reader marks it done, keeps it open or sends it to a fix run. A block that is gone shows as "removed" with its old text; the reader closes the question or leaves a note for an agent. Line numbers are no longer used. The same block with changed text is the block at the same position in the same section, with the same tag.
+**Choice:** A comment or question stores its block's ID and the block's exact text when it was written, the text in a write-once snapshot of its document. A block whose text is unchanged shows as normal. The same block with changed text stays attached and is flagged "updated" with a word-level diff of the old text against the new; the reader marks it done, keeps it open or sends it to a fix run. A block that is gone shows as "removed" with its old text; the reader closes the question or leaves a note for an agent. Line numbers are no longer used. Which block is the same block, and which is the same block with changed text, follows a block diff of the snapshot against the document now, see [Anchor resolution](#anchor-resolution).
 
-**Authority:** Operator decision, 2026-10-27. The rule for recognising the same block with changed text is a lead proposal of 2026-10-27.
+**Authority:** Operator decision, 2026-10-27. The version diff over snapshots is a lead decision of 2026-10-27, after the operator asked for git-like behavior; it replaces the lead proposal of the same day that matched a block by its tag and position in its section.
 
 **Reason:** A commit names a revision, not the text a working tree held, so line numbers could attach a comment to unrelated text. The reader judges a changed passage better than a quote search does.
 
-**Rejected alternatives:** A quote search, then the lines at the same commit, which attached comments to unrelated text after an uncommitted edit.
+**Rejected alternatives:** A quote search, then the lines at the same commit, which attached comments to unrelated text after an uncommitted edit. The block of the same tag at the same position in the same section, which lost a block whose section heading was renamed and paired a block with an unrelated one after an insertion above it.
 
 ## Size
 

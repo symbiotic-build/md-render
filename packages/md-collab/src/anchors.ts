@@ -1,7 +1,11 @@
-// An anchor names one rendered block and keeps its text from when it was written. At load it is
-// the same block, the block as updated since, or removed (operator decision of 2026-10-27).
+// An anchor names one block of a snapshot of its document. At render time it follows that block
+// through a block diff of the snapshot against the document now, as git carries review comments
+// across versions: the same block, the block as updated since, or removed.
 import type { Block, SiteView } from 'md-render';
+import { diffArrays, diffWords } from 'diff';
+import type { FileStore } from './store.js';
 import type { Anchor } from './thread.js';
+import { snapshotOf, type SnapshotBlock } from './versions.js';
 
 export type AnchorState = 'same' | 'updated' | 'removed';
 
@@ -10,44 +14,127 @@ export interface ResolvedAnchor {
   state: AnchorState;
   /** The block the anchor names now: the same block, or its updated version; null when removed. */
   block: Block | null;
+  /** The block as the anchor's snapshot holds it; null when the snapshot cannot be read. */
+  before: SnapshotBlock | null;
+  /** Why the anchor shows as removed when its snapshot cannot be read. */
+  problem: string | null;
 }
 
-/** A block's section: the section ID its block ID starts with, `top` before the first heading. */
-const sectionOf = (block: Block): string => block.heading ?? 'top';
+type Carried = Pick<ResolvedAnchor, 'state' | 'block'>;
 
 function documentBlocks(view: SiteView, path: string): readonly Block[] {
   return view.documents.find(document => document.path === path)?.blocks ?? [];
 }
 
 /**
- * Finds the anchor's block in the current documents. The block with the anchor's ID is the same
- * block, since the ID ends in a hash of its text. Otherwise the block of the same tag at the same
- * position in the same section is that block updated. Otherwise the block is removed.
+ * Where each block of a snapshot is now, by jsdiff's array diff of the block texts. An equal block
+ * is the same block. In a hunk, the removed blocks pair in order with the added blocks: each pair is
+ * a block updated. A removed block left without a partner is removed; an added block without one
+ * pairs with nothing.
  */
-export function resolveAnchor(anchor: Anchor, view: SiteView): ResolvedAnchor {
-  const blocks = documentBlocks(view, anchor.path);
-  const same = blocks.find(block => block.id === anchor.block);
-  if (same) return { anchor, state: 'same', block: same };
-  const section = anchor.block.slice(0, anchor.block.lastIndexOf('~'));
-  const updated = blocks.filter(block => sectionOf(block) === section)[anchor.position - 1];
-  if (updated?.tag === anchor.tag) return { anchor, state: 'updated', block: updated };
-  return { anchor, state: 'removed', block: null };
+export function carryBlocks(before: readonly SnapshotBlock[], now: readonly Block[]): Map<string, Carried> {
+  const carried = new Map<string, Carried>();
+  let old = 0;
+  let current = 0;
+  let removed: SnapshotBlock[] = [];
+  let added: Block[] = [];
+  const endHunk = () => {
+    removed.forEach((block, n) => carried.set(block.id, n < added.length ? { state: 'updated', block: added[n]! } : { state: 'removed', block: null }));
+    removed = [];
+    added = [];
+  };
+  for (const change of diffArrays(before.map(block => block.text), now.map(block => block.text))) {
+    if (change.removed) removed.push(...before.slice(old, old += change.count));
+    else if (change.added) added.push(...now.slice(current, current += change.count));
+    else {
+      endHunk();
+      for (let n = 0; n < change.count; n++) carried.set(before[old++]!.id, { state: 'same', block: now[current++]! });
+    }
+  }
+  endHunk();
+  return carried;
 }
 
-/** The anchor for one rendered block: its ID, tag, position in its section from 1, and text. */
+/** One run of an updated block's text: kept, only in the old text, or only in the new text. */
+export interface WordChange { change: '=' | '-' | '+'; text: string }
+
+/**
+ * The word-level difference from `before` to `after`, by jsdiff's word diff. The spaces around a
+ * changed run count as kept, so a run shows only the words that changed.
+ */
+export function wordChanges(before: string, after: string): WordChange[] {
+  const runs: WordChange[] = [];
+  const push = (change: WordChange['change'], text: string) => {
+    const last = runs.at(-1);
+    if (!text) return;
+    if (last?.change === change) last.text += text;
+    else runs.push({ change, text });
+  };
+  for (const part of diffWords(before, after)) {
+    const change = part.added ? '+' : part.removed ? '-' : '=';
+    const [, lead, words, trail] = /^(\s*)([\s\S]*?)(\s*)$/.exec(part.value)!;
+    push('=', lead!);
+    push(change, words!);
+    push('=', trail!);
+  }
+  return runs;
+}
+
+interface Carry { blocks: readonly SnapshotBlock[]; carried: Map<string, Carried> }
+
+// One diff per snapshot per render: the view is the render's, and a snapshot never changes.
+const carries = new WeakMap<SiteView, Map<string, Promise<Carry>>>();
+
+/** Resolves anchors against one render; a snapshot that cannot be read makes its anchors removed. */
+export async function resolveAnchor(anchor: Anchor, view: SiteView, store: FileStore, collection: string): Promise<ResolvedAnchor> {
+  const byKey = carries.get(view) ?? new Map<string, Promise<Carry>>();
+  carries.set(view, byKey);
+  const key = `${store.root}\n${collection}\n${anchor.path}\n${anchor.snapshot}`;
+  let carry = byKey.get(key);
+  if (!carry) {
+    carry = store.snapshot(collection, anchor.path, anchor.snapshot).then(blocks => ({ blocks, carried: carryBlocks(blocks, documentBlocks(view, anchor.path)) }));
+    byKey.set(key, carry);
+    // A snapshot restored later resolves at the next state request.
+    carry.catch(() => byKey.delete(key));
+  }
+  let found: Carry;
+  try { found = await carry; }
+  catch (error) { return { anchor, state: 'removed', block: null, before: null, problem: (error as Error).message }; }
+  const before = found.blocks.find(block => block.id === anchor.block) ?? null;
+  const carried = found.carried.get(anchor.block);
+  if (!before || !carried) return { anchor, state: 'removed', block: null, before, problem: `The snapshot of ${anchor.path} this passage was written on has no block ${anchor.block}` };
+  return { anchor, ...carried, before, problem: null };
+}
+
+/** The anchor for one rendered block: its document, its ID and the hash of its document's snapshot. */
 export function blockAnchor(view: SiteView, path: string, block: Block, role: Anchor['role']): Anchor {
-  const position = documentBlocks(view, path).filter(other => sectionOf(other) === sectionOf(block)).indexOf(block) + 1;
-  return { role, path, block: block.id, tag: block.tag, position, text: block.text };
+  return { role, path, block: block.id, snapshot: snapshotOf(view, path).hash };
 }
 
 /**
- * The anchor for a citation's source lines, which only an imported question list carries: the
- * first rendered block with text that the lines cover. Lines that cover no rendered block are refused.
+ * The blocks a citation or a selection names, from the blocks it touches in document order: those
+ * with text, without a block that holds another of them, such as a quote around its paragraphs.
+ * When none has text, the first block it touches.
  */
-export function anchorAt(view: SiteView, path: string, lines: [number, number], role: Anchor['role']): Anchor {
+export function citedBlocks(touched: readonly Block[]): Block[] {
+  const withText = touched.filter(block => block.text);
+  // A block's inner blocks follow it in document order and lie within its lines.
+  const cited = withText.filter((block, index) => !withText.slice(index + 1).some(inner => inner.lines[0] >= block.lines[0] && inner.lines[1] <= block.lines[1]));
+  return cited.length ? cited : touched.slice(0, 1);
+}
+
+/** One anchor per cited block, in document order: the first takes `role`, the others are `also`. */
+export function blockAnchors(view: SiteView, path: string, touched: readonly Block[], role: Anchor['role']): Anchor[] {
+  return citedBlocks(touched).map((block, index) => blockAnchor(view, path, block, index ? 'also' : role));
+}
+
+/**
+ * The anchors for a citation's source lines, which only an imported question list carries: one per
+ * block that the lines cover, see citedBlocks. Lines that cover no rendered block are refused.
+ */
+export function anchorsAt(view: SiteView, path: string, lines: [number, number], role: Anchor['role']): Anchor[] {
   if (!view.documents.some(document => document.path === path)) throw new Error(`${path} is not a rendered document`);
-  const found = documentBlocks(view, path).filter(block => block.lines[0] <= lines[1] && block.lines[1] >= lines[0]);
-  const first = found.find(block => block.text) ?? found[0];
-  if (!first) throw new Error(`${path}:${lines[0]}-${lines[1]} covers no rendered text`);
-  return blockAnchor(view, path, first, role);
+  const anchors = blockAnchors(view, path, documentBlocks(view, path).filter(block => block.lines[0] <= lines[1] && block.lines[1] >= lines[0]), role);
+  if (!anchors.length) throw new Error(`${path}:${lines[0]}-${lines[1]} covers no rendered text`);
+  return anchors;
 }

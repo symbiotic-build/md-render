@@ -5,6 +5,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { renderView } from 'md-render';
 import { resolveAnchor } from './anchors.js';
+import { snapshotsOf } from './versions.js';
 import { parseQuestionList, questionThreads } from './import.js';
 import { serve } from './server.js';
 import { checkStoreOutside, FileStore } from './store.js';
@@ -72,7 +73,7 @@ async function main(argv: string[]): Promise<number> {
         view, corpusRoot: root, actor: need('by'), at: values.at ?? now(), settled: info.settled, base: path.dirname(path.resolve(file)),
       });
       // Refuses the whole list, before writing, when a number repeats in it or is already in the collection.
-      await store.createAll(collection, threads);
+      await store.createAll(collection, threads, snapshotsOf(view, threads.flatMap(thread => thread.anchors.map(anchor => anchor.path))));
       console.log(`Imported ${threads.length} questions into ${collection}`);
       for (const line of skipped) console.log(`  kept as text, no anchor: ${line}`);
       return 0;
@@ -108,10 +109,10 @@ async function main(argv: string[]): Promise<number> {
       for (const { thread } of await store.list(collection)) {
         if (['settled', 'withdrawn'].includes(threadStatus(thread))) continue;
         for (const anchor of thread.anchors) {
-          const { state } = resolveAnchor(anchor, view);
+          const { state, problem } = await resolveAnchor(anchor, view, store, collection);
           if (state === 'same') continue;
           problems++;
-          console.log(`${state}\t${thread.id}\t${anchor.path}\t${anchor.block}`);
+          console.log(`${state}\t${thread.id}\t${anchor.path}\t${anchor.block}${problem ? `\t${problem}` : ''}`);
         }
       }
       const info = await store.collection(collection);

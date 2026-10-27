@@ -1,7 +1,8 @@
-// A House Rules operator question list becomes question threads; each cited line range becomes an anchor.
+// A House Rules operator question list becomes question threads; each cited line range becomes one
+// anchor per block it covers.
 import path from 'node:path';
 import type { SiteView } from 'md-render';
-import { anchorAt } from './anchors.js';
+import { anchorsAt } from './anchors.js';
 import type { Anchor, Option, Thread } from './thread.js';
 
 export interface ListedQuestion {
@@ -74,8 +75,9 @@ export function parseQuestionList(markdown: string, file: string): ListedQuestio
 const slug = (text: string): string => text.toLowerCase().replace(/`/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').split('-').slice(0, 6).join('-');
 
 /**
- * Turns listed questions into threads. The main anchor is the explicit Main passage, else the first
- * citation outside the settled chapters; every other citation is an also anchor.
+ * Turns listed questions into threads, with one anchor per cited block. The main anchor is the first
+ * block of the explicit Main passage, else of the first citation outside the settled chapters; every
+ * other cited block is an also anchor.
  */
 export function questionThreads(questions: ListedQuestion[], options: {
   view: SiteView; corpusRoot: string; actor: string; at: string; settled: string[]; idPrefix?: string;
@@ -87,8 +89,8 @@ export function questionThreads(questions: ListedQuestion[], options: {
   const corpusPath = (file: string): string => path.relative(options.corpusRoot, file).split(path.sep).join('/');
   return questions.map(question => {
     const anchors: Anchor[] = [];
-    // The cited path and lines of each anchor, in anchor order.
-    const cites: { path: string; lines: [number, number] }[] = [];
+    // Each citation's path and lines, and the index of the anchor on its first block.
+    const cites: { path: string; lines: [number, number]; index: number }[] = [];
     const add = (citation: { file: string; lines: [number, number] }, role: Anchor['role']) => {
       const target = corpusPath(citation.file);
       // A citation of a file outside the rendered documents stays text in the context.
@@ -97,8 +99,12 @@ export function questionThreads(questions: ListedQuestion[], options: {
         return;
       }
       if (cites.some(cite => cite.path === target && cite.lines[0] === citation.lines[0] && cite.lines[1] === citation.lines[1])) return;
-      anchors.push(anchorAt(options.view, target, citation.lines, role));
-      cites.push({ path: target, lines: citation.lines });
+      // A block that an earlier citation already anchors keeps that one anchor.
+      const indexes = anchorsAt(options.view, target, citation.lines, role).map(anchor => {
+        const known = anchors.findIndex(other => other.path === anchor.path && other.block === anchor.block);
+        return known >= 0 ? known : anchors.push(anchor) - 1;
+      });
+      cites.push({ path: target, lines: citation.lines, index: indexes[0]! });
     };
     const rendered = (item: { file: string }) => options.view.documents.some(document => document.path === corpusPath(item.file));
     const main = question.main ?? question.citations.find(item => rendered(item) && !options.settled.includes(corpusPath(item.file))) ?? question.citations.find(rendered);
@@ -109,8 +115,8 @@ export function questionThreads(questions: ListedQuestion[], options: {
       if (/^[a-z][a-z0-9+.-]*:/i.test(target)) return link;
       const file = corpusPath(path.resolve(options.base, decodeURIComponent(target.split('#')[0]!)));
       const first = spans(lines)[0]!;
-      const index = cites.findIndex(cite => cite.path === file && cite.lines[0] === first[0] && cite.lines[1] === first[1]);
-      return index < 0 ? `\`${name}:${lines}\`` : `[${name}:${lines}](#md-collab-anchor-${index})`;
+      const index = cites.find(cite => cite.path === file && cite.lines[0] === first[0] && cite.lines[1] === first[1])?.index;
+      return index === undefined ? `\`${name}:${lines}\`` : `[${name}:${lines}](#md-collab-anchor-${index})`;
     }).replace(/\[([^\]]+)\]\((?![a-z][a-z0-9+.-]*:|#)[^)\s]+\)/gi, '$1');
     return {
       id: `${options.idPrefix ?? 'q'}${String(question.number).padStart(2, '0')}-${slug(question.title)}`,

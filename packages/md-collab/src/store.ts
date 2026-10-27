@@ -1,4 +1,5 @@
-// The file store: <store>/<collection>/collection.yaml and <store>/<collection>/threads/<id>.md.
+// The file store: <store>/<collection>/collection.yaml, <store>/<collection>/threads/<id>.md and the
+// write-once document snapshots that anchors name, <store>/<collection>/versions/<path>~<sha256>.json.
 // Every write holds the collection's lock file, so one process at a time reads, checks and writes.
 import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -8,6 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { parseThread, serializeThread, threadStatus, type Anchor, type Entry, type Thread } from './thread.js';
+import { parseSnapshot, snapshotFile, type Snapshot, type SnapshotBlock } from './versions.js';
 
 /** A collection's settings: its title and the specification chapters that hold settled decisions. */
 export interface Collection { name: string; title: string; settled: string[] }
@@ -63,6 +65,9 @@ export class FileStore {
   private directory(collection: string): string {
     if (!collectionName.test(collection)) throw new Error(`Invalid collection name: ${collection}`);
     return path.join(this.root, collection);
+  }
+  private snapshotPath(collection: string, documentPath: string, hash: string): string {
+    return path.join(this.directory(collection), 'versions', snapshotFile(documentPath, hash));
   }
   private file(collection: string, id: string): string {
     if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) throw new Error(`Invalid thread id: ${id}`);
@@ -165,16 +170,17 @@ export class FileStore {
   }
 
   /** Writes one new thread; see createAll. */
-  async create(collection: string, thread: Thread): Promise<StoredThread> {
-    return (await this.createAll(collection, [thread]))[0]!;
+  async create(collection: string, thread: Thread, snapshots: Snapshot[] = []): Promise<StoredThread> {
+    return (await this.createAll(collection, [thread], snapshots))[0]!;
   }
 
   /**
    * Writes new threads. Refuses the whole batch, before writing any, when an id exists or repeats
    * or a question number is already used in the collection or in the batch. Only a batch with
    * question numbers reads the other threads; ids are checked against the files they would become.
+   * `snapshots` holds the snapshots the threads' anchors name that the store may not have yet.
    */
-  async createAll(collection: string, threads: Thread[]): Promise<StoredThread[]> {
+  async createAll(collection: string, threads: Thread[], snapshots: Snapshot[] = []): Promise<StoredThread[]> {
     const texts = threads.map(serializeThread);
     return this.locked(collection, async () => {
       const numbers = new Map<number, string>();
@@ -191,6 +197,7 @@ export class FileStore {
         if (other) throw new Error(`Question number ${thread.number} is used by both ${other} and ${thread.id}; nothing was written`);
         numbers.set(thread.number, thread.id);
       }
+      await this.writeSnapshots(collection, threads.flatMap(thread => thread.anchors), snapshots);
       await mkdir(path.join(this.directory(collection), 'threads'), { recursive: true });
       for (const [index, thread] of threads.entries()) await publish(this.file(collection, thread.id), texts[index]!);
       return threads.map((thread, index) => ({ thread, version: version(texts[index]!) }));
@@ -199,9 +206,10 @@ export class FileStore {
 
   /**
    * Appends one entry, refusing when the file is no longer at `expected`. A `kept-open` entry also
-   * replaces the thread's anchors with `anchors`, which name the blocks the reader kept it on.
+   * replaces the thread's anchors with `anchors`, which name the blocks the reader kept it on, in
+   * the snapshots `snapshots` holds or the store has.
    */
-  async append(collection: string, id: string, entry: Entry, expected?: string, anchors?: Anchor[]): Promise<StoredThread> {
+  async append(collection: string, id: string, entry: Entry, expected?: string, anchors?: Anchor[], snapshots: Snapshot[] = []): Promise<StoredThread> {
     return this.locked(collection, async () => {
       const current = await this.read(collection, id);
       if (expected !== undefined && current.version !== expected) throw new ConflictError(id);
@@ -209,6 +217,7 @@ export class FileStore {
       const next: Thread = { ...current.thread, entries: [...current.thread.entries, entry], ...(anchors ? { anchors } : {}) };
       if (entry.kind === 'settled' && entry.settledAs) next.settledAs = entry.settledAs;
       const text = serializeThread(next);
+      if (anchors) await this.writeSnapshots(collection, anchors, snapshots);
       const file = this.file(collection, id);
       // Write beside the file, then rename: readers never see half a file.
       const draft = temporary(file);
@@ -218,6 +227,42 @@ export class FileStore {
       } finally { await rm(draft, { force: true }); }
       return { thread: next, version: version(text) };
     });
+  }
+
+  /**
+   * Under the lock: refuses, before writing any, an anchor whose snapshot is neither in `snapshots`
+   * nor in the store, then publishes each snapshot an anchor names. A snapshot is written once and
+   * never changed: one that is already there with the same content counts as written.
+   */
+  private async writeSnapshots(collection: string, anchors: Anchor[], snapshots: Snapshot[]): Promise<void> {
+    const named = new Map<string, Snapshot>();
+    for (const anchor of anchors) {
+      const file = this.snapshotPath(collection, anchor.path, anchor.snapshot);
+      const given = snapshots.find(snapshot => snapshot.path === anchor.path && snapshot.hash === anchor.snapshot);
+      if (given) { named.set(file, given); continue; }
+      const exists = await access(file).then(() => true, error => code(error) === 'ENOENT' ? false : Promise.reject(error));
+      if (!exists) throw new Error(`The anchor on ${anchor.path} names snapshot ${anchor.snapshot}, which is not in ${collection}; nothing was written`);
+    }
+    if (!named.size) return;
+    await mkdir(path.join(this.directory(collection), 'versions'), { recursive: true });
+    for (const [file, snapshot] of named) {
+      parseSnapshot(snapshot.content, snapshot.hash);
+      try { await publish(file, snapshot.content); }
+      catch (error) {
+        if (code(error) !== 'EEXIST') throw error;
+        if (await readFile(file, 'utf8') !== snapshot.content) throw new Error(`${file} holds other content than its name says; restore it from the store's git checkout`);
+      }
+    }
+  }
+
+  /** The blocks of the snapshot an anchor names; a missing or damaged file is refused with its path. */
+  async snapshot(collection: string, documentPath: string, hash: string): Promise<SnapshotBlock[]> {
+    const file = this.snapshotPath(collection, documentPath, hash);
+    try { return parseSnapshot(await readFile(file, 'utf8'), hash); }
+    catch (error) {
+      const reason = code(error) === 'ENOENT' ? 'it is missing' : (error as Error).message;
+      throw new Error(`The snapshot of ${documentPath} this passage was written on, versions/${snapshotFile(documentPath, hash)}, cannot be read: ${reason}`, { cause: error });
+    }
   }
 }
 

@@ -68,7 +68,7 @@ let permanent = [], transient = [];
 function markDocument() {
   // Every mark is drawn again from the current threads, so a passage an anchor left keeps none.
   for (const { element, classes } of permanent) element.classList.remove(...classes);
-  document.querySelectorAll('[data-ov-items]').forEach(element => { element.classList.remove('ov-active', 'ov-done'); delete element.dataset.ovItems; });
+  document.querySelectorAll('[data-ov-items]').forEach(element => { element.classList.remove('ov-active', 'ov-done'); delete element.dataset.ovItems; delete element.dataset.ovMain; });
   document.querySelectorAll('.ov-tags').forEach(box => box.remove());
   permanent = [];
   for (const item of items) {
@@ -76,10 +76,13 @@ function markDocument() {
     const question = item.kind === 'question' && item.number != null && item.status !== 'settled';
     if (!question && item.kind !== 'comment') continue;
     for (const anchor of item.anchors) {
-      const classes = item.kind === 'comment' ? ['ov-cm'] : anchor.role === 'main' ? ['ov-hl'] : ['ov-hl2'];
+      // The main passage is highlighted; the other cited passages get a dotted underline and no fill.
+      const classes = anchor.role !== 'main' ? ['ov-hl2'] : item.kind === 'comment' ? ['ov-cm'] : ['ov-hl'];
+      const add = (list, id) => [...new Set([...(list || '').split(' ').filter(Boolean), id])].join(' ');
       for (const element of elementsOf(anchor)) {
         element.classList.add(...classes);
-        element.dataset.ovItems = [...new Set([...(element.dataset.ovItems || '').split(' ').filter(Boolean), item.id])].join(' ');
+        element.dataset.ovItems = add(element.dataset.ovItems, item.id);
+        if (anchor.role === 'main') element.dataset.ovMain = add(element.dataset.ovMain, item.id);
         permanent.push({ element, classes });
       }
       if (question && anchor.role === 'main') {
@@ -104,7 +107,8 @@ function refreshMarks() {
   const active = view === 'q' ? byNumber(openQ)?.id : openH;
   document.querySelectorAll('[data-ov-items]').forEach(element => {
     const ids = element.dataset.ovItems.split(' ');
-    element.classList.toggle('ov-active', !!active && ids.includes(active));
+    // Only the open thread's main passage is filled.
+    element.classList.toggle('ov-active', !!active && (element.dataset.ovMain || '').split(' ').includes(active));
     element.classList.toggle('ov-done', element.classList.contains('ov-hl') && ids.every(id => isDone(byId(id) ?? { status: 'open' })));
   });
   const perPage = {};
@@ -143,8 +147,31 @@ function wireLinks(root, item) {
 const isClosed = item => item.status === 'settled' || item.status === 'withdrawn';
 // A thread's passage that changed since it was written: "updated" shows the word changes, "removed" the old text.
 const changed = item => item.kind !== 'decision' && !isClosed(item) ? item.anchors.filter(anchor => anchor.state !== 'same') : [];
+// A thread's cited passages in order, main first; each card remembers which one the reader moved to.
+const passages = item => [...item.anchors.filter(anchor => anchor.role === 'main'), ...item.anchors.filter(anchor => anchor.role !== 'main')];
+const passageAt = new Map();
+function passageNav(item) {
+  const list = passages(item);
+  const nav = document.createElement('div'); nav.className = 'ov-pnav'; nav.setAttribute('role', 'group'); nav.setAttribute('aria-label', 'Cited passages');
+  nav.innerHTML = '<button class="ov-pbtn" aria-label="Previous passage">&lt;</button><span class="ov-pos" aria-live="polite"></span><button class="ov-pbtn" aria-label="Next passage">&gt;</button>';
+  const [previous, next] = nav.querySelectorAll('button');
+  const draw = () => {
+    const at = passageAt.get(item.id) ?? 0;
+    nav.querySelector('.ov-pos').textContent = `${at + 1} of ${list.length}`;
+    previous.disabled = at === 0; next.disabled = at === list.length - 1;
+  };
+  const move = step => {
+    const at = Math.min(list.length - 1, Math.max(0, (passageAt.get(item.id) ?? 0) + step));
+    passageAt.set(item.id, at); draw(); showAnchor(list[at]);
+  };
+  previous.addEventListener('click', () => move(-1));
+  next.addEventListener('click', () => move(1));
+  draw();
+  return nav;
+}
 function passageLinks(item) {
   const box = document.createElement('div'); box.className = 'ov-links';
+  if (item.kind !== 'decision' && item.anchors.length > 1) box.append(passageNav(item));
   for (const anchor of item.anchors) {
     const found = elementsOf(anchor).length > 0;
     const button = document.createElement('button');
@@ -166,8 +193,9 @@ function changeBox(item, flagged) {
   for (const anchor of flagged) {
     const part = document.createElement('div'); part.className = 'ov-was';
     part.innerHTML = anchor.state === 'updated'
-      ? '<b>Updated</b> since this was written: ' + anchor.diff.map(run => run.change === '=' ? esc(run.text) : `<${run.change === '-' ? 'del' : 'ins'}>${esc(run.text)}</${run.change === '-' ? 'del' : 'ins'}>`).join(' ')
-      : '<b>Removed</b>. It read: ' + esc(anchor.text);
+      // Runs keep their own spaces; a removed run directly followed by an added one gets a space between them.
+      ? '<b>Updated</b> since this was written: ' + anchor.diff.map((run, n) => (run.change === '+' && anchor.diff[n - 1]?.change === '-' ? ' ' : '') + (run.change === '=' ? esc(run.text) : `<${run.change === '-' ? 'del' : 'ins'}>${esc(run.text)}</${run.change === '-' ? 'del' : 'ins'}>`)).join('')
+      : anchor.problem ? '<b>Removed</b>. ' + esc(anchor.problem) : '<b>Removed</b>. It read: ' + esc(anchor.text);
     box.append(part);
   }
   const foot = document.createElement('div'); foot.className = 'ov-foot';
@@ -460,16 +488,28 @@ mdRender.onNavigate(() => { if (view === 'q' && filter === 'page') renderList();
 
 /* ---------- comments on selected text ---------- */
 let selection = null;
-// A comment names the block where the selection starts.
-function selectedBlock(range) {
-  const start = (range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement)?.closest('[data-block]');
+// A comment names every block the selection touches in the chapter where it starts; the server
+// keeps one anchor per cited block, the first as the main passage.
+function selectedBlocks(range) {
+  const start = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
   const chapter = start?.closest('.single-page');
-  return start && chapter ? { path: chapter.dataset.sourcePath, block: start.dataset.block } : null;
+  if (!chapter) return null;
+  // A block counts when the selection holds some of its text, so a selection that ends at the very
+  // start of the next paragraph, as a triple click does, does not name that paragraph.
+  const touches = element => {
+    if (!range.intersectsNode(element)) return false;
+    const part = document.createRange(); part.selectNodeContents(element);
+    if (range.compareBoundaryPoints(Range.START_TO_START, part) > 0) part.setStart(range.startContainer, range.startOffset);
+    if (range.compareBoundaryPoints(Range.END_TO_END, part) < 0) part.setEnd(range.endContainer, range.endOffset);
+    return part.toString().trim() !== '';
+  };
+  const blocks = [...chapter.querySelectorAll('[data-block]')].filter(touches).map(element => element.dataset.block);
+  return blocks.length ? { path: chapter.dataset.sourcePath, blocks } : null;
 }
 document.addEventListener('selectionchange', () => {
   const current = getSelection(), pop = $('#ov-sel');
   if (!current.rangeCount || current.isCollapsed || !$('#md-render-content')?.contains(current.anchorNode)) { pop.style.display = 'none'; return; }
-  const block = selectedBlock(current.getRangeAt(0));
+  const block = selectedBlocks(current.getRangeAt(0));
   if (!block) { pop.style.display = 'none'; return; }
   selection = block;
   const rect = current.getRangeAt(0).getBoundingClientRect();

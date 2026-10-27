@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json"
   },
   "dependencies": {
+    "diff": "9.0.0",
     "md-render": "workspace:*",
     "yaml": "2.9.1"
   },
