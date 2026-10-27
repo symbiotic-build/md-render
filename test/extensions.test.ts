@@ -237,15 +237,20 @@ async function singleFile(name: string, { input = source, mermaid = false, scrip
 it('lets an extension find blocks by source line and show them in the single page', async () => {
   const url = await singleFile('single.html');
   await withBrowser(async browser => {
+    await browser.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 400, deviceScaleFactor: 1, mobile: false });
     await browser.navigate(url);
     expect(await browser.evaluate(`({ version: mdRender.version, current: mdRender.currentDocument(), documents: mdRender.documents().map(d => d.path), frozen: Object.isFrozen(mdRender) })`))
       .toEqual({ version: 1, current: 'index.md', documents: ['index.md', 'nested/b.md', '_md-render/references/0/notes.txt.md'], frozen: true });
     expect(await browser.evaluate(`mdRender.blocks('index.md', 4, 8).map(e => e.tagName + ' ' + e.dataset.sourceLines)`)).toEqual(['P 3-4', 'H2 6-6', 'LI 8-8']);
     const shown = await browser.evaluate(`mdRender.show({ path: 'nested/b.md', block: mdRender.blocks('nested/b.md', 7, 7)[0].dataset.block }).then(e => ({ text: e.textContent, visible: e.checkVisibility(), current: mdRender.currentDocument(), navigations: window.navigations }))`);
     expect(shown).toEqual({ text: 'The limit is 4 MiB.', visible: true, current: 'nested/b.md', navigations: ['nested/b.md'] });
-    // Without a block, show opens the document itself.
-    expect(await browser.evaluate(`mdRender.show({ path: 'index.md' }).then(e => ({ heading: e.querySelector('h1').textContent, visible: e.checkVisibility(), current: mdRender.currentDocument() }))`))
-      .toEqual({ heading: 'Guide', visible: true, current: 'index.md' });
+    // Without a block, show puts the opening heading of a tall document in the viewport.
+    expect(await browser.evaluate(`mdRender.show({ path: 'index.md' }).then(e => {
+      const heading = e.querySelector('h1');
+      const bounds = heading.getBoundingClientRect();
+      return { heading: heading.textContent, tallerThanViewport: e.getBoundingClientRect().height > innerHeight,
+        headingInViewport: bounds.top >= 0 && bounds.bottom <= innerHeight, current: mdRender.currentDocument() };
+    })`)).toEqual({ heading: 'Guide', tallerThanViewport: true, headingInViewport: true, current: 'index.md' });
     expect(await browser.evaluate(`mdRender.show({ path: 'missing.md' })`)).toBeNull();
   });
 });
