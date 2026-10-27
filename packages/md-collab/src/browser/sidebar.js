@@ -346,11 +346,14 @@ function historyBody(item) {
 function fillFilters() {
   const topic = $('#ov-f-topic'), chapter = $('#ov-f-chapter');
   topic.length = 1; chapter.length = 1;
-  for (const t of [...new Set(items.map(item => item.topic).filter(Boolean))]) topic.append(new Option(`${t} (${items.filter(i => i.topic === t).length})`, t));
-  for (const d of mdRender.documents()) {
-    const n = items.filter(i => i.anchors.some(a => a.path === d.path)).length;
-    if (n) chapter.append(new Option(`${d.title} (${n})`, d.path));
+  // One pass counts each item once for its topic and once for each chapter it cites.
+  const topics = new Map(), chapters = new Map();
+  for (const item of items) {
+    if (item.topic) topics.set(item.topic, (topics.get(item.topic) ?? 0) + 1);
+    for (const file of new Set(item.anchors.map(a => a.path))) chapters.set(file, (chapters.get(file) ?? 0) + 1);
   }
+  for (const [t, n] of topics) topic.append(new Option(`${t} (${n})`, t));
+  for (const d of mdRender.documents()) if (chapters.has(d.path)) chapter.append(new Option(`${d.title} (${chapters.get(d.path)})`, d.path));
   topic.value = hf.topic; chapter.value = hf.chapter;
 }
 

@@ -1010,3 +1010,11 @@ it('says live updates are disconnected when the event stream fails, and saves an
     expect((await store.read('spec', 'q01-how-long-may-an-identifier-be')).thread.entries.map(entry => [entry.kind, entry.choice])).toEqual([['raised', undefined], ['answer', 1]]);
   });
 });
+
+it('counts each item once in the History filters for its topic and for each chapter it cites', async () => {
+  await sidebar('store-filters', async page => {
+    // The question cites the storage chapter twice and the decisions chapter once; the two settled decisions sit in the decisions chapter.
+    expect(await page.evaluate(`({ topics: [...document.getElementById('ov-f-topic').options].map(o => o.text), chapters: [...document.getElementById('ov-f-chapter').options].map(o => o.text) })`))
+      .toEqual({ topics: ['All topics', 'Limits (1)', 'Storage choices (2)'], chapters: ['All chapters', 'Decisions (3)', 'Storage (1)'] });
+  });
+});
