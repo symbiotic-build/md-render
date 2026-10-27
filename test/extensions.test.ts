@@ -241,17 +241,10 @@ it('lets an extension find blocks by source line and show them in the single pag
     expect(await browser.evaluate(`mdRender.blocks('index.md', 4, 8).map(e => e.tagName + ' ' + e.dataset.sourceLines)`)).toEqual(['P 3-4', 'H2 6-6', 'LI 8-8']);
     const shown = await browser.evaluate(`mdRender.show({ path: 'nested/b.md', block: mdRender.blocks('nested/b.md', 7, 7)[0].dataset.block }).then(e => ({ text: e.textContent, visible: e.checkVisibility(), current: mdRender.currentDocument(), navigations: window.navigations }))`);
     expect(shown).toEqual({ text: 'The limit is 4 MiB.', visible: true, current: 'nested/b.md', navigations: ['nested/b.md'] });
-    expect(await browser.evaluate(`mdRender.show({ path: 'nested/b.md', anchor: 'limits' }).then(e => e.textContent)`)).toBe('Limits and caps');
+    // Without a block, show opens the document itself.
+    expect(await browser.evaluate(`mdRender.show({ path: 'index.md' }).then(e => ({ heading: e.querySelector('h1').textContent, visible: e.checkVisibility(), current: mdRender.currentDocument() }))`))
+      .toEqual({ heading: 'Guide', visible: true, current: 'index.md' });
     expect(await browser.evaluate(`mdRender.show({ path: 'missing.md' })`)).toBeNull();
-  });
-});
-
-it('shows the passage that holds an anchor, or the heading after an anchor that stands alone', async () => {
-  const url = await singleFile('single-anchors.html', { input: anchors });
-  await withBrowser(async browser => {
-    await browser.navigate(url);
-    expect(await browser.evaluate(`Promise.all(['spot', 'marker', 'stacked'].map(anchor => mdRender.show({ path: 'index.md', anchor }).then(e => e.textContent.replace(/\\s+/g, ' '))))`))
-      .toEqual(['Before after.', 'Marked', 'Stacked']);
   });
 });
 
@@ -276,7 +269,7 @@ it('follows a link back to the previous chapter after show() opened another one'
   const url = await singleFile('single-return.html');
   await withBrowser(async browser => {
     await browser.navigate(url + '#page-0');
-    expect(await browser.evaluate(`mdRender.show({ path: 'nested/b.md', anchor: 'limits' }).then(() => mdRender.currentDocument())`)).toBe('nested/b.md');
+    expect(await browser.evaluate(`mdRender.show({ path: 'nested/b.md', block: mdRender.blocks('nested/b.md', 7, 7)[0].dataset.block }).then(() => mdRender.currentDocument())`)).toBe('nested/b.md');
     // A chapter link sets the hash; the page must route it even though that chapter was shown before.
     expect(await browser.evaluate(`new Promise(resolve => {
       addEventListener('hashchange', () => resolve(mdRender.currentDocument()), { once: true });

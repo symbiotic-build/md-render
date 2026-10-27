@@ -90,9 +90,9 @@ Names in this interface follow these conventions:
 - Extension names are lower kebab case and match `[a-z][a-z0-9-]*`.
 - HTML attributes and element IDs are lower kebab case and start with `data-` or `md-render-`. Examples are `data-block`, `data-source-lines`, `data-source-path`, `data-md-render-extension` and `md-render-extension-data-<name>`.
 
-Page scripts of a single page with extensions use the frozen global `mdRender`, version 1. `documents()` lists path and title, and `currentDocument()` names the shown document. `blocks(path, first, last)` and `block(path, id)` return shown elements. `show({ path, block?, anchor? })` opens a document of the page and scrolls to the target, resolving to the element or null.
+Page scripts of a single page with extensions use the frozen global `mdRender`, version 1. `documents()` lists path and title, and `currentDocument()` names the shown document. `blocks(path, first, last)` and `block(path, id)` return shown elements. `show({ path, block? })` opens a document of the page and scrolls to the block with that ID, or to the document's top without one. It resolves to the shown element, or to null when the page has no such document or block.
 
-An anchor's target is the block that holds it. An anchor alone in its paragraph, or outside every block, targets the element after it, such as the heading it names. `show` opens every closed disclosure around the target, such as the source of a drawn diagram. It also sets the fragment to that chapter. `onNavigate(listener)` reports the shown document after it changes, and `extensionData(name)` returns an extension's data.
+`show` opens every closed disclosure around the target, such as the source of a drawn diagram. It also sets the fragment to that chapter. `onNavigate(listener)` reports the shown document after it changes, and `extensionData(name)` returns an extension's data.
 
 <a id="selector-reference"></a>
 ## Selector execution
