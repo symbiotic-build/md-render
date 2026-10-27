@@ -273,7 +273,7 @@ function renderQuestions(list) {
     card.querySelector('.ov-qh').addEventListener('click', () => openQuestion(open ? null : item.number, true));
     card.querySelector('.ov-ctx').after(passageLinks(item));
     wireLinks(card.querySelector('.ov-ctx'), item);
-    const note = card.querySelector('textarea'); note.value = drafts.get(note.id) ?? answer?.note ?? '';
+    const note = card.querySelector('textarea[id="ov-note-' + item.number + '"]'); note.value = drafts.get(note.id) ?? answer?.note ?? '';
     for (const option of item.options) {
       const button = document.createElement('button');
       button.className = 'ov-opt'; button.setAttribute('aria-pressed', answer?.choice === option.n);

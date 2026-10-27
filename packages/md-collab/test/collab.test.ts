@@ -1013,6 +1013,32 @@ it('shows a commented passage that was removed with its old text, and records a 
   }, path.join(copy, 'docs'));
 });
 
+it('saves the answer note separately from the agent note when a question passage was removed', async () => {
+  const copy = path.join(root, 'repo-answer-removed');
+  await cp(docs, copy, { recursive: true });
+  await writeFile(path.join(copy, 'docs/storage.md'), spec.replace('Identifiers may be long.\n', ''));
+  await sidebar('store-answer-removed', async (page, store) => {
+    await page.evaluate(`(() => {
+      document.querySelector('#ov-card-1 .ov-qh').click();
+      document.querySelector('#ov-card-1 .ov-change textarea').value = 'For the agent only.';
+      document.querySelector('#ov-card-1 textarea[id="ov-note-1"]').value = 'My answer note.';
+      document.querySelector('#ov-card-1 .ov-opt').click();
+    })()`);
+    await until(page, `document.querySelector('#ov-card-1 .ov-saved')?.textContent.startsWith('Saved')`);
+    expect((await store.read('spec', 'q01-how-long-may-an-identifier-be')).thread.entries.at(-1))
+      .toEqual({ at: expect.any(String), actor: 'person:operator', kind: 'answer', choice: 1, note: 'My answer note.' });
+    await page.evaluate(`(() => {
+      document.querySelector('#ov-card-1 textarea[id="ov-note-1"]').value = 'My revised answer note.';
+      document.querySelector('#ov-card-1 .ov-save').click();
+    })()`);
+    await until(page, `document.querySelector('#ov-card-1 textarea[id="ov-note-1"]').value === 'My revised answer note.' && document.querySelector('#ov-card-1 .ov-sum').textContent.includes('note')`);
+    for (const deadline = Date.now() + 5000; (await store.read('spec', 'q01-how-long-may-an-identifier-be')).thread.entries.length < 3; await delay(50)) {
+      if (Date.now() > deadline) throw new Error('Save note wrote no answer');
+    }
+    expect((await store.read('spec', 'q01-how-long-may-an-identifier-be')).thread.entries.at(-1)?.note).toBe('My revised answer note.');
+  }, path.join(copy, 'docs'));
+});
+
 it('redraws the list without a question removed while the reader typed when the reader opens its card', async () => {
   await sidebar('store-removed-question', async (page, store) => {
     await store.create('spec', { ...imported()[0]!, id: 'q02-second-question', title: 'Second question', number: 2 }, known());
