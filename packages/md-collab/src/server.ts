@@ -151,6 +151,9 @@ export async function serve(options: ServeOptions): Promise<Session> {
     if (request.method !== 'POST') return send(response, 404, { error: 'Not found' });
     if (request.headers.origin !== `http://${host}`) return send(response, 403, { error: 'Writes are accepted only from the md-collab page' });
     const body = await readJson(request);
+    // A write that names passages is checked and saved against one render: the one the page shows.
+    const current = snapshot;
+    const stale = () => send(response, 409, { error: 'The documents changed since this page was loaded; reload the page and try again' });
     const at = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
     const entryMatch = /^\/api\/threads\/([a-z0-9][a-z0-9-]*)\/entries$/.exec(url.pathname);
     if (entryMatch) {
@@ -160,22 +163,24 @@ export async function serve(options: ServeOptions): Promise<Session> {
       if (body.choice !== undefined && body.choice !== null) entry.choice = Number(body.choice);
       if (kind === 'answer' && entry.choice === undefined && !entry.note) return send(response, 400, { error: 'An answer needs a choice or a note' });
       const version = typeof body.version === 'string' ? body.version : undefined;
+      if (kind === 'kept-open' && body.generation !== current.generation) return stale();
       // Keeping a thread open on its updated passages moves each updated anchor to its block as it reads now.
       const anchors = kind === 'kept-open' ? (await store.read(collection.name, entryMatch[1]!)).thread.anchors.map(anchor => {
-        const { state, block } = resolveAnchor(anchor, snapshot.view);
-        return state === 'updated' ? blockAnchor(snapshot.view, anchor.path, block!, anchor.role) : anchor;
+        const { state, block } = resolveAnchor(anchor, current.view);
+        return state === 'updated' ? blockAnchor(current.view, anchor.path, block!, anchor.role) : anchor;
       }) : undefined;
       const saved = await store.append(collection.name, entryMatch[1]!, entry, version, anchors);
       return send(response, 200, { id: saved.thread.id, version: saved.version });
     }
     if (url.pathname === '/api/comments') {
+      if (body.generation !== current.generation) return stale();
       const note = typeof body.note === 'string' ? body.note.trim() : '';
-      const block = snapshot.view.documents.find(document => document.path === body.path)?.blocks.find(item => item.id === body.block);
+      const block = current.view.documents.find(document => document.path === body.path)?.blocks.find(item => item.id === body.block);
       if (!note || !block) return send(response, 400, { error: 'A comment needs text and a selected passage in a rendered document' });
       const thread: Thread = {
         id: `c-${at.replace(/[^0-9]/g, '').slice(0, 14)}-${randomBytes(2).toString('hex')}`,
         kind: 'comment', title: note.split('\n')[0]!.slice(0, 80),
-        anchors: [blockAnchor(snapshot.view, String(body.path), block, 'main')],
+        anchors: [blockAnchor(current.view, String(body.path), block, 'main')],
         context: '', options: [], entries: [{ at, actor: options.person, kind: 'comment', note }],
       };
       const saved = await store.create(collection.name, thread);

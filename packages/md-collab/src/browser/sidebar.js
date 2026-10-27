@@ -187,8 +187,9 @@ function changeBox(item, flagged) {
 }
 
 /* ---------- writes ---------- */
+// Every write names the render the page shows, so the server refuses one that names passages of an older render.
 async function post(url, body) {
-  const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ ...body, generation: mdRender.extensionData('md-collab')?.generation }) });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw Object.assign(new Error(result.error || `Saving failed (${response.status})`), { status: response.status });
   return result;

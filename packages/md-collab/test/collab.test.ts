@@ -454,7 +454,7 @@ it('serves the page only under its own host and accepts writes only from its own
     await store.append('spec', created.thread.id, { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'comment', note: 'Seen?' });
     await heard(reader, 'event: changed');
     await reader.cancel();
-    const comment = await fetch(origin + '/api/comments', { method: 'POST', headers: { ...headers, origin }, body: JSON.stringify({ note: 'Is 4 MiB measured?', path: 'docs/storage.md', block: groupBlock() }) });
+    const comment = await fetch(origin + '/api/comments', { method: 'POST', headers: { ...headers, origin }, body: JSON.stringify({ generation: state.generation, note: 'Is 4 MiB measured?', path: 'docs/storage.md', block: groupBlock() }) });
     expect(comment.status).toBe(200);
     const after = await (await fetch(origin + '/api/state', { headers })).json();
     expect(after.threads.map((item: { kind: string; status: string }) => [item.kind, item.status])).toEqual([['comment', 'open'], ['question', 'answered']]);
@@ -498,6 +498,27 @@ it.each([
     await heard(reader, `event: ${event}`, 5000);
     const shown = event === 'reload' ? await (await fetch(session.url)).text() : JSON.stringify(await (await fetch(session.url + 'api/state')).json());
     expect(shown.includes(text)).toBe(true);
+  });
+});
+
+it('refuses a comment or a kept-open choice from a page of an older render, and saves a comment from the current page', async () => {
+  await connected('stale-comment', async (copy, store, reader, session) => {
+    const state = async () => (await fetch(session.url + 'api/state')).json() as Promise<{ generation: string }>;
+    const comment = (generation: string) => fetch(session.url + 'api/comments', {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: new URL(session.url).origin },
+      body: JSON.stringify({ generation, note: 'Is 4 MiB measured?', path: 'docs/storage.md', block: groupBlock() }),
+    });
+    const old = (await state()).generation;
+    await writeFile(path.join(copy, 'docs/storage.md'), spec.replace('Identifiers may be long.', 'Identifiers are short.'));
+    await heard(reader, 'event: reload', 5000);
+    const keptOpen = await fetch(session.url + 'api/threads/q01-identifier-length/entries', {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: new URL(session.url).origin }, body: JSON.stringify({ generation: old, kind: 'kept-open', note: '' }),
+    });
+    const stale = await comment(old);
+    const refused = { error: 'The documents changed since this page was loaded; reload the page and try again' };
+    expect([keptOpen.status, await keptOpen.json(), stale.status, await stale.json()]).toEqual([409, refused, 409, refused]);
+    expect((await comment((await state()).generation)).status).toBe(200);
+    expect((await store.list('spec')).map(({ thread }) => thread.kind)).toEqual(['comment', 'question']);
   });
 });
 
