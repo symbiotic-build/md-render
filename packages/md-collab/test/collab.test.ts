@@ -818,6 +818,30 @@ async function sidebar(name: string, work: (page: BrowserSession, store: FileSto
   } finally { await session.close(); }
 }
 
+it('omits a withdrawn numbered question from Questions for you and offers no answer button in its History row', async () => {
+  await sidebar('store-withdrawn-question', async (page, store) => {
+    await store.create('spec', {
+      ...imported()[0]!, id: 'q02-withdrawn', title: 'Withdrawn question', number: 2,
+      entries: [
+        { at: '2026-10-24T12:00:00Z', actor: 'agent:test/1', kind: 'raised', note: '' },
+        { at: '2026-10-24T13:00:00Z', actor: 'agent:test/1', kind: 'withdrawn', note: 'No longer needed.' },
+      ],
+    }, known());
+    await until(page, `document.getElementById('ov-v-hn').textContent === '4'`);
+    expect(await page.evaluate(`({ count: document.getElementById('ov-count').textContent,
+      withdrawn: document.getElementById('ov-card-2')?.checkVisibility() ?? false,
+      open: document.getElementById('ov-card-1')?.checkVisibility() ?? false })`))
+      .toEqual({ count: '0 / 1 answered', withdrawn: false, open: true });
+    await clickControl(page, '#ov-v-h');
+    await clickControl(page, '#ov-h-q02-withdrawn .ov-hh');
+    expect(await page.evaluate(`(() => {
+      const row = document.getElementById('ov-h-q02-withdrawn');
+      return { visible: row.checkVisibility(), status: row.querySelector('[aria-label="withdrawn"]')?.getAttribute('aria-label'),
+        answers: [...row.querySelectorAll('button')].filter(button => ['Answer this question', 'Change answer'].includes(button.innerText.trim())).map(button => button.innerText.trim()) };
+    })()`)).toEqual({ visible: true, status: 'withdrawn', answers: [] });
+  });
+});
+
 it("shows the sidebar in a real browser and adds an agent's new thread without a reload", async () => {
   await sidebar('store-c', async (page, store) => {
     // The question's tag sits on its main passage, in the storage chapter.

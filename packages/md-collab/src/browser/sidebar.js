@@ -69,7 +69,7 @@ const day = at => at ? at.slice(0, 10) : null;
 const fmtDay = d => d ? new Date(d + 'T12:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date not recorded';
 const lastAnswer = item => item.entries.filter(entry => entry.kind === 'answer').pop();
 const isDone = item => item.status === 'answered' || item.status === 'settled';
-const questions = () => items.filter(item => item.kind === 'question' && item.number != null).sort((a, b) => a.number - b.number);
+const questions = () => items.filter(item => item.kind === 'question' && item.number != null && item.status !== 'withdrawn').sort((a, b) => a.number - b.number);
 const byId = id => items.find(item => item.id === id);
 const byNumber = n => items.find(item => item.number === n);
 const WHO = { operator: 'You', lead: 'Lead', measurement: 'Measure' };
@@ -367,7 +367,7 @@ function historyBody(item) {
   const body = document.createElement('div'); body.className = 'ov-hbody';
   body.innerHTML = `<p class="ov-line">${statusLine(item)}</p>`;
   body.append(passageLinks(item));
-  if (item.kind === 'question' && item.number != null && item.status !== 'settled') {
+  if (item.kind === 'question' && item.number != null && item.status !== 'settled' && item.status !== 'withdrawn') {
     const go = document.createElement('button'); go.className = 'ov-btn ov-goto'; go.textContent = isDone(item) ? 'Change answer' : 'Answer this question';
     go.addEventListener('click', () => { setView('q'); openQuestion(item.number, true); });
     body.append(go);
