@@ -525,7 +525,17 @@ function selectedBlocks(range) {
     if (range.compareBoundaryPoints(Range.END_TO_END, part) < 0) part.setEnd(range.endContainer, range.endOffset);
     return part.toString().trim() !== '';
   };
-  const blocks = [...chapter.querySelectorAll('[data-block]')].filter(touches).map(element => element.dataset.block);
+  const selected = new Set();
+  const nodes = document.createTreeWalker(chapter, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = nodes.nextNode())) {
+    if (!touches(node)) continue;
+    const block = node.parentElement?.closest('[data-block]');
+    if (block) selected.add(block);
+  }
+  const blocks = [...selected]
+    .sort((a, b) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1)
+    .map(element => element.dataset.block);
   return blocks.length ? { path: chapter.dataset.sourcePath, blocks } : null;
 }
 document.addEventListener('selectionchange', () => {
